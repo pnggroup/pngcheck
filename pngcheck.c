@@ -94,17 +94,19 @@
  * 98.06.11 GRR: extended MNG (more FRAM info; LOOP, ENDL)
  * 98.06.12 GRR: extended MNG (FRAM, BACK, MOVE, CLON, SHOW, CLIP, fPRI, eXPI)
  * 98.06.16 GRR: extended MNG (PROM, SAVE, SEEK)
+ * 98.07.02 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
+ *               updated SAVE for MNG Draft 43
  *
  * [to do:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
  * [to do:  EBCDIC support (minimal?)]
  * [to do:  fix or disable compression ratio for MNG streams]
  * [to do:  split out each chunk's code into handle_XXXX() function]
  *
- * MNG Draft 42:
+ * MNG Draft 43:
  *  - PROM:  cannot promote bit depth without promoting color type?
  *           (else "cases" incomplete)
- *  - SAVE:  why entry_type doesn't start at 0?
  *  - SEEK:  why is null byte allowed?
+ *  - SHOW:  show_mode=7: missing end quote: "do_not_show=1.
  */
 
 /*
@@ -115,9 +117,12 @@
  * Compilation example (GNU C, command line; second example assumes libz.a or
  * libz.so is in the normal search path--add "-L/your/path" if elsewhere):
  *
- *    without zlib:       gcc -O -o pngcheck pngcheck.c
- *    with zlib support:  gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
- *    or (static zlib):   gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c /path/libz.a
+ *    without zlib:
+ *       gcc -O -o pngcheck pngcheck.c
+ *    with zlib support:
+ *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -lz
+ *    or (static zlib):
+ *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * zlib info can be found at:  http://www.cdrom.com/pub/infozip/zlib/
  * PNG info can be found at:   http://www.cdrom.com/pub/png/
@@ -125,7 +130,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr7 of 16 June 1998"
+#define VERSION "1.98-grr8 of 2 July 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,11 +140,8 @@
 #include <string.h>
 #include <ctype.h>
 #ifdef USE_ZLIB
-#  include <zlib.h>
+#  include "zlib.h"
 #endif
-
-#define DO_PNG  0
-#define DO_MNG  1
 
 int PNG_MNG_check_magic(unsigned char *magic, char *fname, int which);
 int PNG_check_chunk_name(char *chunk_name, char *fname);
@@ -161,6 +163,10 @@ typedef unsigned short ush;
 typedef unsigned long  ulg;
 #define SH(p) ((ush)(uch)((p)[1]) | ((ush)(uch)((p)[0]) << 8))
 #define LG(p) ((ulg)(SH((p)+2)) | ((ulg)(SH(p)) << 16))
+
+/* for PNG_MNG_check_magic(): */
+#define DO_PNG  0
+#define DO_MNG  1
 
 #define set_err(x) error = error < (x) ? (x) : error
 #define is_err(x)  ((error > (x) || (!force && error == (x))) ? 1 : 0)
@@ -849,7 +855,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         static long cur_width, cur_linebytes;
         static long numfilt, numfilt_this_block, numfilt_total;
         unsigned char *eod;
-        int err=Z_OK, need_space;
+        int err=Z_OK;
 
         zstrm.next_in = buffer;
         zstrm.avail_in = toread;
@@ -897,13 +903,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
         printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth):\n"
           "     ");
-        need_space = 0;
         numfilt_this_block = 0L;
 
-        while (err != Z_STREAM_END && (zstrm.avail_in > 0 || need_space)) {
+        while (err != Z_STREAM_END && zstrm.avail_in > 0) {
           /* know zstrm.avail_out > 0:  get some image/filter data */
           err = inflate(&zstrm, Z_PARTIAL_FLUSH);
           if (err != Z_OK && err != Z_STREAM_END) {
+            fflush(stdout);
             fprintf(stderr, "\n    zlib:  inflate (first loop) error = %d\n",
               err);
             fflush(stderr);
@@ -912,7 +918,6 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
 
           /* now have uncompressed, filtered image data in outbuf */
-          need_space = (zstrm.avail_out == 0);
           eod = outbuf + BS - zstrm.avail_out;
           while (p < eod) {
             printf(" %1d", (int)p[0]);
@@ -1660,11 +1665,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("%s  incorrect %soffset size (%u bytes)\n",
             verbose? ":":fname, verbose? "":"SAVE ", (unsigned)offsize);
           set_err(1);
-        } else if (sz == 1) {
-          printf("%s  incorrect %slength\n",
-            verbose? ":":fname, verbose? "":"SAVE ");
-          set_err(1);
-        } else {
+        } else if (sz > 1) {
           uch *p = buffer+1;
           int bytes_left = sz-1;
 
@@ -1672,7 +1673,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           while (bytes_left > 0) {
             uch type = *p;
 
-            if (type == 1 && bytes_left < 1+offsize) {
+            if ((type == 0 && bytes_left < 5+2*offsize) ||
+                (type == 1 && bytes_left < 1+offsize)) {
               printf("%s  incorrect %slength\n",
                 verbose? ":":fname, verbose? "":"SAVE ");
               set_err(1);
@@ -1680,20 +1682,29 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             }
             printf("    entry type = %s", (type <
               sizeof(entry_type)/sizeof(char *))? entry_type[type] : inv);
-            if (type == 1) {
-              ulg first4 = LG(p+1);
+            ++p;
+            if (type <= 1) {
+              ulg first4 = LG(p);
 
               printf(", offset = ");
               if ((offsize == 4 && first4 == 0L) ||
-                  (offsize == 8 && first4 == 0L && LG(p+5) == 0L))
+                  (offsize == 8 && first4 == 0L && LG(p+4) == 0L))
                 printf("unknown\n");
               else if (offsize == 4)
                 printf("0x%04lx\n", first4);
               else
-                printf("0x%04lx%04lx\n", first4, LG(p+5));  /* big-endian */
+                printf("0x%04lx%04lx\n", first4, LG(p+4));  /* big-endian */
+              p += offsize;
+              if (type == 0) {
+                printf("    nominal start time = 0x%04lx", LG(p));
+                if (offsize == 8)
+                  printf("%04lx", LG(p+4));
+                p += offsize;
+                printf(" , nominal frame number = %lu\n", LG(p));
+                p += 4;
+              }
             } else
               printf("\n");
-            p += 1 + offsize;
             bytes_left = sz - (p-buffer);
             if (bytes_left) {
               do {
@@ -2295,7 +2306,7 @@ usage:
       fprintf(stderr, "   -f  force continuation even after major errors\n");
       fprintf(stderr, "   -s  search for PNGs within another file\n");
       fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
-      fprintf(stderr, "\nNote:  MNG support is incomplete.  Based on MNG Draft 42.\n");
+      fprintf(stderr, "\nNote:  MNG support is incomplete.  Based on MNG Draft 43.\n");
     } else {
       if (search)
         pngsearch(stdin, "stdin", extract);
