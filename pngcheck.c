@@ -8,9 +8,9 @@
  * written by Alexander Lehmann <alex@hal.rhein-main.de>
  *
  *
- * 95.02.23 fixed wrong magic numbers
+ * 23.02.95 fixed wrong magic numbers
  *
- * 95.03.13 crc code from png spec, compiles on memory impaired PCs now,
+ * 13.03.95 crc code from png spec, compiles on memory impaired PCs now,
  *          check for IHDR/IEND chunks
  *
  */
@@ -158,7 +158,7 @@ void pngcheck(FILE *fp, char *_fname)
     }
     first=0;
 
-    crc=update_crc(0xffffffff,magic,4);
+    crc=update_crc(0xffffffff,(unsigned char *)magic,4);
 
     while(s>0) {
       toread=s;
@@ -169,10 +169,10 @@ void pngcheck(FILE *fp, char *_fname)
         printf("%s: EOF while reading chunk data (%s)\n", fname, magic);
 	return;
       }
-      crc=update_crc(crc,buffer, toread);
+      crc=update_crc(crc,(unsigned char *)buffer, toread);
       s-=toread;
     }
-    if(getlong(fp)!=~crc) {
+    if(getlong(fp)!=(~crc & 0xffffffff)) {
       printf("%s: CRC error in chunk %s\n", fname, magic);
       return;
     }
