@@ -8,7 +8,7 @@
  * chunks.
  *
  *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of February 2000)
+ *               (as of September 2000)
  *
  * ChangeLog:  see CHANGELOG file
  */
@@ -31,9 +31,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "1.99.3c of 2 September 2000"
-                /* GRR note to self:  incorporate modifications on Dell box */
-                /* GRR note to self:  oops, screwed now...test on porkrind */
+#define VERSION "1.99.3 of 2 September 2000"
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -41,8 +39,8 @@
  *
  * GRR to do:
  *   - update existing MNG support to Draft 70 (version 0.97) or later
- *   - add JNG restrictions to bKGD
  *   - MNG chunks:  PAST, DISC, tERm, DROP, DBYK, ORDR
+ *   - add JNG restrictions to bKGD
  *   - report illegal Macromedia Fireworks pRVW chunk?
  *   - add chunk-split option
  *       (pngcheck -c foo.png -> foo.000.sig, foo.001.IHDR, foo.002.PLTE, etc.)
