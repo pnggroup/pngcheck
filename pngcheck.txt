@@ -1,13 +1,46 @@
-This version of pngcheck has support for decoding and error checking most
-of the known chunk types, with the exception of IDAT and zTXt.  As well,
-it also checks for multiple blocks (for those types that are illegal to
-have duplicates of), and for correct chunk ordering.
+PNGcheck is a simple text only program to check the structure of a PNG file,
+and to decode the contents of standard PNG chunks to human readable form.
+It is totally self-contained, so it does not need any other libraries like
+libpng or zlib.  It does not need (or use) graphics capability, so it is
+ideal for checking a large number of images automatically.
 
-Ver 1.91 also checks for valid cHRM contents, as well as a few minor bug
-         fixes.
+Because it does not use the zlib compression library it can not check the
+contents of compressed chunks like IDAT or zTXt for correctness.  However,
+since PNG has checksums on a per-chunk basis, which PNGcheck uses, it is
+extremely unlikely that there is an error in one of these blocks that would
+go undetected.  However, it is therefore not possible to test for missing
+or extra image data, or for images incorrectly written by the encoder.
 
-Ver 1.92 fixes error in cHRM ordering relative to PLTE, also has a -q flag
-         to supress output of informational messages, but still prints out
-         error messages.
+Besides just checking that each chunk in a PNG file is not corrupted,
+PNGcheck also checks that the order of the chunks is in accordance with
+the PNG specification, and if there are duplicates of chunks of which
+there should be only one.
+
+PNGcheck can optinally output the contents of the chunks it understands
+(which is all of the chunks in the PNG specification).  Options are:
+
+   -v  test verbosely (output chunk name, location, and decode contents)
+   -q  test quietly (only output errors)
+   -t  print contents of tEXt chunks (can be used with -q)
+   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)
+   -f  force continuation even after errors
+
+Recent updates to the PNGcheck code:
+
+Ver 1.94  fixes fprintf syntax error (else fails to compile!)
+          fixes minor bug in multiple-tIME error message
+
+Ver 1.95  fixed two tRNS errors reported by someone from W3C (whose name
+          I currently don't remember) (complained about missing palette
+          in greyscale images, missing breaks in case statement)
+          avoid reference to undefined array entry with out of range ityp
+
+Ver 1.96  removed extra linefeed from cHRM chunk when not in verbose mode
+          added test to see if sBIT contents are valid
+          added test for zero image width or height in IHDR
+          added test for insufficient IDAT data (minimum 10 bytes)
 
 Andreas Dilger
+Alexander Lehmann
+Glenn Randers-Pehrson
+Greg Roelofs

@@ -1,16 +1,18 @@
 /*
- * authenticate a PNG file (as per draft 0.92)
+ * authenticate a PNG file
  *
  * this program checks the PNG identifier with conversion checks,
- * the file structure and the chunk CRCs.
+ * the file structure and the chunk CRCs. In addition, relations and contents
+ * of most defined chunks are checked, except for decompression of the IDAT
+ * chunks.
+ *
+ * started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
+ * extended by people as listed below.
  *
  *
- * written by Alexander Lehmann <alex@hal.rhein-main.de>
+ * 95.02.23 AL: fixed wrong magic numbers
  *
- *
- * 95.02.23 fixed wrong magic numbers
- *
- * 95.03.13 crc code from png spec, compiles on memory impaired PCs now,
+ * 95.03.13 AL: crc code from png spec, compiles on memory impaired PCs now,
  *          check for IHDR/IEND chunks
  *
  * 95.03.25 glennrp rewrote magic number checking and moved it to
@@ -46,9 +48,19 @@
  *               changed tIME output to be in RFC 1123 format
  *
  * 96.05.17 GRR: fixed obvious(?) fprintf error; fixed multiple-tIME error msg
+ *
+ * 96.05.21 AL: fixed two tRNS errors reported by someone from W3C (whose name
+ *              I currently don't remember) (complained about missing palette
+ *              in greyscale images, missing breaks in case statement)
+ *              avoid reference to undefined array entry with out of range ityp
+ *
+ * 96.06.05 AED: removed extra linefeed from cHRM output when not verbose
+ *               added test to see if sBIT contents are valid
+ *               added test for zero width or height in IHDR
+ *               added test for insufficient IDAT data (minimum 10 bytes)
  */
 
-#define VERSION "1.94 of 17 May 1996"
+#define VERSION "1.96 of 5 June 1996"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,14 +70,14 @@
 #include <string.h>
 #include <ctype.h>
 
-int PNG_check_magic(unsigned char *magic);
-int PNG_check_chunk_name(char *chunk_name);
+int PNG_check_magic(unsigned char *magic, char *fname);
+int PNG_check_chunk_name(char *chunk_name, char *fname);
 void make_crc_table(void);
 unsigned long update_crc(unsigned long crc, unsigned char *buf, int len);
-unsigned long getlong(FILE *fp);
-void init_printbuffer(void);
+unsigned long getlong(FILE *fp, char *fname);
+void init_printbuffer(char *fname);
 void printbuffer(char *buffer, int size, int printtext);
-void finish_printbuffer(void);
+void finish_printbuffer(char *fname);
 int keywordlen(char *buffer, int maxsize);
 char *getmonth(int m);
 void pngcheck(FILE *fp, char *_fname);
@@ -85,7 +97,6 @@ int printtext; /* print tEXt chunks */
 int sevenbit; /* escape characters >=160 */
 int error; /* an error already occured, but we are continueing */
 int force; /* continue even if a really bad error occurs (CRC error, etc) */
-char *fname;
 unsigned char buffer[BS];
 
 /* table of crc's of all 8-bit messages */
@@ -135,7 +146,7 @@ unsigned long update_crc(unsigned long crc, unsigned char *buf, int len)
 #define CRCCOMPL(c) ((c)^0xffffffff)
 #define CRCINIT (CRCCOMPL(0))
 
-unsigned long getlong(FILE *fp)
+unsigned long getlong(FILE *fp, char *fname)
 {
   unsigned long res=0;
   int c;
@@ -163,7 +174,7 @@ int nul;
 int control;
 int esc;
 
-void init_printbuffer(void)
+void init_printbuffer(char *fname)
 {
   cr=0;
   lf=0;
@@ -199,7 +210,7 @@ void printbuffer(char *buffer, int size, int printtext)
   }
 }
 
-void finish_printbuffer(void)
+void finish_printbuffer(char *fname)
 {
   if(cr)
     if(lf) {
@@ -241,7 +252,7 @@ char *getmonth(int m)
   else return month[m];
 }
 
-void pngcheck(FILE *fp, char *_fname)
+void pngcheck(FILE *fp, char *fname)
 {
   long s;
   unsigned char magic[8];
@@ -263,8 +274,6 @@ void pngcheck(FILE *fp, char *_fname)
   static char *type[] = {"grayscale", "undefined type", "RGB", "colormap",
                          "grayscale+alpha", "undefined type", "RGB+alpha"};
 
-  fname=_fname; /* make filename available to functions above */
-
   error = 0;
 
   if(verbose || printtext) {
@@ -278,7 +287,7 @@ void pngcheck(FILE *fp, char *_fname)
     return;
   }
 
-  if (PNG_check_magic(magic) != 0) {
+  if (PNG_check_magic(magic, fname) != 0) {
     /* maybe it's a MacBinary file */
 
     if(magic[0]==0 && magic[1]>0 && magic[1]<=64 && magic[2]!=0) {
@@ -286,7 +295,7 @@ void pngcheck(FILE *fp, char *_fname)
         printf("%s  (trying to skip MacBinary header)\n", verbose? "":fname);
       if(fread(buffer, 1, 120, fp)==120 &&
          fread(magic, 1, 8, fp)==8 &&
-         PNG_check_magic(magic) == 0) {
+         PNG_check_magic(magic, fname) == 0) {
         if (!quiet)
           printf("%s  this PNG seems to be contained in a MacBinary file\n",
                  verbose? "":fname);
@@ -308,7 +317,7 @@ void pngcheck(FILE *fp, char *_fname)
         return;
     }
 
-    s=getlong(fp);
+    s=getlong(fp, fname);
 
     if(fread(chunkid, 1, 4, fp)!=4) {
       printf("%s  EOF while reading chunk type\n", verbose? "":fname);
@@ -317,7 +326,7 @@ void pngcheck(FILE *fp, char *_fname)
 
     chunkid[4] = 0;
 
-    if (PNG_check_chunk_name(chunkid) != 0) {
+    if (PNG_check_chunk_name(chunkid, fname) != 0) {
       if (force)
         error = 2;
       else
@@ -361,19 +370,27 @@ void pngcheck(FILE *fp, char *_fname)
       if (error == 0 || (error == 1 && force)) {
         w = LG(buffer);
         h = LG(buffer+4);
+        if (w == 0 || h == 0) {
+          printf("%s  invalid %simage dimensions (%dx%d)\n",
+                 verbose?":":fname, verbose?"":"IHDR ", w, h);
+          error = 1;
+        }
         bits = (unsigned)buffer[8];
         ityp = (unsigned)buffer[9];
+        if(ityp>sizeof(type)/sizeof(char*)) {
+          ityp=1; /* avoid out of range array index */
+        }
         switch (bits) {
           case 1:
           case 2:
           case 4:
             if (ityp == 2 || ityp == 4 || ityp == 6) {/* RGB or GA or RGBA */
               printf("%s  invalid %sbit depth (%d) for %s image\n",
-                     verbose?":":fname, verbose?"":"IHDR ",bits, type[ityp]);
+                     verbose?":":fname, verbose?"":"IHDR ", bits, type[ityp]);
               error = 1;
             }
             break;
-          case 8: 
+          case 8:
             break;
           case 16:
             if (ityp == 3) { /* palette */
@@ -442,7 +459,13 @@ void pngcheck(FILE *fp, char *_fname)
         printf("\n");
       }
 
-      idat_read = 1;
+      /* We just want to check that we have read at least the minimum (10)
+       * IDAT bytes possible, but avoid any overflow for short ints.
+       */
+      if (idat_read <= 0)
+        idat_read = s > 0 ? s : -1;
+      else if (idat_read < 10)
+        idat_read += s > 10 ? 10 : s;
       last_is_idat = 1;
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (iend_read) {
@@ -452,6 +475,8 @@ void pngcheck(FILE *fp, char *_fname)
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"IEND ");
         error = 1;
+      } else if (idat_read < 10) {
+        printf("%s  not enough IDAT data\n", verbose ? ":":fname);
       } else if (verbose) {
         printf("\n");
       }
@@ -496,7 +521,7 @@ void pngcheck(FILE *fp, char *_fname)
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"bKGD ");
             error = 2;
-          } 
+          }
           if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": index = %d\n", buffer[0]);
           }
@@ -550,9 +575,8 @@ void pngcheck(FILE *fp, char *_fname)
           printf("%s  Invalid %sblue point %0g %0g\n",
                  verbose?":":fname, verbose?"":"cHRM ", bx, by);
           error = 1;
-        } 
-        else
-        {
+        }
+        else if (verbose) {
           printf("\n");
         }
 
@@ -648,6 +672,10 @@ void pngcheck(FILE *fp, char *_fname)
       have_phys = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "sBIT") == 0) {
+      int maxbits;
+
+      maxbits = ityp == 3 ? 8 : bits;
+
       if (have_sbit) {
         printf("%s  multiple sBIT not allowed\n",verbose?":":fname);
         error = 1;
@@ -666,6 +694,10 @@ void pngcheck(FILE *fp, char *_fname)
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
+          } else if (buffer[0] == 0 || buffer[0] > maxbits) {
+            printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[0], verbose?"":"sBIT ", maxbits);
+            error = 1;
           } else if (verbose && (error == 0 || (error == 1 && force))) {
               printf(": gray = %d\n", buffer[0]);
           }
@@ -676,6 +708,18 @@ void pngcheck(FILE *fp, char *_fname)
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
+          } else if (buffer[0] == 0 || buffer[0] > maxbits) {
+            printf("%s  %d %sred bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[0], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[1] == 0 || buffer[1] > maxbits) {
+            printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[1], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[2] == 0 || buffer[2] > maxbits) {
+            printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[2], verbose?"":"sBIT ", maxbits);
+            error = 1;
           } else if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": red = %d green = %d blue = %d\n",
                    buffer[0], buffer[1], buffer[2]);
@@ -686,6 +730,14 @@ void pngcheck(FILE *fp, char *_fname)
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
+          } else if (buffer[0] == 0 || buffer[0] > maxbits) {
+            printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[0], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[1] == 0 || buffer[1] > maxbits) {
+            printf("%s  %d %salpha bits(tm) not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[1], verbose?"":"sBIT ", maxbits);
+            error = 1;
           } else if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": gray = %d alpha = %d\n", buffer[0], buffer[1]);
           }
@@ -695,6 +747,22 @@ void pngcheck(FILE *fp, char *_fname)
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
+          } else if (buffer[0] == 0 || buffer[0] > maxbits) {
+            printf("%s  %d %sred bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[0], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[1] == 0 || buffer[1] > maxbits) {
+            printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[1], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[2] == 0 || buffer[2] > maxbits) {
+            printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[2], verbose?"":"sBIT ", maxbits);
+            error = 1;
+          } else if (buffer[3] == 0 || buffer[3] > maxbits) {
+            printf("%s  %d %salpha bits(tm) not valid for %dbit/sample image\n",
+                   verbose?":":fname, buffer[3], verbose?"":"sBIT ", maxbits);
+            error = 1;
           } else if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": red = %d green = %d blue = %d alpha = %d\n",
                    buffer[0], buffer[1], buffer[2], buffer[3]);
@@ -743,7 +811,7 @@ void pngcheck(FILE *fp, char *_fname)
 
       }
       if (error == 0 || force) {
-        init_printbuffer();
+        init_printbuffer(fname);
 
         if (printtext && strcmp(chunkid, "tEXt") == 0) {
           if (verbose) printf("\n");
@@ -777,7 +845,7 @@ void pngcheck(FILE *fp, char *_fname)
           printf("\n");
         }
 
-        finish_printbuffer();
+        finish_printbuffer(fname);
       }
       last_is_idat = 0;
     } else if(strcmp(chunkid, "tIME") == 0) {
@@ -800,7 +868,7 @@ void pngcheck(FILE *fp, char *_fname)
       if (have_trns) {
         printf("%s  multiple tRNS not allowed\n", verbose?":":fname);
         error = 1;
-      } else if (!plte_read) {
+      } else if (ityp==3 && !plte_read) {
         printf("%s  %smust follow PLTE\n",
                verbose?":":fname, verbose?"":"tRNS ");
         error = 1;
@@ -820,6 +888,7 @@ void pngcheck(FILE *fp, char *_fname)
           else if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": gray = %d\n", SH(buffer));
           }
+          break;
         case 2:
           if (s != 6)
           {
@@ -831,6 +900,7 @@ void pngcheck(FILE *fp, char *_fname)
             printf(": red = %d green = %d blue = %d\n", SH(buffer),
                    SH(buffer+2), SH(buffer+4));
           }
+          break;
         case 3:
           if (s > nplte)
           {
@@ -841,10 +911,12 @@ void pngcheck(FILE *fp, char *_fname)
           else if (verbose && (error == 0 || (error == 1 && force))) {
             printf(": %ld transparency entries\n", s);
           }
+          break;
         default:
           printf("%s  %snot allowed in %s image\n",
                  verbose?":":fname, verbose?"":"tRNS ", type[ityp]);
           error = 1;
+          break;
       }
       have_trns = 1;
       last_is_idat = 0;
@@ -852,9 +924,9 @@ void pngcheck(FILE *fp, char *_fname)
 
       /* A critical safe-to-copy chunk is an error */
       if (!(chunkid[0] & 0x20) && chunkid[3] & 0x20) {
-	printf("%s  illegal critical, safe-to-copy chunk%s%s\n",
-	       verbose?":":fname, verbose?"":" ", verbose?"":chunkid);
-	error = 1;
+        printf("%s  illegal critical, safe-to-copy chunk%s%s\n",
+               verbose?":":fname, verbose?"":" ", verbose?"":chunkid);
+        error = 1;
       }
       else if (verbose) {
         printf(": unknown %s%s%s%s chunk\n",
@@ -880,8 +952,8 @@ void pngcheck(FILE *fp, char *_fname)
 
       crc = update_crc(crc, (unsigned char *)buffer, toread);
     }
-    
-    filecrc=getlong(fp);
+
+    filecrc=getlong(fp, fname);
 
     if(filecrc!=CRCCOMPL(crc)) {
       printf("%s  CRC error in chunk %s (actual %08lx, should be %08lx)\n",
@@ -1007,7 +1079,7 @@ usage:
  *
  */
 
-int PNG_check_magic(unsigned char *magic)
+int PNG_check_magic(unsigned char *magic, char *fname)
 {
   if (strncmp((char *)&magic[1], "PNG", 3) != 0) {
     printf("%s not a PNG file\n", verbose ? "" : fname);
@@ -1069,13 +1141,13 @@ int PNG_check_magic(unsigned char *magic)
  *
  */
 
-int PNG_check_chunk_name(char *chunk_name)
+int PNG_check_chunk_name(char *chunk_name, char *fname)
 {
   if(!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
      !isalpha(chunk_name[2]) || !isalpha(chunk_name[3]))
   {
     printf("%s%schunk name %02x %02x %02x %02x doesn't comply to naming rules\n",
-           verbose ? "" : fname, verbose ? "" : ": ", 
+           verbose ? "" : fname, verbose ? "" : ": ",
            chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
     return (ERROR);
   }
