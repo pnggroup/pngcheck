@@ -504,6 +504,16 @@ int ratio(uc, c)         /* GRR 970621:  swiped from UnZip 5.31 list.c */
     }                            /* ^^^^^^^^ rounding */
 }
 
+unsigned int window_bits(ulg uhead)
+{
+  /* For this to work CM (see below) must be 8, note that the print
+     interface below checks this. */
+  unsigned int CINFO = (uhead & 0xf000) >> 12;
+  /* RFC1950, ln2(LZ77 window size), "windowBits" in the zlib.h
+     interfaces. */
+  return CINFO+8;
+}
+
 void print_zlibheader(ulg uhead)
 {
   /* See the code in zlib deflate.c that writes out the header when s->status
@@ -1093,7 +1103,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           zstrm.zalloc = (alloc_func)Z_NULL;
           zstrm.zfree = (free_func)Z_NULL;
           zstrm.opaque = (voidpf)Z_NULL;
-          if ((err = inflateInit(&zstrm)) != Z_OK) {
+          if ((err = inflateInit2(&zstrm, window_bits(zhead))) != Z_OK) {
             fprintf(stderr, "    zlib:  oops! can't initialize (error = %d)\n",
               err);
             verbose = 1;   /* this is a fatal error for all subsequent PNGs */
