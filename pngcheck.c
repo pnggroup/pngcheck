@@ -4,9 +4,6 @@
  * this program checks the PNG identifier with conversion checks,
  * the file structure and the chunk CRCs.
  *
- * With -v switch, the chunk names are printed.
- * with -t switch, text chunks are printed (without any charset conversion,
- *                                          works on X11R>=5 OK)
  *
  * written by Alexander Lehmann <alex@hal.rhein-main.de>
  *
@@ -24,12 +21,14 @@
  *
  * 01.06.95 AL: check for data after IEND chunk
  *
- * 95.06.01 GRR: reformatted; print tEXt and zTXt keywords; add usage
+ * 95.06.01 :-) GRR: reformatted; print tEXt and zTXt keywords; add usage
  *
+ * 95.07.31 AL: check for control chars, check for MacBinary header, new
+ *          force option
  *
  */
 
-#define VERSION "1.6 of 1 June 1995"
+#define VERSION "1.7 of 31 July 1995"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,8 +39,11 @@ int PNG_check_magic(unsigned char *magic);
 int PNG_check_chunk_name(char *chunk_name);
 
 #define BS 32000 /* size of read block for CRC calculation */
-int verbose; /* ==1 print chunk info */
-int printtext; /* ==1 print tEXt chunks */
+int verbose; /* print chunk info */
+int printtext; /* print tEXt chunks */
+int sevenbit; /* escape characters >=160 */
+int error; /* an error already occured, but we are continueing */
+int force; /* continue even if a really bad error occurs (CRC error, etc) */
 char *fname;
 unsigned char buffer[BS];
 
@@ -57,8 +59,7 @@ void make_crc_table(void)
   unsigned long c;
   int n, k;
 
-  for (n = 0; n < 256; n++)
-  {
+  for (n = 0; n < 256; n++) {
     c = (unsigned long)n;
     for (k = 0; k < 8; k++)
       c = c & 1 ? 0xedb88320L ^ (c >> 1) : c >> 1;
@@ -101,12 +102,86 @@ unsigned long getlong(FILE *fp)
   for(i=0;i<4;i++) {
     if((c=fgetc(fp))==EOF) {
       printf("%s: EOF while reading 4 bytes value\n", fname);
+      error=1;
       return 0;
     }
     res<<=8;
     res|=c&0xff;
   }
   return res;
+}
+
+/* print out size characters in buffer, take care to not print control chars
+   other than whitespace, since this may open ways of attack by so-called
+   ANSI-bombs */
+
+int cr;
+int lf;
+int nul;
+int control;
+int esc;
+
+void init_printbuffer(void)
+{
+  cr=0;
+  lf=0;
+  nul=0;
+  control=0;
+  esc=0;
+}
+
+void printbuffer(char *buffer, int size, int printtext)
+{
+  unsigned char c;
+  
+  while(size--) {
+    c=*buffer++;
+    if(printtext)
+      if((c<' ' && c!='\t' && c!='\n') || (sevenbit ? c>127 : (c>=127 && c<160)))
+        printf("\\%02X", c);
+      else
+      if(c=='\\')
+        printf("\\\\");
+      else
+        putchar(c);
+
+    if(c<32 || (c>=127 && c<160)) {
+      if(c=='\n') lf=1;
+      else if(c=='\r') cr=1;
+      else if(c=='\0') nul=1;
+      else control=1;
+      if(c==27) esc=1;
+    }
+  }
+}
+
+void finish_printbuffer(void)
+{
+  if(cr)
+    if(lf) {
+      printf("%s   text chunk contains both CR and LF as line terminators\n", verbose? "":fname);
+      error=1;
+    } else {
+      printf("%s   text chunk contains only CR as line terminator\n", verbose? "":fname);
+      error=1;
+    }
+  if(nul) {
+    printf("%s   text chunk contains null bytes\n", verbose? "":fname);
+    error=1;
+  }
+  if(control) {
+    printf("%s   text chunk contains control characters%s\n", verbose? "":fname, esc ? " including Escape":"");
+    error=1;
+  }
+}
+
+int keywordlen(char *buffer, int maxsize)
+{
+  int i;
+
+  for(i=0;i<maxsize && buffer[i]; i++);
+
+  return i;
 }
 
 void pngcheck(FILE *fp, char *_fname)
@@ -121,8 +196,11 @@ void pngcheck(FILE *fp, char *_fname)
   int istext, isztxt, isanytext, chunkstart;
   int iend_read=0;
   static int first_file=1;
+  int i;
 
   fname=_fname; /* make filename available to functions above */
+
+  error=0;
 
   if(verbose) {
     printf("%sFile:  %s\n", first_file? "":"\n", fname);
@@ -134,13 +212,30 @@ void pngcheck(FILE *fp, char *_fname)
     return;
   }
 
-  if (PNG_check_magic(magic) != 0) return;
+  if (PNG_check_magic(magic) != 0) {
+    /* maybe it's a MacBinary file */
+
+    if(magic[0]==0 && magic[1]>0 && magic[1]<=64 && magic[2]!=0) {
+      printf("%s   (trying to skip MacBinary header)\n", verbose? "":fname);
+      if(fread(buffer, 1, 120, fp)==120 &&
+         fread(magic, 1, 8, fp)==8 &&
+         PNG_check_magic(magic) == 0) {
+        printf("%s   this PNG seems to be contained in a MacBinary file\n", verbose? "":fname);
+      } else
+        return;
+    } else
+      return;
+  }
 
   while((c=fgetc(fp))!=EOF) {
     ungetc(c, fp);
     if(iend_read) {
       printf("%s   additional data after IEND chunk\n", verbose? "":fname);
-      return;
+      if(force) {
+        error=1;
+      } else {
+        return;
+      }
     }
     s=getlong(fp);
     if(fread(chunkid, 1, 4, fp)!=4) {
@@ -150,7 +245,12 @@ void pngcheck(FILE *fp, char *_fname)
 
     chunkid[4]=0;
 
-    if (PNG_check_chunk_name(chunkid) != 0) return;
+    if (PNG_check_chunk_name(chunkid) != 0)
+      if(force) {
+        error=1;
+      } else {
+        return;
+      }
 
     istext = isztxt = isanytext = 0;
     if(strcmp(chunkid, "tEXt") == 0) {
@@ -163,12 +263,13 @@ void pngcheck(FILE *fp, char *_fname)
 
     if(verbose) {
       printf("   chunk %s at offset 0x%05lx, length %ld%s", chunkid,
-        ftell(fp)-4, s, isanytext? "":"\n");
+             ftell(fp)-4, s, isanytext? "":"\n");
     }
 
     if(first && strcmp(chunkid,"IHDR")!=0) {
       printf("%s%s   file doesn't start with a IHDR chunk\n",
-        isanytext? "\n":"", verbose? "":fname);
+             isanytext? "\n":"", verbose? "":fname);
+      error=1;
     }
     first=0;
 
@@ -178,31 +279,65 @@ void pngcheck(FILE *fp, char *_fname)
     while(s>0) {
       toread=(s>BS)? BS : s;
       if(fread(buffer, 1, toread, fp)!=toread) {
-        printf("%s%s   EOF while reading chunk data (%s)\n", isanytext? "\n":"",
-          verbose? "":fname, chunkid);
+        printf("%s%s   EOF while reading chunk data (%s)\n",
+               isanytext? "\n":"", verbose? "":fname, chunkid);
         return;
       }
-      if (verbose && isanytext && chunkstart) {
-        printf(", keyword: %s\n", (char *)buffer);
+
+      if(isanytext && chunkstart) {
+        if(keywordlen(buffer, toread)==0) {
+          printf("%s   zero length keyword\n", verbose? "":fname);
+          error=1;
+        }
+        if(keywordlen(buffer, toread)>=80) {
+          printf("%s   keyword is 80 chars or longer\n", verbose? "":fname);
+          error=1;
+        }
+
+        for(i=0;i<keywordlen(buffer, toread);i++)
+          if((unsigned char)buffer[i]<32 ||
+             ((unsigned char)buffer[i]>=127 && (unsigned char)buffer[i]<160)) {
+            printf("%s   keyword contains control characters\n", verbose? "":fname);
+            error=1;
+            break;
+          }
       }
+
+      if (verbose && isanytext && chunkstart) {
+        if(printtext && istext) {
+          /* we'll print the keyword as part of the comment text anyway */
+          printf("\n");
+        } else {
+          printf(", keyword: ");
+          printbuffer(buffer, keywordlen(buffer, toread), 1);
+          printf("\n");
+        }
+      }
+      if(chunkstart && isanytext)
+        init_printbuffer();
       crc=update_crc(crc, buffer, toread);
       s-=toread;
-      if(printtext && istext) {
-        if(strlen((char *)buffer)<toread) {
+      if(istext) {
+        if(chunkstart && strlen((char *)buffer)<toread) {
           buffer[strlen((char *)buffer)]=':';
         }
-        fwrite(buffer, 1, toread, stdout);
+        printbuffer(buffer, toread, printtext);
       }
       chunkstart=0;
     }
-    if(printtext && istext) {
-      printf("\n");
+    if(istext) {
+      if(printtext) printf("\n");
+      finish_printbuffer();
     }
     filecrc=getlong(fp);
     if(filecrc!=CRCCOMPL(crc)) {
       printf("%s   CRC error in chunk %s (actual %08lx, should be %08lx)\n",
-              verbose? "":fname, chunkid, CRCCOMPL(crc), filecrc);
-      return;
+             verbose? "":fname, chunkid, CRCCOMPL(crc), filecrc);
+      if(force) {
+        error=1;
+      } else {
+        return;
+      }
     }
     if(strcmp(chunkid, "IEND")==0) {
       iend_read=1;
@@ -212,33 +347,54 @@ void pngcheck(FILE *fp, char *_fname)
     printf("%s   file doesn't end with an IEND chunk\n", verbose? "":fname);
     return;
   }
-  printf("No errors detected in %s.\n", fname);
+  if(!error)
+    printf("No errors detected in %s.\n", fname);
 }
 
 int main(int argc, char *argv[])
 {
   FILE *fp;
   int i;
-
-  if(argc>1 && strcmp(argv[1],"-v")==0) {
-    verbose=1;
-    argc--;
-    argv++;
-  } else
-  if(argc>1 && strcmp(argv[1],"-t")==0) {
-    printtext=1;
-    argc--;
-    argv++;
+  
+  while(argc>1 && argv[1][0]=='-') {
+    if(strcmp(argv[1],"-v")==0) {
+      verbose=1;
+      argc--;
+      argv++;
+    } else
+    if(strcmp(argv[1],"-t")==0) {
+      printtext=1;
+      argc--;
+      argv++;
+    } else
+    if(strcmp(argv[1],"-7")==0) {
+      printtext=1;
+      sevenbit=1;
+      argc--;
+      argv++;
+    } else
+    if(strcmp(argv[1],"-f")==0) {
+      force=1;
+      argc--;
+      argv++;
+    } else {
+      fprintf(stderr, "unknown option %s\n", argv[1]);
+      goto usage;
+    }
   }
 
   if(argc==1) {
     if (isatty(0)) {       /* if stdin not redirected, give the user help */
-      printf("PNGcheck, version %s, by Alexander Lehmann.\n", VERSION);
-      printf("Test a PNG image file for corruption.\n\n");
-      printf("Usage:  pngcheck [-v | -t] file.png [file.png [...]]\n");
-      printf("   or:  ... | pngcheck [-v | -t]\n\n");
-      printf("Options:\n");
-      printf("   -v  test verbosely      -t  print contents of tEXt chunks\n");
+usage:
+      fprintf(stderr, "PNGcheck, version %s, by Alexander Lehmann.\n", VERSION);
+      fprintf(stderr, "Test a PNG image file for corruption.\n\n");
+      fprintf(stderr, "Usage:  pngcheck [-vt7f] file.png [file.png [...]]\n");
+      fprintf(stderr, "   or:  ... | pngcheck [-vt7f]\n\n");
+      fprintf(stderr, "Options:\n");
+      fprintf(stderr, "   -v  test verbosely\n");
+      fprintf(stderr, "   -t  print contents of tEXt chunks\n");
+      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)\n");
+      fprintf(stderr, "   -f  force continuation even after major errors\n");
     } else
       pngcheck(stdin, "stdin");
   } else {
