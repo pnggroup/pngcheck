@@ -26,9 +26,12 @@
  * 95.07.31 AL: check for control chars, check for MacBinary header, new
  *          force option
  *
+ * 95.08.27 AL: merged Greg's 1.61 changes: print IHDR and tIME contents,
+ *          call emx wildcard function
+ *
  */
 
-#define VERSION "1.7 of 31 July 1995"
+#define VERSION "1.8 of 27 August 1995"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +42,14 @@ int PNG_check_magic(unsigned char *magic);
 int PNG_check_chunk_name(char *chunk_name);
 
 #define BS 32000 /* size of read block for CRC calculation */
+
+/* Mark's macros to extract big-endian short and long ints: */
+typedef unsigned char  uch;
+typedef unsigned short ush;
+typedef unsigned long  ulg;
+#define SH(p) ((ush)(uch)((p)[1]) | ((ush)(uch)((p)[0]) << 8))
+#define LG(p) ((ulg)(SH((p)+2)) | ((ulg)(SH(p)) << 16))
+
 int verbose; /* print chunk info */
 int printtext; /* print tEXt chunks */
 int sevenbit; /* escape characters >=160 */
@@ -133,11 +144,12 @@ void init_printbuffer(void)
 void printbuffer(char *buffer, int size, int printtext)
 {
   unsigned char c;
-  
+
   while(size--) {
     c=*buffer++;
     if(printtext)
-      if((c<' ' && c!='\t' && c!='\n') || (sevenbit ? c>127 : (c>=127 && c<160)))
+      if((c<' ' && c!='\t' && c!='\n') ||
+         (sevenbit ? c>127 : (c>=127 && c<160)))
         printf("\\%02X", c);
       else
       if(c=='\\')
@@ -159,10 +171,12 @@ void finish_printbuffer(void)
 {
   if(cr)
     if(lf) {
-      printf("%s   text chunk contains both CR and LF as line terminators\n", verbose? "":fname);
+      printf("%s   text chunk contains both CR and LF as line terminators\n",
+             verbose? "":fname);
       error=1;
     } else {
-      printf("%s   text chunk contains only CR as line terminator\n", verbose? "":fname);
+      printf("%s   text chunk contains only CR as line terminator\n",
+             verbose? "":fname);
       error=1;
     }
   if(nul) {
@@ -170,7 +184,8 @@ void finish_printbuffer(void)
     error=1;
   }
   if(control) {
-    printf("%s   text chunk contains control characters%s\n", verbose? "":fname, esc ? " including Escape":"");
+    printf("%s   text chunk contains control characters%s\n",
+           verbose? "":fname, esc ? " including Escape":"");
     error=1;
   }
 }
@@ -184,6 +199,16 @@ int keywordlen(char *buffer, int maxsize)
   return i;
 }
 
+char *getmonth(int m)
+{
+  static char *month[] =
+  {"(undefined)", "January", "February", "March", "April", "May", "June",
+   "July", "August", "September", "October", "November", "December"};
+
+  if(m<1 || m>12) return month[0];
+  else return month[m];
+}
+
 void pngcheck(FILE *fp, char *_fname)
 {
   long s;
@@ -193,10 +218,15 @@ void pngcheck(FILE *fp, char *_fname)
   int c;
   unsigned long crc, filecrc;
   int first=1;
-  int istext, isztxt, isanytext, chunkstart;
+  int istext, isztxt, ishead, istime, continuing, chunkstart;
+  int isanytext;
   int iend_read=0;
+  long w, h;
+  int bits, ityp, lace;
   static int first_file=1;
   int i;
+  static char *type[] = {"grayscale", "undefined type", "RGB", "colormap",
+                           "grayscale+alpha", "undefined type", "RGB+alpha"};
 
   fname=_fname; /* make filename available to functions above */
 
@@ -220,7 +250,8 @@ void pngcheck(FILE *fp, char *_fname)
       if(fread(buffer, 1, 120, fp)==120 &&
          fread(magic, 1, 8, fp)==8 &&
          PNG_check_magic(magic) == 0) {
-        printf("%s   this PNG seems to be contained in a MacBinary file\n", verbose? "":fname);
+        printf("%s   this PNG seems to be contained in a MacBinary file\n",
+               verbose? "":fname);
       } else
         return;
     } else
@@ -252,23 +283,32 @@ void pngcheck(FILE *fp, char *_fname)
         return;
       }
 
-    istext = isztxt = isanytext = 0;
+    isanytext = istext = isztxt = ishead = istime = continuing = 0;
     if(strcmp(chunkid, "tEXt") == 0) {
       istext = 1;
       isanytext = 1;
+      continuing = 1;
     } else if(strcmp(chunkid, "zTXt") == 0) {
       isztxt = 1;
       isanytext = 1;
+      continuing = 1;
+    } else if(strcmp(chunkid, "IHDR") == 0) {
+      ishead = 1;
+      continuing = 1;
+    } else if(strcmp(chunkid, "tIME") == 0) {
+      istime = 1;
+      continuing = 1;
     }
 
     if(verbose) {
       printf("   chunk %s at offset 0x%05lx, length %ld%s", chunkid,
-             ftell(fp)-4, s, isanytext? "":"\n");
-    }
+             ftell(fp)-4, s, continuing? "":"\n");
+    } else
+      continuing = 0;
 
     if(first && strcmp(chunkid,"IHDR")!=0) {
       printf("%s%s   file doesn't start with a IHDR chunk\n",
-             isanytext? "\n":"", verbose? "":fname);
+             continuing? "\n":"", verbose? "":fname);
       error=1;
     }
     first=0;
@@ -279,8 +319,8 @@ void pngcheck(FILE *fp, char *_fname)
     while(s>0) {
       toread=(s>BS)? BS : s;
       if(fread(buffer, 1, toread, fp)!=toread) {
-        printf("%s%s   EOF while reading chunk data (%s)\n",
-               isanytext? "\n":"", verbose? "":fname, chunkid);
+        printf("%s%s   EOF while reading chunk data (%s)\n", continuing?
+               "\n":"", verbose? "":fname, chunkid);
         return;
       }
 
@@ -297,7 +337,8 @@ void pngcheck(FILE *fp, char *_fname)
         for(i=0;i<keywordlen(buffer, toread);i++)
           if((unsigned char)buffer[i]<32 ||
              ((unsigned char)buffer[i]>=127 && (unsigned char)buffer[i]<160)) {
-            printf("%s   keyword contains control characters\n", verbose? "":fname);
+            printf("%s   keyword contains control characters\n",
+                   verbose? "":fname);
             error=1;
             break;
           }
@@ -311,6 +352,37 @@ void pngcheck(FILE *fp, char *_fname)
           printf(", keyword: ");
           printbuffer(buffer, keywordlen(buffer, toread), 1);
           printf("\n");
+        }
+      }
+
+      if (chunkstart) {
+        if (ishead) {
+          w = LG(buffer);
+          h = LG(buffer+4);
+          bits = (unsigned)buffer[8];
+          ityp = (unsigned)buffer[9];
+          lace = (unsigned)buffer[12];
+          switch (ityp) {
+            case 2:
+              bits *= 3;   /* RGB */
+              break;
+            case 4:
+              bits *= 2;   /* gray+alpha */
+              break;
+            case 6:
+              bits *= 4;   /* RGBA */
+              break;
+          }
+        }
+        if (verbose) {
+          if (ishead)
+            printf(":\n      %ld x %ld image, %d-bit %s, %sinterlaced\n", w, h,
+                   bits, (ityp > 6)? type[1]:type[ityp], lace? "":"non-");
+          else if (istime) {
+            printf(":  %d %s %d %02d:%02d:%02d\n", SH(buffer),
+                   getmonth(buffer[2]), buffer[3], buffer[4], buffer[5],
+                   buffer[6]);
+          }
         }
       }
       if(chunkstart && isanytext)
@@ -348,14 +420,23 @@ void pngcheck(FILE *fp, char *_fname)
     return;
   }
   if(!error)
-    printf("No errors detected in %s.\n", fname);
+    if(verbose)  /* already printed IHDR info */
+      printf("No errors detected in %s.\n", fname);
+    else
+      printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced).\n",
+             fname, w, h, bits, (ityp > 6)? type[1]:type[ityp],
+             lace? "":"non-");
 }
 
 int main(int argc, char *argv[])
 {
   FILE *fp;
   int i;
-  
+
+#ifdef __EMX__
+  _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
+#endif
+
   while(argc>1 && argv[1][0]=='-') {
     if(strcmp(argv[1],"-v")==0) {
       verbose=1;
@@ -386,7 +467,8 @@ int main(int argc, char *argv[])
   if(argc==1) {
     if (isatty(0)) {       /* if stdin not redirected, give the user help */
 usage:
-      fprintf(stderr, "PNGcheck, version %s, by Alexander Lehmann.\n", VERSION);
+      fprintf(stderr, "PNGcheck, version %s, by Alexander Lehmann.\n",
+              VERSION);
       fprintf(stderr, "Test a PNG image file for corruption.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-vt7f]\n\n");
@@ -440,7 +522,7 @@ usage:
 
 int PNG_check_magic(unsigned char *magic)
 {
-    if (strncmp((char *)&magic[1],"PNG",3) != 0) {
+  if (strncmp((char *)&magic[1],"PNG",3) != 0) {
              fprintf(stderr, "not a PNG file\n");
              return(ERROR);
             }
