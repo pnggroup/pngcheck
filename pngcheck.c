@@ -8,12 +8,14 @@
  * chunks.
  *
  *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of November 1999)
+ *               (as of February 2000)
+ *
+ * ChangeLog:  see CHANGELOG file
  */
 
 /*============================================================================
  *
- *   Copyright 1995-1999 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2000 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -29,130 +31,14 @@
  *
  *===========================================================================*/
 
-/*
- * ChangeLog:
- *
- * Started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
- * extended by people as listed below.
- *
- *   AL   -  Alexander Lehmann
- *   AED  -  Andreas Dilger
- *   GRP  -  Glenn Randers-Pehrson
- *   GRR  -  Greg Roelofs
- *   JB   -  John Bowler
- *   TGL  -  Tom Lane
- *
- * 19950223 AL: fixed wrong magic numbers
- *
- * 19950313 AL: crc code from png spec, compiles on memory impaired PCs now,
- *          check for IHDR/IEND chunks
- *
- * 19950325 GRP: rewrote magic-number-checking and moved it to
- *          PNG_check_magic(buffer)
- *
- * 19950327 AL: fixed CRC code for 64 bit, -t switch, unsigned char vs. char
- *          pointer changes
- *
- * 19960601 AL: check for data after IEND chunk
- *
- * 19950601 GRR: reformatted; print tEXt and zTXt keywords; added usage
- *
- * 19950731 AL: check for control chars, check for MacBinary header, new
- *          force option
- *
- * 19950827 AL: merged Greg's 1.61 changes: print IHDR and tIME contents,
- *          call emx wildcard function
- *
- * 19951121 AED: re-ordered internal chunk checking in pngcheck().
- *          Now decodes most of the known chunk types to check for invalid
- *          contents (except IDAT and zTXt).  Information is printed
- *          about the contents of known chunks, and unknown chunks have
- *          their chunk name flags decoded.  Also checks chunk ordering.
- *
- * 19951126 AED: minor bug fixes and nicening of the output.  Checks for
- *          valid cHRM contents per Chris Lilley's recommendation.
- *
- * 19951204 AED: minor bug in cHRM error output fixed
- *
- * 19960105 AED: added -q flaq to only output a message if an error occurrs
- *
- * 19960119 AED: added ability to parse multiple options with a single '-'
- *               changed tIME output to be in RFC 1123 format
- *
- * 19960517 GRR: fixed obvious(?) fprintf error; fixed multiple-tIME error msg
- *
- * 19960521 AL: fixed two tRNS errors reported by someone from W3C (whose name
- *              I currently don't remember) (complained about missing palette
- *              in greyscale images, missing breaks in case statement)
- *              avoid reference to undefined array entry with out of range ityp
- *
- * 19960605 AED: removed extra linefeed from cHRM output when not verbose
- *               added test to see if sBIT contents are valid
- *               added test for zero width or height in IHDR
- *               added test for insufficient IDAT data (minimum 10 bytes)
- *
- * 19960605 AED: added -p flag to dump the palette contents
- *
- * 19961231 JB: add decoding of the zlib header from the first IDAT chunk (16-
- *              bit header code in first two bytes, see print_zlibheader).
- *
- * 19970102 GRR: more sensible zlib-header output (version "1.97grr"); nuked
- *               some tabs; fixed blank lines between files in verbose output
- *
- * 19970106 AED: initialize the command-line flags
- *               add macros to ensure the error level doesn't go down
- *               return error level to calling program
- *               consolidate PNG magic on one place
- *               add "-" as input file for stdin
- *               check for valid tEXt/zTXt keywords per PNG Spec 1.0
- *               slight modification to output of tEXt/zTXt keywords/contents
- *               change 'extract' to only output valid chunks (unless forced)
- *                 this may allow one to fix minor errors in a PNG file
- *
- * 19970107 GRR: added USE_ZLIB compile option to print line filters (with -vv)
- * 19970110 GRR: fixed line-filters code for large-IDAT case
- * 19970621 GRR: added compression-ratio info
- * 19980609 TGL: fixed pHYs buglet
- * 19980609 GRR: re-integrated minimal MNG support from 97.01.21 branch
- * 19980610 GRR: extended MNG (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
- * 19980611 GRR: extended MNG (more FRAM info; LOOP, ENDL)
- * 19980612 GRR: extended MNG (FRAM, BACK, MOVE, CLON, SHOW, CLIP, fPRI, eXPI)
- * 19980616 GRR: extended MNG (PROM, SAVE, SEEK)
- * 19980702 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
- *               updated SAVE for MNG Draft 43
- * 19980711 GRR: added sPLT; extended printpal (-p) to support tRNS, hIST, sPLT
- * 19981021 GRR: added Win32 fix and compilation info; fixed mng=0, DEFI and
- *               printpal bugs
- * 19981206 GRR: added "File: %s" for printpal; fixed some plural%s; fixed and
- *               extended unknown-chunk info (separate line now); added dpi info
- *               to pHYs and flagged unit types > 1 as error
- * 19981228 GRR: nuked old comments; added proto-copyright message
- * 19990201 GRR: changed control-character warning to "one or more"
- * 19990327 GRR: added option to indent printtext; changed non-verbose summary
- *               to two lines; added tRNS info to summary
- * 19990613 GRR: fixed remaining "must precede IDAT" messages for MNG; updated
- *               MHDR and LOOP for Draft 64
- * 19990619 GRR: released version 1.99-grr1
- * 19990620 GRR: fixed Glenn's e-mail address and help-screen MNG-draft version;
- *               disabled compression ratio for MNG; updated FRAM for Draft 64;
- *               fixed "not enough IDAT data" IEND bug; renamed
- *               PNG_MNG_check_magic() to check_magic(); renamed
- *               PNG_check_chunk_name() to check_chunk_name();
- * 19990713 GRP: fixed MNG global-PLTE case (zero-length allowed)
- * 19990718 GRR: shortened non-verbose summary so fits on one line again; added
- *               BASI and PPLT
- * 19991114 GRR: added gIFg, gIFx and part of gIFt
- * 19991117 GRR: finished gIFt; added sRGB and iCCP
- * 19991118 GRR: released version 1.99.2
- */
-
-#define VERSION "1.99.2 of 18 November 1999"
+#define VERSION "1.99.3b of 4 March 2000"
+                /* GRR note to self:  incorporate modifications on Dell box */
+                /* GRR note to self:  oops, screwed now...test on porkrind */
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
- */
-
-/*
+ * 
+ *
  * GRR to do:
  *   - update existing MNG support to Draft 69 (version 0.96) or later
  *   - recognize JNG magic signature
@@ -179,27 +65,31 @@
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
- * whatever has been run; setargv.obj comes with MSVC and expands wildcards):
+ * whatever has been run):
  *
  *    without zlib:
- *       cl -nologo -O -W3 -DWIN32 pngcheck.c setargv.obj
+ *       cl -nologo -O -W3 -DWIN32 pngcheck.c
  *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
  *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
  *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
  *       [copy pngcheck.exe and zlib.dll to installation directory]
- *    or
- *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlibstat.lib
- *       [if you have a static library for zlib]
  *
- * zlib info:
- *	ftp://www.cdrom.com/pub/infozip/zlib/zlib.html
- * PNG/MNG info:
- *	http://www.cdrom.com/pub/png/
- *	http://www.cdrom.com/pub/mng/
- *	ftp://swrinde.nde.swri.edu/pub/mng/
- * pngcheck sources:
- *	http://www.cdrom.com/pub/png/pngcode.html
- *	ftp://swrinde.nde.swri.edu/pub/png/applications/   (may be out of date)
+ * "setargv.obj" is included with MSVC and will be found if the batch file has
+ * been run.  Either Borland or Watcom (both?) may use "wildargs.obj" instead.
+ * Both object files serve the same purpose:  they expand wildcard arguments
+ * into a list of files on the local file system, just as Unix shells do by
+ * default ("globbing").  Note that mingw32 + gcc (Unix-like compilation
+ * environment for Windows) apparently expands wildcards on its own, so no
+ * special object files are necessary for it.  emx + gcc for OS/2 (and possibly
+ * rsxnt + gcc for Windows NT) has a special _wildcard() function call, which
+ * is already included at the top of main() below.
+ *
+ * zlib info:		http://www.cdrom.com/pub/infozip/zlib/
+ * PNG/MNG info:	http://www.cdrom.com/pub/png/
+ *			http://www.cdrom.com/pub/mng/  and
+ *                      ftp://swrinde.nde.swri.edu/pub/mng/
+ * pngcheck sources:	http://www.cdrom.com/pub/png/pngcode.html  or
+ *                      ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
 #include <stdio.h>
@@ -211,8 +101,6 @@
 #include <ctype.h>
 #ifdef WIN32
 #  include <io.h>
-#else
-#  include <unistd.h>	/* GRR: should really ifdef this for Unix only */
 #endif
 #ifdef USE_ZLIB
 #  include "zlib.h"
@@ -495,8 +383,10 @@ void printbuffer(char *buffer, int size, int indent)	/* GRR EBCDIC WARNING */
     if ((c < ' ' && c != '\t' && c != '\n') ||
         (sevenbit? c > 127 : (c >= 127 && c < 160)))
       printf("\\%02X", c);
+/*
     else if (c == '\\')
       printf("\\\\");
+ */
     else
       putchar(c);
 
@@ -708,7 +598,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   while ((c = fgetc(fp)) != EOF) {
     ungetc(c, fp);
 
-    if ((!mng && iend_read) || (mng && mend_read)) {
+    if (!mng && iend_read || mng && mend_read) {
       if (searching) /* Start looking again in the current file. */
         return;
 
@@ -849,6 +739,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this file */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
+      /* GRR 20000304:  data dump not yet compatible with interlaced images: */
+      if (lace && verbose > 3)
+        verbose = 2;
 #endif
 
     /*------* 
@@ -1075,7 +968,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           numfilt = 0L;
           first_idat = 0;
           if (lace) {   /* loop through passes to calculate total filters */
-            int pass, yskip=2, yoff=1;
+            int pass, yskip, yoff;
 
             numfilt_total = 0L;
             for (pass = 1;  pass <= 7;  ++pass) {
@@ -1095,8 +988,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             numfilt_total = h;   /* if non-interlaced */
         }
 
-        printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth):\n"
-          "     ");
+        printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth)%s:"
+          "\n     ", verbose > 3? " and data" : "");
         numfilt_this_block = 0L;
 
         while (err != Z_STREAM_END && zstrm.avail_in > 0) {
@@ -1114,12 +1007,26 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           /* now have uncompressed, filtered image data in outbuf */
           eod = outbuf + BS - zstrm.avail_out;
           while (p < eod) {
-            printf(" %1d", (int)p[0]);
-            ++numfilt;
-            if (++numfilt_this_block % 25 == 0)
+            if (verbose > 3) {			/* GRR 20000304 */
+              printf(" [%1d]", (int)p[0]);
+              fflush(stdout);
+              ++numfilt;
+              for (i = 1;  i < cur_linebytes;  ++i, ++p) {
+                printf(" %d", (int)p[1]);
+                fflush(stdout);
+              }
+              ++p;
               printf("\n     ");
-            p += cur_linebytes;
-            cur_y += cur_yskip;
+              fflush(stdout);
+              cur_y += cur_yskip;
+            } else {
+              printf(" %1d", (int)p[0]);
+              ++numfilt;
+              if (++numfilt_this_block % 25 == 0)
+                printf("\n     ");
+              p += cur_linebytes;
+              cur_y += cur_yskip;
+            }
             if (lace) {
               while (cur_y >= h) {      /* may loop if very short image */
                 /*
@@ -1152,7 +1059,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                 cur_linebytes = ((cur_width*bitdepth + 7) >> 3) + 1;
               }
             } else if (cur_y >= h) {
-              inflateEnd(&zstrm);     /* we're all done */
+              if (verbose > 3) {		/* GRR 20000304:  bad code */
+                printf(" %d bytes remaining in buffer before inflateEnd()",
+                  eod-p);
+                printf("\n     ");
+                fflush(stdout);
+                i = inflateEnd(&zstrm);     /* we're all done */
+                if (i == Z_OK || i == Z_STREAM_ERROR)
+                  printf(" inflateEnd() returns %s\n     ",
+                    i == Z_OK? "Z_OK" : "Z_STREAM_ERROR");
+                else
+                  printf(" inflateEnd() returns %d\n     ", i);
+                fflush(stdout);
+              } else
+                inflateEnd(&zstrm);   /* we're all done */
               zlib_error = 99;        /* kill outermost loop */
               err = Z_STREAM_END;     /* kill middle loop */
               break;                  /* kill innermost loop */
@@ -1352,7 +1272,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        float dtime = (float)(.01 * SH(buffer+2));
+        float dtime = .01 * SH(buffer+2);
 
         printf("\n    disposal method = %d, user input flag = %d, display time = %f seconds\n",
           buffer[0], buffer[1], dtime);
@@ -1394,7 +1314,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf(
-          "\n    application ID = %*s, authentication code = 0x%02x%02x%02x\n",
+          "\n    application ID = %.*s, authentication code = 0x%02x%02x%02x\n",
           8, buffer, buffer[8], buffer[9], buffer[10]);
         printf("    %ld bytes of application data\n", sz-11);
       }
@@ -1873,7 +1793,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           if (strcmp(chunkid, "tEXt") == 0)
             printbuffer(buffer + key_len + 1, toread - key_len - 1, 1);
           else
-            printf("(compressed %s text)", chunkid);
+            printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
 
           /* For the sake of simplifying this program, we will not print
            * the contents of a tEXt chunk whose size is larger than the
@@ -2503,7 +2423,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
-          (int)(sz-2), buffer+2);	/* GRR EBCDIC WARNING */
+          sz-2, buffer+2);	/* GRR EBCDIC WARNING */
       }
       last_is_idat = 0;
 
@@ -2770,7 +2690,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
   /*----------------------- END OF IMMENSE WHILE-LOOP -----------------------*/
 
-  if ((!mng && !iend_read) || (mng && !mend_read)) {
+  if (!mng && !iend_read || mng && !mend_read) {
     printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
       mng? " M":"n I");
     set_err(1);
@@ -2931,9 +2851,20 @@ int main(int argc, char *argv[])
         argv++;
         i = 1;
         break;
-      case 'v':
-        ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
-        quiet=0;
+      case '7':
+        printtext=1;
+        sevenbit=1;
+        i++;
+        break;
+      case 'f':
+        force=1;
+        i++;
+        break;
+      case 'h':
+        goto usage;
+        break;
+      case 'p':
+        printpal=1;
         i++;
         break;
       case 'q':
@@ -2941,33 +2872,22 @@ int main(int argc, char *argv[])
         quiet=1;
         i++;
         break;
+      case 's':
+        search=1;
+        i++;
+        break;
       case 't':
         printtext=1;
         i++;
         break;
-      case '7':
-        printtext=1;
-        sevenbit=1;
-        i++;
-        break;
-      case 'p':
-        printpal=1;
-        i++;
-        break;
-      case 'f':
-        force=1;
-        i++;
-        break;
-      case 's':
-        search=1;
+      case 'v':
+        ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
+        quiet=0;
         i++;
         break;
       case 'x':
         search=extract=1;
         i++;
-        break;
-      case 'h':
-        goto usage;
         break;
       default:
         fprintf(stderr, "unknown option %c\n", argv[1][i]);
