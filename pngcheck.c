@@ -1,12 +1,12 @@
 /*
- * authenticate a PNG file
+ * Authenticate the structure of a PNG file and dump info about it if desired.
  *
- * this program checks the PNG identifier with conversion checks,
+ * This program checks the PNG identifier with conversion checks,
  * the file structure and the chunk CRCs. In addition, relations and contents
  * of most defined chunks are checked, except for decompression of the IDAT
  * chunks.
  *
- * started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
+ * Started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
  * extended by people as listed below.
  *
  *
@@ -58,9 +58,11 @@
  *               added test to see if sBIT contents are valid
  *               added test for zero width or height in IHDR
  *               added test for insufficient IDAT data (minimum 10 bytes)
+ *
+ * 96.06.05 AED: added -p flag to dump the palette contents
  */
 
-#define VERSION "1.96 of 5 June 1996"
+#define VERSION "1.97 of 27 September 1996"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,6 +96,7 @@ typedef unsigned long  ulg;
 int verbose; /* print chunk info */
 int quiet; /* only print error messages */
 int printtext; /* print tEXt chunks */
+int printpal; /* print PLTE contents */
 int sevenbit; /* escape characters >=160 */
 int error; /* an error already occured, but we are continueing */
 int force; /* continue even if a really bad error occurs (CRC error, etc) */
@@ -108,13 +111,16 @@ int crc_table_computed = 0;
 /* make the table for a fast crc */
 void make_crc_table(void)
 {
-  unsigned long c;
-  int n, k;
+  int n;
 
   for (n = 0; n < 256; n++) {
+    unsigned long c;
+    int k;
+
     c = (unsigned long)n;
     for (k = 0; k < 8; k++)
       c = c & 1 ? 0xedb88320L ^ (c >> 1) : c >> 1;
+
     crc_table[n] = c;
   }
   crc_table_computed = 1;
@@ -149,10 +155,11 @@ unsigned long update_crc(unsigned long crc, unsigned char *buf, int len)
 unsigned long getlong(FILE *fp, char *fname)
 {
   unsigned long res=0;
-  int c;
   int i;
 
   for(i=0;i<4;i++) {
+    int c;
+
     if((c=fgetc(fp))==EOF) {
       printf("%s: EOF while reading 4 bytes value\n", fname);
       error=2;
@@ -185,9 +192,9 @@ void init_printbuffer(char *fname)
 
 void printbuffer(char *buffer, int size, int printtext)
 {
-  unsigned char c;
-
   while(size--) {
+    unsigned char c;
+
     c = *buffer++;
     if(printtext) {
       if((c < ' ' && c != '\t' && c != '\n') ||
@@ -248,29 +255,27 @@ char *getmonth(int m)
   {"(undefined)", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-  if (m < 1 || m > 12) return month[0];
-  else return month[m];
+  if (m < 1 || m > 12)
+    return month[0];
+  else
+    return month[m];
 }
 
 void pngcheck(FILE *fp, char *fname)
 {
-  long s;
+  long sz;
   unsigned char magic[8];
   char chunkid[5] = {'\0', '\0', '\0', '\0', '\0'};
   int toread;
   int c;
   unsigned long crc, filecrc;
-  int ihdr_read=0;
-  int plte_read=0;
-  int idat_read=0;
-  int last_is_idat=0;
-  int iend_read=0;
+  int ihdr_read = 0, plte_read = 0, idat_read = 0, last_is_idat = 0;
+  int iend_read = 0;
   int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_offs = 0;
   int have_phys = 0, have_sbit = 0, have_scal = 0, have_time = 0, have_trns = 0;
   long w = 0, h = 0;
   int bits = 0, ityp = 0, lace = 0, nplte = 0;
   static int first_file=1;
-  int i;
   static char *type[] = {"grayscale", "undefined type", "RGB", "colormap",
                          "grayscale+alpha", "undefined type", "RGB+alpha"};
 
@@ -317,7 +322,7 @@ void pngcheck(FILE *fp, char *fname)
         return;
     }
 
-    s=getlong(fp, fname);
+    sz = getlong(fp, fname);
 
     if(fread(chunkid, 1, 4, fp)!=4) {
       printf("%s  EOF while reading chunk type\n", verbose? "":fname);
@@ -335,7 +340,7 @@ void pngcheck(FILE *fp, char *fname)
 
     if(verbose)
       printf("  chunk %s at offset 0x%05lx, length %ld", chunkid,
-             ftell(fp)-4, s);
+             ftell(fp)-4, sz);
 
     crc = update_crc(CRCINIT, (unsigned char *)chunkid, 4);
 
@@ -348,7 +353,7 @@ void pngcheck(FILE *fp, char *fname)
           return;
     }
 
-    toread = (s>BS)? BS : s;
+    toread = (sz > BS) ? BS : sz;
 
     if(fread(buffer, 1, toread, fp)!=toread) {
       printf("\n%s  EOF while reading chunk data (%s)\n",
@@ -362,7 +367,7 @@ void pngcheck(FILE *fp, char *fname)
       if (ihdr_read) {
         printf("%s  multiple IHDR not allowed\n", verbose?":":fname);
         error = 1;
-      } else if (s != 13) {
+      } else if (sz != 13) {
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"IHDR ");
         error = 2;
@@ -377,8 +382,8 @@ void pngcheck(FILE *fp, char *fname)
         }
         bits = (unsigned)buffer[8];
         ityp = (unsigned)buffer[9];
-        if(ityp>sizeof(type)/sizeof(char*)) {
-          ityp=1; /* avoid out of range array index */
+        if(ityp > sizeof(type)/sizeof(char*)) {
+          ityp = 1; /* avoid out of range array index */
         }
         switch (bits) {
           case 1:
@@ -436,15 +441,35 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede bKGD\n",
                verbose?":":fname, verbose?"":"PLTE ");
         error = 1;
-      } else if (s < 3 || s > 768 || s % 3 != 0) {
+      } else if (sz < 3 || sz > 768 || sz % 3 != 0) {
         printf("%s  invalid number of %sentries (%g)\n",
-               verbose?":":fname, verbose?"":"PLTE ",(double)s / 3);
+               verbose?":":fname, verbose?"":"PLTE ",(double)sz / 3);
         error = 2;
       }
+      else if (printpal && !verbose)
+        printf("\n");
+
       if (error == 0 || (error == 1 && force)) {
-        nplte = s / 3;
+        nplte = sz / 3;
         if (verbose)
           printf(": %d palette entries\n", nplte);
+
+        if (printpal) {
+          char *spc;
+          int i, j;
+
+          if (nplte < 10)
+            spc = "";
+          else if (nplte < 100)
+            spc = " ";
+          else
+            spc = "  ";
+
+          for (i = j = 0; i < nplte; i++, j += 3)
+            printf("  %s%3d ->> [%3d, %3d, %3d] = [%02x, %02x, %02x]\n", spc, i,
+                   buffer[j], buffer[j + 1], buffer[j + 2],
+                   buffer[j], buffer[j + 1], buffer[j + 2]);
+        }
       }
       plte_read = 1;
       last_is_idat = 0;
@@ -460,18 +485,19 @@ void pngcheck(FILE *fp, char *fname)
       }
 
       /* We just want to check that we have read at least the minimum (10)
-       * IDAT bytes possible, but avoid any overflow for short ints.
+       * IDAT bytes possible, but avoid any overflow for short ints.  We
+       * must also take into account that 0 length IDAT chunks are legal.
        */
       if (idat_read <= 0)
-        idat_read = s > 0 ? s : -1;
+        idat_read = sz > 0 ? sz : -1;
       else if (idat_read < 10)
-        idat_read += s > 10 ? 10 : s;
+        idat_read += sz > 10 ? 10 : sz;
       last_is_idat = 1;
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose?":":fname);
         error = 1;
-      } else if (s != 0) {
+      } else if (sz != 0) {
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"IEND ");
         error = 1;
@@ -495,7 +521,7 @@ void pngcheck(FILE *fp, char *fname)
       switch (ityp) {
         case 0:
         case 4:
-          if (s != 2) {
+          if (sz != 2) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"bKGD ");
             error = 2;
@@ -506,7 +532,7 @@ void pngcheck(FILE *fp, char *fname)
           break;
         case 2:
         case 6:
-          if (s != 6) {
+          if (sz != 6) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"bKGD ");
             error = 2;
@@ -517,7 +543,7 @@ void pngcheck(FILE *fp, char *fname)
           }
           break;
         case 3:
-          if (s != 1) {
+          if (sz != 1) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"bKGD ");
             error = 2;
@@ -541,13 +567,12 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede IDAT\n",
                verbose?":":fname, verbose?"":"cHRM ");
         error = 1;
-      } else if (s != 32) {
+      } else if (sz != 32) {
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"cHRM ");
         error = 2;
       }
-      if (error == 0 || (error == 1 && force))
-      {
+      if (error == 0 || (error == 1 && force)) {
         double wx, wy, rx, ry, gx, gy, bx, by;
 
         wx = (double)LG(buffer)/100000;
@@ -560,19 +585,19 @@ void pngcheck(FILE *fp, char *fname)
         by = (double)LG(buffer+28)/100000;
 
         if (wx < 0 || wx > 0.8 || wy < 0 || wy > 0.8 || wx + wy > 1.0) {
-          printf("%s  Invalid %swhite point %0g %0g\n",
+          printf("%s  invalid %swhite point %0g %0g\n",
                  verbose?":":fname, verbose?"":"cHRM ", wx, wy);
           error = 1;
         } else if (rx < 0 || rx > 0.8 || ry < 0 || ry > 0.8 || rx + ry > 1.0) {
-          printf("%s  Invalid %sred point %0g %0g\n",
+          printf("%s  invalid %sred point %0g %0g\n",
                  verbose?":":fname, verbose?"":"cHRM ", rx, ry);
           error = 1;
         } else if (gx < 0 || gx > 0.8 || gy < 0 || gy > 0.8 || gx + gy > 1.0) {
-          printf("%s  Invalid %sgreen point %0g %0g\n",
+          printf("%s  invalid %sgreen point %0g %0g\n",
                  verbose?":":fname, verbose?"":"cHRM ", gx, gy);
           error = 1;
         } else if (bx < 0 || bx > 0.8 || by < 0 || by > 0.8 || bx + by > 1.0) {
-          printf("%s  Invalid %sblue point %0g %0g\n",
+          printf("%s  invalid %sblue point %0g %0g\n",
                  verbose?":":fname, verbose?"":"cHRM ", bx, by);
           error = 1;
         }
@@ -601,7 +626,7 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede PLTE\n",
                verbose?":":fname, verbose?"":"gAMA ");
         error = 1;
-      } else if (s != 4) {
+      } else if (sz != 4) {
         printf("%s  incorrect %slength\n",
                      verbose?":":fname, verbose?"":"gAMA ");
         error = 2;
@@ -623,13 +648,13 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede IDAT\n",
                verbose?":":fname, verbose?"":"hIST ");
         error = 1;
-      } else if (s != nplte * 2) {
+      } else if (sz != nplte * 2) {
         printf("%s  invalid number of %sentries (%g)\n",
-               verbose?":":fname, verbose?"":"hIST ", (double)s / 2);
+               verbose?":":fname, verbose?"":"hIST ", (double)sz / 2);
         error = 2;
       }
       if (verbose && (error == 0 || (error == 1 && force))) {
-        printf(": %ld histogram entries\n", s / 2);
+        printf(": %ld histogram entries\n", sz / 2);
       }
       have_hist = 1;
       last_is_idat = 0;
@@ -641,7 +666,7 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede IDAT\n",
                verbose?":":fname, verbose?"":"oFFs ");
         error = 1;
-      } else if (s != 9) {
+      } else if (sz != 9) {
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"oFFs ");
         error = 2;
@@ -660,7 +685,7 @@ void pngcheck(FILE *fp, char *fname)
         printf("%s  %smust precede IDAT\n",
                verbose?":":fname, verbose?"":"pHYS ");
         error = 1;
-      } else if (s != 9) {
+      } else if (sz != 9) {
         printf("%s  incorrect %slength\n",
                verbose?":":fname, verbose?"":"pHYS ");
         error = 2;
@@ -690,7 +715,7 @@ void pngcheck(FILE *fp, char *fname)
       }
       switch (ityp) {
         case 0:
-          if (s != 1) {
+          if (sz != 1) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
@@ -704,7 +729,7 @@ void pngcheck(FILE *fp, char *fname)
           break;
         case 2:
         case 3:
-          if (s != 3) {
+          if (sz != 3) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
@@ -726,7 +751,7 @@ void pngcheck(FILE *fp, char *fname)
           }
           break;
         case 4:
-          if (s != 2) {
+          if (sz != 2) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
@@ -743,7 +768,7 @@ void pngcheck(FILE *fp, char *fname)
           }
           break;
         case 6:
-          if (s != 4) {
+          if (sz != 4) {
             printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"sBIT ");
             error = 2;
@@ -781,7 +806,7 @@ void pngcheck(FILE *fp, char *fname)
         error = 1;
       }
       if (verbose && (error == 0 || force)) {
-        buffer[s] = '\0';
+        buffer[sz] = '\0';
         buffer[strlen(buffer+1)+1] = 'x';
 
         printf(": image size %s %s\n", buffer+1,
@@ -799,7 +824,9 @@ void pngcheck(FILE *fp, char *fname)
                verbose?":":fname, verbose?"":chunkid);
         error = 1;
       } else {
-        for(i=0;i<keywordlen(buffer, toread);i++) {
+        int i;
+
+        for(i = 0;i < keywordlen(buffer, toread); i++) {
           if((unsigned char)buffer[i]<32 || ((unsigned char)buffer[i]>=127 &&
              (unsigned char)buffer[i]<160)) {
             printf("%s  %s keyword contains control characters\n",
@@ -816,16 +843,16 @@ void pngcheck(FILE *fp, char *fname)
         if (printtext && strcmp(chunkid, "tEXt") == 0) {
           if (verbose) printf("\n");
 
-          if(strlen((char *)buffer)<toread)
+          if(strlen((char *)buffer) < toread)
             buffer[strlen((char *)buffer)]=':';
 
           printbuffer(buffer, toread, 1);
 
-          while (s > toread) {
-            s -= toread;
-            toread = (s>BS)? BS : s;
+          while (sz > toread) {
+            sz -= toread;
+            toread = (sz > BS)? BS : sz;
 
-            if(fread(buffer, 1, toread, fp)!=toread) {
+            if(fread(buffer, 1, toread, fp) != toread) {
               printf("\n  EOF while reading chunk data (tEXT)\n");
               return;
             }
@@ -852,7 +879,7 @@ void pngcheck(FILE *fp, char *fname)
       if (have_time) {
         printf("%s  multiple tIME not allowed\n", verbose?":":fname);
         error=1;
-      } else if (s != 7) {
+      } else if (sz != 7) {
         printf("%s  incorrect %slength\n",
                    verbose?":":fname, verbose?"":"tIME ");
         error = 2;
@@ -868,7 +895,7 @@ void pngcheck(FILE *fp, char *fname)
       if (have_trns) {
         printf("%s  multiple tRNS not allowed\n", verbose?":":fname);
         error = 1;
-      } else if (ityp==3 && !plte_read) {
+      } else if (ityp == 3 && !plte_read) {
         printf("%s  %smust follow PLTE\n",
                verbose?":":fname, verbose?"":"tRNS ");
         error = 1;
@@ -879,8 +906,7 @@ void pngcheck(FILE *fp, char *fname)
       }
       switch (ityp) {
         case 0:
-          if (s != 2)
-          {
+          if (sz != 2) {
             printf("%s  incorrect %slength for %s image\n",
                    verbose?":":fname, verbose?"":"tRNS ",type[ityp]);
             error = 2;
@@ -890,8 +916,7 @@ void pngcheck(FILE *fp, char *fname)
           }
           break;
         case 2:
-          if (s != 6)
-          {
+          if (sz != 6) {
             printf("%s  incorrect %slength for %s image\n",
                    verbose?":":fname, verbose?"":"tRNS ",type[ityp]);
             error = 2;
@@ -902,14 +927,13 @@ void pngcheck(FILE *fp, char *fname)
           }
           break;
         case 3:
-          if (s > nplte)
-          {
+          if (sz > nplte) {
             printf("%s  incorrect %slength for %s image\n",
-                   verbose?":":fname, verbose?"":"tRNS ",type[ityp]);
+                   verbose?":":fname, verbose?"":"tRNS ", type[ityp]);
             error = 2;
           }
           else if (verbose && (error == 0 || (error == 1 && force))) {
-            printf(": %ld transparency entries\n", s);
+            printf(": %ld transparency entries\n", sz);
           }
           break;
         default:
@@ -939,12 +963,11 @@ void pngcheck(FILE *fp, char *fname)
       last_is_idat = 0;
     }
 
-    while (s > toread)
-    {
-      s -= toread;
-      toread = (s>BS)? BS : s;
+    while (sz > toread) {
+      sz -= toread;
+      toread = (sz > BS)? BS : sz;
 
-      if(fread(buffer, 1, toread, fp)!=toread) {
+      if(fread(buffer, 1, toread, fp) != toread) {
         printf("%s  EOF while reading chunk data (%s)\n",
                verbose ? "":fname, chunkid);
         return;
@@ -953,9 +976,9 @@ void pngcheck(FILE *fp, char *fname)
       crc = update_crc(crc, (unsigned char *)buffer, toread);
     }
 
-    filecrc=getlong(fp, fname);
+    filecrc = getlong(fp, fname);
 
-    if(filecrc!=CRCCOMPL(crc)) {
+    if(filecrc != CRCCOMPL(crc)) {
       printf("%s  CRC error in chunk %s (actual %08lx, should be %08lx)\n",
              verbose? "":fname, chunkid, CRCCOMPL(crc), filecrc);
         error = 1;
@@ -1016,6 +1039,10 @@ int main(int argc, char *argv[])
         sevenbit=1;
         i++;
         break;
+      case 'p':
+        printpal=1;
+        i++;
+        break;
       case 'f':
         force=1;
         i++;
@@ -1035,10 +1062,11 @@ usage:
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-vqt7f]\n\n");
       fprintf(stderr, "Options:\n");
-      fprintf(stderr, "   -v  test verbosely\n");
+      fprintf(stderr, "   -v  test verbosely (output most chunk data)\n");
       fprintf(stderr, "   -q  test quietly (only output errors)\n");
       fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
       fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)\n");
+      fprintf(stderr, "   -p  print contents of PLTE chunks (can be used with -q)\n");
       fprintf(stderr, "   -f  force continuation even after major errors\n");
     } else {
       pngcheck(stdin, "stdin");
@@ -1082,7 +1110,7 @@ usage:
 int PNG_check_magic(unsigned char *magic, char *fname)
 {
   if (strncmp((char *)&magic[1], "PNG", 3) != 0) {
-    printf("%s not a PNG file\n", verbose ? "" : fname);
+    printf("%s  this is not a PNG\n", verbose ? "" : fname);
     return(ERROR);
   }
 
@@ -1092,7 +1120,7 @@ int PNG_check_magic(unsigned char *magic, char *fname)
     if (verbose) {
       printf("  file is CORRUPTED.\n");
     } else {
-      printf("%s: file is CORRUPTED by text conversion.\n", fname);
+      printf("%s  file is CORRUPTED by text conversion.\n", fname);
       return (ERROR);
     }
 
@@ -1144,8 +1172,7 @@ int PNG_check_magic(unsigned char *magic, char *fname)
 int PNG_check_chunk_name(char *chunk_name, char *fname)
 {
   if(!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
-     !isalpha(chunk_name[2]) || !isalpha(chunk_name[3]))
-  {
+     !isalpha(chunk_name[2]) || !isalpha(chunk_name[3])) {
     printf("%s%schunk name %02x %02x %02x %02x doesn't comply to naming rules\n",
            verbose ? "" : fname, verbose ? "" : ": ",
            chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
