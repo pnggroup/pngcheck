@@ -143,10 +143,10 @@
  *               BASI and PPLT
  * 19991114 GRR: added gIFg, gIFx and part of gIFt
  * 19991117 GRR: finished gIFt; added sRGB and iCCP
- * 19991117 GRR: released version 1.99.2
+ * 19991118 GRR: released version 1.99.2
  */
 
-#define VERSION "1.99.2 of 17 November 1999"
+#define VERSION "1.99.2 of 18 November 1999"
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -179,21 +179,27 @@
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
- * whatever has been run):
+ * whatever has been run; setargv.obj comes with MSVC and expands wildcards):
  *
  *    without zlib:
- *       cl -nologo -O -W3 -DWIN32 pngcheck.c
+ *       cl -nologo -O -W3 -DWIN32 pngcheck.c setargv.obj
  *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
  *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
- *       link -nologo pngcheck.obj \zlibpath\zlib.lib
+ *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
  *       [copy pngcheck.exe and zlib.dll to installation directory]
+ *    or
+ *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlibstat.lib
+ *       [if you have a static library for zlib]
  *
- * zlib info:		http://www.cdrom.com/pub/infozip/zlib/
- * PNG/MNG info:	http://www.cdrom.com/pub/png/
- *			http://www.cdrom.com/pub/mng/  and
- *                      ftp://swrinde.nde.swri.edu/pub/mng/
- * pngcheck sources:	http://www.cdrom.com/pub/png/pngcode.html  or
- *                      ftp://swrinde.nde.swri.edu/pub/png/applications/
+ * zlib info:
+ *	ftp://www.cdrom.com/pub/infozip/zlib/zlib.html
+ * PNG/MNG info:
+ *	http://www.cdrom.com/pub/png/
+ *	http://www.cdrom.com/pub/mng/
+ *	ftp://swrinde.nde.swri.edu/pub/mng/
+ * pngcheck sources:
+ *	http://www.cdrom.com/pub/png/pngcode.html
+ *	ftp://swrinde.nde.swri.edu/pub/png/applications/   (may be out of date)
  */
 
 #include <stdio.h>
@@ -205,6 +211,8 @@
 #include <ctype.h>
 #ifdef WIN32
 #  include <io.h>
+#else
+#  include <unistd.h>	/* GRR: should really ifdef this for Unix only */
 #endif
 #ifdef USE_ZLIB
 #  include "zlib.h"
@@ -700,7 +708,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   while ((c = fgetc(fp)) != EOF) {
     ungetc(c, fp);
 
-    if (!mng && iend_read || mng && mend_read) {
+    if ((!mng && iend_read) || (mng && mend_read)) {
       if (searching) /* Start looking again in the current file. */
         return;
 
@@ -1067,7 +1075,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           numfilt = 0L;
           first_idat = 0;
           if (lace) {   /* loop through passes to calculate total filters */
-            int pass, yskip, yoff;
+            int pass, yskip=2, yoff=1;
 
             numfilt_total = 0L;
             for (pass = 1;  pass <= 7;  ++pass) {
@@ -1344,7 +1352,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        float dtime = .01 * SH(buffer+2);
+        float dtime = (float)(.01 * SH(buffer+2));
 
         printf("\n    disposal method = %d, user input flag = %d, display time = %f seconds\n",
           buffer[0], buffer[1], dtime);
@@ -2495,7 +2503,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
-          sz-2, buffer+2);	/* GRR EBCDIC WARNING */
+          (int)(sz-2), buffer+2);	/* GRR EBCDIC WARNING */
       }
       last_is_idat = 0;
 
@@ -2762,7 +2770,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
   /*----------------------- END OF IMMENSE WHILE-LOOP -----------------------*/
 
-  if (!mng && !iend_read || mng && !mend_read) {
+  if ((!mng && !iend_read) || (mng && !mend_read)) {
     printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
       mng? " M":"n I");
     set_err(1);
