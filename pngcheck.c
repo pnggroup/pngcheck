@@ -93,19 +93,18 @@
  * 98.06.10 GRR: extended MNG (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
  * 98.06.11 GRR: extended MNG (more FRAM info; LOOP, ENDL)
  * 98.06.12 GRR: extended MNG (FRAM, BACK, MOVE, CLON, SHOW, CLIP, fPRI, eXPI)
+ * 98.06.16 GRR: extended MNG (PROM, SAVE, SEEK)
  *
- * [to do:  SAVE, SEEK, BASI, PAST, DISC, tERm, PROM, IPNG, DROP, DBYK, ORDR]
+ * [to do:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
  * [to do:  EBCDIC support (minimal?)]
  * [to do:  fix or disable compression ratio for MNG streams]
  * [to do:  split out each chunk's code into handle_XXXX() function]
  *
  * MNG Draft 42:
- *  - CLON:  missing paren in clone_type 1
- *  - SHOW:  last_image refers to "potential visibility byte", not show_mode
- *  - SHOW:  show_mode:  what is "cycle"?
- *  - fPRI:  can't be 255 if signed byte
- *  - eXPI:  no limits given on snapshot name (at least 1 byte??)
- *  - 4.4.6:  "are also defined the MNG top level"
+ *  - PROM:  cannot promote bit depth without promoting color type?
+ *           (else "cases" incomplete)
+ *  - SAVE:  why entry_type doesn't start at 0?
+ *  - SEEK:  why is null byte allowed?
  */
 
 /*
@@ -126,7 +125,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr6 of 12 June 1998"
+#define VERSION "1.98-grr7 of 16 June 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -278,6 +277,13 @@ static char *show_mode[] = {
   "toggle potentially visible and invisible objects but do not display any",
   "make next object potentially visible and display; make rest invisible",
   "make next object potentially visible but do not display; make rest invisible"
+};
+
+static char *entry_type[] = {
+  "INVALID",
+  "segment",
+  "frame",
+  "exported image"
 };
 
 
@@ -1644,6 +1650,80 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       last_is_idat = 0;
 
     /*------* 
+     | SAVE | 
+     *------*/
+    } else if(strcmp(chunkid, "SAVE") == 0) {
+      if (sz > 0 && verbose) {
+        uch offsize = buffer[0];
+
+        if (offsize != 4 && offsize != 8) {
+          printf("%s  incorrect %soffset size (%u bytes)\n",
+            verbose? ":":fname, verbose? "":"SAVE ", (unsigned)offsize);
+          set_err(1);
+        } else if (sz == 1) {
+          printf("%s  incorrect %slength\n",
+            verbose? ":":fname, verbose? "":"SAVE ");
+          set_err(1);
+        } else {
+          uch *p = buffer+1;
+          int bytes_left = sz-1;
+
+          printf("\n    offset size = %u bytes\n", (unsigned)offsize);
+          while (bytes_left > 0) {
+            uch type = *p;
+
+            if (type == 1 && bytes_left < 1+offsize) {
+              printf("%s  incorrect %slength\n",
+                verbose? ":":fname, verbose? "":"SAVE ");
+              set_err(1);
+              break;
+            }
+            printf("    entry type = %s", (type <
+              sizeof(entry_type)/sizeof(char *))? entry_type[type] : inv);
+            if (type == 1) {
+              ulg first4 = LG(p+1);
+
+              printf(", offset = ");
+              if ((offsize == 4 && first4 == 0L) ||
+                  (offsize == 8 && first4 == 0L && LG(p+5) == 0L))
+                printf("unknown\n");
+              else if (offsize == 4)
+                printf("0x%04lx\n", first4);
+              else
+                printf("0x%04lx%04lx\n", first4, LG(p+5));  /* big-endian */
+            } else
+              printf("\n");
+            p += 1 + offsize;
+            bytes_left = sz - (p-buffer);
+            if (bytes_left) {
+              do {
+                if (*p)
+                  putchar(*p);		/* GRR EBCDIC WARNING */
+                else {
+                  ++p;
+                  break;
+                }
+              } while (++p < buffer + sz);
+              bytes_left = sz - (p-buffer);
+            }
+          } /* end while (bytes_left > 0) */
+        }
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | SEEK | 
+     *------*/
+    } else if(strcmp(chunkid, "SEEK") == 0) {
+      if (sz > 0 && verbose) {
+        printf("\n    ");
+        init_printbuffer(fname);
+        printbuffer(buffer, sz);
+        finish_printbuffer(fname, chunkid);
+      }
+      last_is_idat = 0;
+
+    /*------* 
      | nEED | 
      *------*/
     } else if(strcmp(chunkid, "nEED") == 0) {
@@ -1868,6 +1948,42 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1))
         printf(":  nest level = %u\n", (unsigned)(buffer[0]));
+      last_is_idat = 0;
+
+    /*------* 
+     | PROM | 
+     *------*/
+    } else if(strcmp(chunkid, "PROM") == 0) {
+      if (sz != 3) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"PROM ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        char *ctype;
+
+        switch (buffer[0]) {
+          case 2:
+            ctype = "gray+alpha";
+            break;
+          case 4:
+            ctype = "RGB";
+            break;
+          case 6:
+            ctype = "RGBA";
+            break;
+          default:
+            ctype = "INVALID";
+            set_err(1);
+            break;
+        }
+        printf("\n    new color type = %s, new bit depth = %u\n",
+          ctype, (unsigned)(buffer[1]));
+          /* GRR:  not checking for valid buffer[1] values */
+        printf("    fill method (if bit depth increased) = %s\n",
+          buffer[2]? "zero fill" : "left bit replication");
+          /* GRR:  not checking for valid buffer[2] values */
+      }
       last_is_idat = 0;
 
     /*------* 
