@@ -86,21 +86,23 @@
  * 97.01.10 GRR: fixed line-filters code for large-IDAT case
  * 97.06.21 GRR: added compression-ratio info
  * 98.06.09 TGL: fixed pHYs buglet
+ * 98.06.09 GRR: re-integrated minimal MNG support from 97.01.21 branch
  */
 
 /*
- * Compilation example (GNU C, command line):
+ * Compilation example (GNU C, command line; first example assumes libz.a or
+ * libz.so is in the normal search path--add "-L/your/path" if elsewhere):
  *
  *    with zlib support:  gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
  *    without:            gcc -O -o pngcheck pngcheck.c
  *
  * zlib info can be found at:  http://www.cdrom.com/pub/infozip/zlib/
- * PNG info can be found at:   http://www.wco.com/~png/
- * pngcheck can be found at:   http://www.wco.com/~png/pngcode.html  or
+ * PNG info can be found at:   http://www.cdrom.com/pub/png/
+ * pngcheck can be found at:   http://www.cdrom.com/pub/png/pngcode.html  or
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr3 of 21 June 1997"
+#define VERSION "1.98-grr5 of 9 June 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,7 +115,10 @@
 #  include <zlib.h>
 #endif
 
-int PNG_check_magic(unsigned char *magic, char *fname);
+#define DO_PNG  0
+#define DO_MNG  1
+
+int PNG_MNG_check_magic(unsigned char *magic, char *fname, int which);
 int PNG_check_chunk_name(char *chunk_name, char *fname);
 void make_crc_table(void);
 unsigned long update_crc(unsigned long crc, unsigned char *buf, int len);
@@ -147,12 +152,16 @@ int sevenbit = 0; /* escape characters >=160 */
 int force = 0; /* continue even if an occurs (CRC error, etc) */
 int search = 0; /* hunt for PNGs in the file... */
 int extract = 0; /* ...and extract them to arbitrary file names. */
+int mng = 0;        /* it's a MNG instead of a PNG (won't work in pipe) */
 
 int error; /* the current error status */
 unsigned char buffer[BS];
 
 /* What the PNG magic number should be */
-static unsigned char good_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+static unsigned char good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+
+/* What the MNG magic number should be */
+static unsigned char good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
 
 /* table of crc's of all 8-bit messages */
 unsigned long crc_table[256];
@@ -390,6 +399,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   unsigned long crc, filecrc;
   int ihdr_read = 0, plte_read = 0, idat_read = 0, last_is_idat = 0;
   int iend_read = 0;
+  int mhdr_read = 0, mend_read = 0;
   int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_offs = 0;
   int have_phys = 0, have_sbit = 0, have_scal = 0, have_time = 0, have_trns = 0;
   unsigned long zhead = 1; /* 0x10000 indicates both zlib header bytes read. */
@@ -433,18 +443,28 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (fread(buffer, 1, 120, fp) == 120 && fread(magic, 1, 8, fp) == 8) {
         printf("    cannot read MacBinary header\n");
         set_err(3);
-      } else if ((check = PNG_check_magic(magic, fname)) == 0) {
+      } else if ((check = PNG_MNG_check_magic(magic, fname, DO_PNG)) == 0) {
         if (!quiet)
           printf("    this PNG seems to be contained in a MacBinary file\n");
+      } else if ((check = PNG_MNG_check_magic(magic, fname, DO_MNG)) == 0) {
+        if (!quiet)
+          printf("    this MNG seems to be contained in a MacBinary file\n");
       } else {
         if (check == 2)
-          printf("    this is not a PNG image\n");
+          printf("    this is not a PNG image or MNG stream\n");
         set_err(2);
       }
-    } else if ((check = PNG_check_magic(magic, fname)) != 0) {
+    } else if ((check = PNG_MNG_check_magic(magic, fname, DO_PNG)) != 0) {
+      if (check == 2) {   /* see if it's a MNG instead */
+        if ((check = PNG_MNG_check_magic(magic, fname, DO_MNG)) == 0)
+          mng = 1;        /* yup */
+        else {
       set_err(2);
       if (check == 2)
-        printf("%s  this is not a PNG image\n", verbose? "":fname);
+            printf("%s  this is neither a PNG image nor a MNG stream\n",
+              verbose? "":fname);
+        }
+      }
     }
 
     if (is_err(1))
@@ -494,9 +514,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     crc = update_crc(CRCINIT, (unsigned char *)chunkid, 4);
 
-    if(!ihdr_read && strcmp(chunkid,"IHDR")!=0) {
-      printf("%s  first chunk must be IHDR\n",
-             verbose? ":":fname);
+    if ((!mng && !ihdr_read && strcmp(chunkid,"IHDR")!=0) ||
+         (mng && !mhdr_read && strcmp(chunkid,"MHDR")!=0))
+    {
+      printf("%s  first chunk must be %cHDR\n",
+             verbose? ":":fname, mng? 'M':'I');
       set_err(1);
       if (!force)
         return;
@@ -513,7 +535,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     crc = update_crc(crc, (unsigned char *)buffer, toread);
 
-    if(strcmp(chunkid, "IHDR") == 0) {
+    if(strcmp(chunkid, "IHDR") == 0 && !mng) {
       if (ihdr_read) {
         printf("%s  multiple IHDR not allowed\n", verbose? ":":fname);
         set_err(1);
@@ -583,8 +605,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       first_idat = 1;  /* flag:  next IDAT will be the first in this file */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
 #endif
+    } else if(strcmp(chunkid, "MHDR") == 0 && mng) {
+      if (mhdr_read) {
+        printf("%s  multiple MHDR not allowed\n", verbose? ":":fname);
+        set_err(1);
+      } else if (sz != 12) {
+        printf("%s  incorrect %slength\n",
+               verbose? ":":fname, verbose? "":"MHDR ");
+        set_err(2);
+      }
+      printf("\n");   /* GRR: placeholder for now */
+      mhdr_read = 1;
+      last_is_idat = 0;
     } else if(strcmp(chunkid, "PLTE") == 0) {
-      if (plte_read) {
+      if (plte_read && !mng) {
         printf("%s  multiple PLTE not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -1403,7 +1437,7 @@ void pnginfile(FILE *fp, char *fname, int ipng, int extracting)
     } else if (verbose) {
       printf("%s: contains %s PNG %d\n", name, fname, ipng);
     }
-    (void)fwrite(good_magic, 8, 1, fpOut);
+    (void)fwrite(good_PNG_magic, 8, 1, fpOut);
     *szdot = 0;
   }
 
@@ -1436,14 +1470,14 @@ void pngsearch(FILE *fp, char *fname, int extracting)
    */
   do {
     ch = getc(fp);
-    while (ch == good_magic[0]) {
-      if ((ch = getc(fp)) == good_magic[1] &&
-          (ch = getc(fp)) == good_magic[2] &&
-          (ch = getc(fp)) == good_magic[3] &&
-          (ch = getc(fp)) == good_magic[4] &&
-          (ch = getc(fp)) == good_magic[5] &&
-          (ch = getc(fp)) == good_magic[6] &&
-          (ch = getc(fp)) == good_magic[7]) {
+    while (ch == good_PNG_magic[0]) {
+      if ((ch = getc(fp)) == good_PNG_magic[1] &&
+          (ch = getc(fp)) == good_PNG_magic[2] &&
+          (ch = getc(fp)) == good_PNG_magic[3] &&
+          (ch = getc(fp)) == good_PNG_magic[4] &&
+          (ch = getc(fp)) == good_PNG_magic[5] &&
+          (ch = getc(fp)) == good_PNG_magic[6] &&
+          (ch = getc(fp)) == good_PNG_magic[7]) {
         /* Just after a PNG header. */
         pnginfile(fp, fname, ++ipng, extracting);
       }
@@ -1585,26 +1619,27 @@ usage:
  *
  */
 
-/* (int)PNG_check_magic ((unsigned char*) magic)
+/* PNG_MNG_check_magic()
  *
- * check the magic numbers in 8-byte buffer at the beginning of
- * a PNG file.
+ * Check the magic numbers in 8-byte buffer at the beginning of
+ * a (possible) PNG or MNG file.
  *
- * by Alexander Lehmann and Glenn Randers-Pehrson
+ * by Alexander Lehmann, Glenn Randers-Pehrson and Greg Roelofs
  *
  * This is free software; you can redistribute it and/or modify it
  * without any restrictions.
  *
  */
 
-int PNG_check_magic(unsigned char *magic, char *fname)
+int PNG_MNG_check_magic(unsigned char *magic, char *fname, int which)
 {
   int i;
+  unsigned char *good_magic = which? good_MNG_magic : good_PNG_magic;
 
   for(i = 1; i < 3; i++)
   {
     if (magic[i] != good_magic[i]) {
-      return(2);
+      return 2;
     }
   }
 
@@ -1612,34 +1647,34 @@ int PNG_check_magic(unsigned char *magic, char *fname)
       magic[4] != good_magic[4] || magic[5] != good_magic[5] ||
       magic[6] != good_magic[6] || magic[7] != good_magic[7]) {
 
-    if (verbose) {
-      printf("  file is CORRUPTED.\n");
-    } else {
+    if (!verbose) {
       printf("%s  file is CORRUPTED by text conversion.\n", fname);
-      return (1);
+      return 1;
     }
 
-    /* This coding derived from Alexander Lehmanns checkpng code   */
+    printf("  file is CORRUPTED.\n");
+
+    /* This coding derived from Alexander Lehmann's checkpng code   */
     if(strncmp((char *)&magic[4], "\012\032", 2) == 0)
-      printf("  It seems to have suffered DOS->unix conversion\n");
+      printf("  It seems to have suffered DOS->Unix conversion\n");
 
     else if(strncmp((char *)&magic[4], "\015\032", 2) == 0)
       printf("  It seems to have suffered DOS->Mac conversion\n");
 
     else if(strncmp((char *)&magic[4], "\015\015\032", 3) == 0)
-      printf("  It seems to have suffered unix->Mac conversion\n");
+      printf("  It seems to have suffered Unix->Mac conversion\n");
 
     else if(strncmp((char *)&magic[4], "\012\012\032", 3) == 0)
-      printf("  It seems to have suffered Mac->unix conversion\n");
+      printf("  It seems to have suffered Mac->Unix conversion\n");
 
     else if(strncmp((char *)&magic[4], "\012\012", 2) == 0)
-      printf("  It seems to have suffered DOS->unix conversion\n");
+      printf("  It seems to have suffered DOS->Unix conversion\n");
 
     else if(strncmp((char *)&magic[4], "\015\015\012\032", 4) == 0)
-      printf("  It seems to have suffered unix->DOS conversion\n");
+      printf("  It seems to have suffered Unix->DOS conversion\n");
 
     else if(strncmp((char *)&magic[4], "\015\012\032\015", 4) == 0)
-      printf("  It seems to have suffered unix->DOS conversion\n");
+      printf("  It seems to have suffered Unix->DOS conversion\n");
 
     else if(strncmp((char *)&magic[4], "\015\012\012", 3) == 0)
       printf("  It seems to have suffered DOS EOF conversion\n");
@@ -1652,10 +1687,10 @@ int PNG_check_magic(unsigned char *magic, char *fname)
     else if(magic[0] != good_magic[0])
       printf("  It was probably transmitted in text mode\n");
 
-    return(1);
+    return 1;
   }
 
-  return (0);
+  return 0;
 }
 
 int PNG_check_chunk_name(char *chunk_name, char *fname)
