@@ -89,9 +89,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#ifndef __riscos
+#  include <sys/types.h>
+#  include <sys/stat.h>
+#  include <fcntl.h>
+#endif
 #include <string.h>
 #include <ctype.h>
 #ifdef WIN32
@@ -562,7 +564,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int bitdepth = 0, ityp = 0, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
   int did_stat = 0;
+#ifdef __riscos
+  struct { long st_size; } statbuf;
+#else
   struct stat statbuf;
+#endif
   static int first_file = 1;
 
   error = 0;
@@ -573,7 +579,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     if (searching) {
       printf("\n");
     } else {
+#ifdef __riscos
+      _swix (8 /*OS_File*/, 3 | 1<<27,  17, fname,  &statbuf.st_size);
+#else
       stat(fname, &statbuf);   /* know file exists => know stat() successful */
+#endif
       did_stat = 1;
       printf(" (%ld bytes)\n", statbuf.st_size);
     }
@@ -1575,7 +1585,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } else if (verbose && no_err(1)) {
           printf("\n    profile name = ");
           init_printbuffer(fname);
-          printbuffer(buffer, name_len, 0);
+          printbuffer((char *)buffer, name_len, 0);
           finish_printbuffer(fname, chunkid);
           printf("%scompression method = %d (%s)%scompressed profile = "
             "%ld bytes\n", (name_len > 24)? "\n    ":", ", meth,
@@ -1592,7 +1602,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else if (strcmp(chunkid, "iTXt") == 0) {
       int key_len;
 
-      key_len = keywordlen(buffer, toread);
+      key_len = keywordlen((char *)buffer, toread);
       if (key_len == 0) {
         printf("%s  zero length %s%skeyword\n",
                verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
@@ -1649,7 +1659,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer(buffer, key_len, 0);
+          printbuffer((char *)buffer, key_len, 0);
         }
         if (verbose)
           printf("\n");
@@ -1666,11 +1676,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           set_err(1);
         }
         if (no_err(1)) {
-          tag_len = keywordlen(buffer+key_len+3, toread-key_len-3);
+          tag_len = keywordlen((char *)buffer+key_len+3, toread-key_len-3);
           if (verbose) {
             if (tag_len > 0) {
               printf("    %scompressed, language tag = ", compressed? "":"un");
-              printbuffer(buffer+key_len+3, tag_len, 0);
+              printbuffer((char *)buffer+key_len+3, tag_len, 0);
             } else {
               printf("    %scompressed, no language tag",
                 compressed? "":"un");
@@ -1734,7 +1744,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(1);
       }
       if (no_err(1)) {
-        int name_len = keywordlen(buffer, toread);
+        int name_len = keywordlen((char *)buffer, toread);
 
         if (name_len == 0) {
           printf("%s  zero length %s%scalibration name\n",
@@ -1808,7 +1818,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("    %s\n", eqn_type[eqn_num]);
             printf("    calibration name = ");
             init_printbuffer(fname);
-            printbuffer(buffer, name_len, 0);
+            printbuffer((char *)buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             if (toread != sz) {
               printf(
@@ -1820,11 +1830,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             if (*pbuf == 0)
               printf("\n    no physical_value unit name\n");
             else {
-              int unit_len = keywordlen(pbuf, remainder);
+              int unit_len = keywordlen((char *)pbuf, remainder);
 
               printf("\n    physical_value unit name = ");
               init_printbuffer(fname);
-              printbuffer(pbuf, unit_len, 0);
+              printbuffer((char *)pbuf, unit_len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
               pbuf += unit_len;
@@ -1849,10 +1859,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               }
               ++pbuf;
               --remainder;
-              len = keywordlen(pbuf, remainder);
+              len = keywordlen((char *)pbuf, remainder);
               printf("    p%d = ", i);
               init_printbuffer(fname);
-              printbuffer(pbuf, len, 0);
+              printbuffer((char *)pbuf, len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
               pbuf += len;
@@ -2014,7 +2024,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         buffer[sz] = '\0';
-        buffer[strlen(buffer+1)+1] = 'x';
+        buffer[strlen((char *)buffer+1)+1] = 'x';
 
         printf(": image size %s %s\n", buffer+1,
                buffer[0] == 1 ? "meters":
@@ -2080,7 +2090,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               nsplt == 1? "y":"ies");
             printf("    sample depth = %u bits, palette name = ", bps);
             init_printbuffer(fname);
-            printbuffer(buffer, name_len, 0);
+            printbuffer((char *)buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             printf("\n");
           }
@@ -2155,7 +2165,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else if (strcmp(chunkid, "tEXt") == 0 || strcmp(chunkid, "zTXt") == 0) {
       int key_len;
 
-      key_len = keywordlen(buffer, toread);
+      key_len = keywordlen((char *)buffer, toread);
       if (key_len == 0) {
         printf("%s  zero length %s%skeyword\n",
                verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
@@ -2210,12 +2220,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer(buffer, key_len, 0);
+          printbuffer((char *)buffer, key_len, 0);
         }
         if (printtext) {
           printf(verbose? "\n" : ":\n");
           if (strcmp(chunkid, "tEXt") == 0)
-            printbuffer(buffer + key_len + 1, toread - key_len - 1, 1);
+            printbuffer((char *)buffer + key_len + 1, toread - key_len - 1, 1);
           else
             printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
 
@@ -2661,7 +2671,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (sz > 0 && verbose) {
         printf("\n    ");
         init_printbuffer(fname);
-        printbuffer(buffer, sz, 0);
+        printbuffer((char *)buffer, sz, 0);
         finish_printbuffer(fname, chunkid);
       }
       last_is_idat = last_is_jdat = 0;
@@ -3333,7 +3343,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       ulg ucsize;
 
       if (!did_stat) {
+#ifdef __riscos
+        _swix (8 /*OS_File*/, 3 | 1<<27,  17, fname,  &statbuf.st_size);
+#else
         stat(fname, &statbuf);   /* already know file exists; don't check rc */
+#endif
       }
 
       /* uncompressed size (bytes), compressed size => returns 10*ratio (%) */
@@ -3368,7 +3382,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       int cfactor;
 
       if (!did_stat) {
+#ifdef __riscos
+        _swix (8 /*OS_File*/, 3 | 1<<27,  17, fname,  &statbuf.st_size);
+#else
         stat(fname, &statbuf);   /* already know file exists */
+#endif
       }
 
       /* uncompressed size (bytes), compressed size => returns 10*ratio (%) */
@@ -3537,7 +3555,12 @@ int main(int argc, char *argv[])
   }
 
   if (argc == 1) {
-    if (isatty(0)) { /* if stdin not redirected, give the user help */
+#ifdef __riscos
+    if (!__iob[0].__file)
+#else
+    if (isatty(0))
+#endif
+    { /* if stdin not redirected, give the user help */
 usage:
       fprintf(stderr, "PNGcheck, version %s\n", VERSION);
       fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");

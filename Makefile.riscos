@@ -1,0 +1,28 @@
+CC = cc
+LD = link
+CFLAGS = -c -Otime -Ospace -fa -IC:,Zlib: -DUSE_ZLIB -DCHAR_IS_UNSIGNED -DENGLISH -throwback -depend !Depend
+LDFLAGS =
+
+LIBS = zlib:o.zlib C:o.gststubs
+
+# Static dependencies
+
+install:	pngcheck
+	squeeze -v pngcheck Boot:Library.pngcheck
+
+pngcheck:	o.pngcheck
+	$(LD) $(LDFLAGS) -o pngcheck o.pngcheck $(LIBS)
+
+o.pngcheck:	c.pngcheck
+	$(CC) $(CFLAGS) -o o.pngcheck c.pngcheck
+
+# Maintenance
+
+clean:
+	remove pngcheck
+	remove o.pngcheck
+
+# Dynamic dependencies:
+o.pngcheck:	c.pngcheck
+o.pngcheck:	Zlib:h.zlib
+o.pngcheck:	Zlib:h.zconf
