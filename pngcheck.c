@@ -60,9 +60,13 @@
  *               added test for insufficient IDAT data (minimum 10 bytes)
  *
  * 96.06.05 AED: added -p flag to dump the palette contents
+ *
+ * 96.12.31 JB: add decoding of the Zlib header from the first IDAT chunk (16 bit
+ *              header code in first two bytes, see print_zlibheader).
  */
 
-#define VERSION "1.97 of 27 September 1996"
+/* NOTE: Base version is 1.97 from swrinde */
+#define VERSION "1.97jb of 31 December 1996"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,7 +86,7 @@ void printbuffer(char *buffer, int size, int printtext);
 void finish_printbuffer(char *fname);
 int keywordlen(char *buffer, int maxsize);
 char *getmonth(int m);
-void pngcheck(FILE *fp, char *_fname);
+void pngcheck(FILE *fp, char *_fname, int searching, FILE *fpOut);
 
 #define BS 32000 /* size of read block for CRC calculation */
 
@@ -100,6 +104,8 @@ int printpal; /* print PLTE contents */
 int sevenbit; /* escape characters >=160 */
 int error; /* an error already occured, but we are continueing */
 int force; /* continue even if a really bad error occurs (CRC error, etc) */
+int search; /* Hunt for PNGs in the file. */
+int extract; /* And extract them to arbitrary file names. */
 unsigned char buffer[BS];
 
 /* table of crc's of all 8-bit messages */
@@ -169,6 +175,14 @@ unsigned long getlong(FILE *fp, char *fname)
     res|=c&0xff;
   }
   return res;
+}
+
+/* output a long when copying an embedded PNG out of a file. */
+void putlong(FILE *fpOut, unsigned long ul) {
+	putc(ul >> 24, fpOut);
+	putc(ul >> 16, fpOut);
+	putc(ul >> 8, fpOut);
+	putc(ul, fpOut);
 }
 
 /* print out size characters in buffer, take care to not print control chars
@@ -261,7 +275,40 @@ char *getmonth(int m)
     return month[m];
 }
 
-void pngcheck(FILE *fp, char *fname)
+void print_zlibheader(unsigned long uhead)
+{
+  /* See the code in zlib deflate.c which writes out the header when s->status is
+	  INIT_STATE.  In fact this code is based on the zlib specification in
+	  RFC 1950, i.e. ftp://ds.internic.net/rfc/rfc1950.txt with the implicit
+	  assumption that the zlib header *is* written (it always should be inside
+	  a valid PNG file)  The variable names are taken, verbatim, from the RFC
+	  */
+  unsigned int CM = (uhead & 0xf00) >> 8;
+  unsigned int CINFO = (uhead & 0xf000) >> 12;
+  unsigned int FDICT = (uhead & 0x20) >> 5;
+  unsigned int FLEVEL = (uhead & 0xc0) >> 6;
+
+  /* The following is awkable. */
+  printf("    ZLIB %ld %s %d %d %d %d\n", uhead,
+			uhead % 31 == 0 ? "OK" : "XX",
+			CM, CINFO, FDICT, FLEVEL);
+  /* The following is (maybe) readable, note that we only get 4 level
+	  values from the header so the possible input range is output (based
+     on the code in deflate.c).  Also level==0 seems to result in an
+     overflow in the initializer, so 3 gets stored. */
+  if (CM  == 8)
+	  printf("    deflate(%d ln2-bits%s) compression level %d-%d%s\n",
+	  CINFO+8, CINFO>7?" INVALID":"",
+	  (FLEVEL<<1)+1, FLEVEL > 2 ? 0 : (FLEVEL<<1)+2,
+	  FDICT ? " preset dictionary" : "");
+  else if (CM == 15)
+     /* probably an experiment! */
+	  printf("    RESERVED(%d) compression\n", CINFO);
+  else
+	  printf("    ZLIB(%d, %d) compression (INVALID)\n", CM, CINFO);
+}
+
+void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 {
   long sz;
   unsigned char magic[8];
@@ -273,6 +320,7 @@ void pngcheck(FILE *fp, char *fname)
   int iend_read = 0;
   int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_offs = 0;
   int have_phys = 0, have_sbit = 0, have_scal = 0, have_time = 0, have_trns = 0;
+  unsigned long zhead = 1; /* 0x10000 indicates both Zlib header bytes read. */
   long w = 0, h = 0;
   int bits = 0, ityp = 0, lace = 0, nplte = 0;
   static int first_file=1;
@@ -287,12 +335,12 @@ void pngcheck(FILE *fp, char *fname)
 
   first_file = 0;
 
-  if(fread(magic, 1, 8, fp)!=8) {
+  if(!searching && fread(magic, 1, 8, fp)!=8) {
     printf("%s  cannot read PNG header\n", verbose? "":fname);
     return;
   }
 
-  if (PNG_check_magic(magic, fname) != 0) {
+  if (!searching && PNG_check_magic(magic, fname) != 0) {
     /* maybe it's a MacBinary file */
 
     if(magic[0]==0 && magic[1]>0 && magic[1]<=64 && magic[2]!=0) {
@@ -342,6 +390,11 @@ void pngcheck(FILE *fp, char *fname)
       printf("  chunk %s at offset 0x%05lx, length %ld", chunkid,
              ftell(fp)-4, sz);
 
+	 if (fpOut != NULL) {
+	   putlong(fpOut, sz);
+		(void)fwrite(chunkid, 1, 4, fpOut);
+	 }
+
     crc = update_crc(CRCINIT, (unsigned char *)chunkid, 4);
 
     if(!ihdr_read && strcmp(chunkid,"IHDR")!=0) {
@@ -360,6 +413,7 @@ void pngcheck(FILE *fp, char *fname)
              verbose ? "":fname, chunkid);
       return;
     }
+	 if (fpOut != NULL) (void)fwrite(buffer, 1, toread, fpOut);
 
     crc = update_crc(crc, (unsigned char *)buffer, toread);
 
@@ -493,6 +547,15 @@ void pngcheck(FILE *fp, char *fname)
       else if (idat_read < 10)
         idat_read += sz > 10 ? 10 : sz;
       last_is_idat = 1;
+
+		/* Dump the zlib header from the first two bytes. */
+		if (zhead < 0x10000 && sz > 0) {
+			zhead = (zhead << 8) + buffer[0];
+			if (sz > 1 && zhead < 0x10000)
+			  zhead = (zhead << 8) + buffer[1];
+			if (verbose && zhead >= 0x10000)
+			  print_zlibheader(zhead & 0xffff);
+		}
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose?":":fname);
@@ -856,6 +919,7 @@ void pngcheck(FILE *fp, char *fname)
               printf("\n  EOF while reading chunk data (tEXT)\n");
               return;
             }
+				if (fpOut != NULL) (void)fwrite(buffer, 1, toread, fpOut);
 
             crc = update_crc(crc, (unsigned char *)buffer, toread);
 
@@ -972,11 +1036,13 @@ void pngcheck(FILE *fp, char *fname)
                verbose ? "":fname, chunkid);
         return;
       }
+		if (fpOut != NULL) (void)fwrite(buffer, 1, toread, fpOut);
 
       crc = update_crc(crc, (unsigned char *)buffer, toread);
     }
 
     filecrc = getlong(fp, fname);
+	 if (fpOut != NULL) putlong(fpOut, filecrc);
 
     if(filecrc != CRCCOMPL(crc)) {
       printf("%s  CRC error in chunk %s (actual %08lx, should be %08lx)\n",
@@ -986,6 +1052,9 @@ void pngcheck(FILE *fp, char *fname)
 
     if (!force && error)
       return;
+
+	 if (iend_read && searching) /* Read the iend, start looking again. */
+	   return;
   }
 
   if(!iend_read) {
@@ -1002,6 +1071,84 @@ void pngcheck(FILE *fp, char *fname)
              lace? "":"non-");
     }
   }
+}
+
+void pnginfile(FILE *fp, char *fname, int ipng, int extracting)
+{
+	char name[1024], *szdot;
+	FILE *fpOut = NULL;
+
+#if 1
+	strncpy(name, fname, 1024-20);
+	name[1024-20] = 0;
+	szdot = strrchr(name, '.');
+	if (szdot == NULL)
+	  szdot = name + strlen(name);
+	sprintf(szdot, "-%d", ipng);
+#else
+	/* Use this if file name length is restricted". */
+	sprintf(name, "PNG%d", ipng);
+	szdot = name;
+#endif
+
+	if (extracting) {
+	  static char magic[8] = {(char)137, (char)80, 78, 71, 13, 10, 26, 10};
+
+	  szdot += strlen(szdot);
+	  strcpy(szdot, ".png");
+	  fpOut = fopen(name, "wb");
+	  if (fpOut == NULL) {
+		  perror(name);
+		  fprintf(stderr, "%s: could not write output (ignored)\n", name);
+	  } else
+		  fprintf(stderr, "%s: contains %s PNG %d\n", name, fname, ipng);
+	  (void)fwrite(magic, 8, 1, fpOut);
+	  *szdot = 0;
+	}
+
+	pngcheck(fp, name, 1, fpOut);
+	if (fpOut != NULL) {
+	  int err;
+	  (void)fflush(fpOut);
+	  err = ferror(fpOut);
+	  if (fclose(fpOut)) err = 1;
+	  if (err) {
+		  perror(name); /* Probably invalid by now. */
+		  fprintf(stderr, "%s: error on output (ignored)\n", name);
+     }
+	}
+}
+
+void pngsearch(FILE *fp, char *fname, int extracting)
+{
+  /* Go through the file looking for a PNG magic number, if one is
+	  found check the data to see if it is a PNG and validate the
+	  contents.  Useful when something puts a PNG in something else. */
+  int ch;
+  int ipng = 0;
+ 
+  if (verbose)
+    printf("Scanning: %s\n", fname);
+  else if (extracting)
+	 fprintf(stderr, "Extracting PNGs from %s\n", fname);
+
+  /* This works because the leading 137 code is not repeated in
+     the magic, so partial matches may be discarded if we fail a match. */
+  do {
+	  ch = getc(fp);
+	  while (ch == 137) {
+	    if ((ch = getc(fp)) == 80 &&
+		     (ch = getc(fp)) == 78 &&
+		     (ch = getc(fp)) == 71 &&
+		     (ch = getc(fp)) == 13 &&
+		     (ch = getc(fp)) == 10 &&
+		     (ch = getc(fp)) == 26 &&
+		     (ch = getc(fp)) == 10) {
+	      /* Just after a PNG header. */
+	      pnginfile(fp, fname, ++ipng, extracting);
+		 }
+	  }
+  } while (ch != EOF);
 }
 
 int main(int argc, char *argv[])
@@ -1047,6 +1194,14 @@ int main(int argc, char *argv[])
         force=1;
         i++;
         break;
+      case 's':
+        search=1;
+        i++;
+        break;
+      case 'x':
+        search=extract=1;
+        i++;
+        break;
       default:
         fprintf(stderr, "unknown option %c\n", argv[1][i]);
         goto usage;
@@ -1061,6 +1216,7 @@ usage:
       fprintf(stderr, "Test a PNG image file for corruption.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-vqt7f]\n\n");
+		fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-pngs...\n");
       fprintf(stderr, "Options:\n");
       fprintf(stderr, "   -v  test verbosely (output most chunk data)\n");
       fprintf(stderr, "   -q  test quietly (only output errors)\n");
@@ -1068,15 +1224,22 @@ usage:
       fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)\n");
       fprintf(stderr, "   -p  print contents of PLTE chunks (can be used with -q)\n");
       fprintf(stderr, "   -f  force continuation even after major errors\n");
-    } else {
-      pngcheck(stdin, "stdin");
+		fprintf(stderr, "   -s  search for PNGs within another file\n");
+		fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
+    } else if (search) {
+		pngsearch(stdin, "stdin", extract);
+	 } else {
+      pngcheck(stdin, "stdin", 0, NULL);
     }
   } else {
     for(i = 1; i < argc; i++) {
       if ((fp = fopen(argv[i], "rb"))==NULL) {
         perror(argv[i]);
       } else {
-        pngcheck(fp, argv[i]);
+		  if (search)
+			 pngsearch(fp, argv[i], extract);
+		  else
+          pngcheck(fp, argv[i], 0, NULL);
         fclose(fp);
       }
     }
