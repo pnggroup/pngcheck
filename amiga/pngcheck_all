@@ -1,0 +1,8 @@
+.key files/a
+.bra [
+.ket ]
+; Script to pngcheck files selected by wildcard, SNG July 2003
+list [files] lformat="pngcheck %P%N" >ram:png_temp
+execute ram:png_temp
+delete ram:png_temp >nil:
+
