@@ -85,6 +85,7 @@
  * 97.01.07 GRR: added USE_ZLIB compile option to print line filters (with -vv)
  * 97.01.10 GRR: fixed line-filters code for large-IDAT case
  * 97.06.21 GRR: added compression-ratio info
+ * 98.06.09 TGL: fixed pHYs buglet
  */
 
 /*
@@ -994,7 +995,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf(": %ldx%ld pixels/%s\n", LG(buffer), LG(buffer +4),
-               buffer[8]==0 ? "unit":buffer[0]==1 ? "meter":"unknown unit");
+               buffer[8]==0 ? "unit":buffer[8]==1 ? "meter":"unknown unit");
       }
       have_phys = 1;
       last_is_idat = 0;
@@ -1367,7 +1368,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         cfactor/10, cfactor%10);
     } else if (!quiet) {
       printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced,"
-             " %s%d.%d%%)\n", fname, w, h, bits,
+             " %s%d.%d%%).\n", fname, w, h, bits,
              (ityp > 6)? type[1]:type[ityp], lace? "":"non-",
              sgn, cfactor/10, cfactor%10);
     }
