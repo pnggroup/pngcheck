@@ -1,0 +1,13 @@
+This version of pngcheck has support for decoding and error checking most
+of the known chunk types, with the exception of IDAT and zTXt.  As well,
+it also checks for multiple blocks (for those types that are illegal to
+have duplicates of), and for correct chunk ordering.
+
+Ver 1.91 also checks for valid cHRM contents, as well as a few minor bug
+         fixes.
+
+Ver 1.92 fixes error in cHRM ordering relative to PLTE, also has a -q flag
+         to supress output of informational messages, but still prints out
+         error messages.
+
+Andreas Dilger
