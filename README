@@ -1,29 +1,26 @@
-pngcheck version 1.99.2 of 18 November 1999
+pngcheck version 1.99.3 of 2 September 2000
 
-This "semi-official" version of pngcheck (i.e., not produced by Alexander
-or Andreas) contains several enhancements beyond the stock version 1.98,
-which was the last release before I took over:  zlib capability (to be able
-to print out the line filters for each line of the image); information on
-the compression factor of the image (expressed as a percentage, where 0% is
-no compression and 100% would be total compression--note that this can be
-negative since it counts PNG's chunk overhead against the compression factor);
-extended support for printing palettes (includes transparency info and histo-
-grams now); partial support for MNG streams conforming to Draft 64 or later;
-and support for MSVC compilation under Win32.  It also contains a fix from
-Tom Lane for a bug in the pHYs-reporting code.
+I believe this is the fourth or fifth major release since version 1.98,
+which is when I took over maintenance of pngcheck from Alexander Lehmann
+and Andreas Dilger.  Enhancements since 1.98 include:  zlib capability
+(to be able to print out the line filters for each line of the image);
+information on the compression factor of the image (expressed as a per-
+centage, where 0% is no compression and 100% would be total compression--
+note that this can be negative since it counts PNG's chunk overhead against
+the compression factor); extended support for printing palettes (includes
+transparency info and histograms now); support for all known PNG chunks;
+support for JNG images conforming to Draft 70 or later; partial support
+for MNG streams conforming to Draft 64 or later; and support for MSVC
+compilation under Win32.  It also contains a fix from Tom Lane for a bug
+in the pHYs-reporting code.
 
-Improved support for MNG and JNG, as well as support for PNG's pCAL and iTXt
-chunks and for some vendor-specific chunks, is coming relatively soon, but I
-won't make any promises as to when.  In the near term, I'm temporarily handing
-off the code to Eric Raymond, who is going to extend pngcheck into a full PNG
-"compiler"--that is, it will be able to convert a text description of an image
-to a true PNG, and vice versa.
+Improved ("finished") support for MNG is coming relatively soon, at which
+point the version number will finally reach 2.0, but I won't make any
+promises as to when.  Support for EBCDIC-based systems will show up some-
+day, too.  DOS/Win32 wildcards should already be supported, at least in
+the distributed binaries.
 
-Support for EBCDIC-based systems is on the way, too.  DOS/Win32 wildcards
-should already be supported as of this release, at least in the distributed
-binaries.
-
-See http://www.cdrom.com/pub/png/pngcode.html for updates.
+See http://www.libpng.org/pub/png/apps/pngcheck.html for updates.
 
 Greg Roelofs
 newt@pobox.com

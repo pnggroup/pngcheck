@@ -112,3 +112,11 @@
  * 19991114 GRR: added gIFg, gIFx and part of gIFt
  * 19991117 GRR: finished gIFt; added sRGB and iCCP
  * 19991117 GRR: released version 1.99.2
+ * 19991122 GRR: fixed typo in gIFx application ID format (%.*s)
+ * 19991215 GRR: added notes about wildcard expansion under Windows
+ * 20000304 GRR: fixed indentation on -vt printing of zTXt chunk; fixed bogus
+ *               double-backslash bug in printtext(); added -vvvv data-dump
+ *               capability (very crude, not correct, ... needs much work)
+ * 20000902 GRR: added JNG support; JHDR, JDAT, JSEP; fRAc, iTXt, pCAL, mkBF,
+ *               mkBS, mkBT, prVW
+ * 20000902 GRR: released version 1.99.3
