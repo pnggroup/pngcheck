@@ -11,7 +11,7 @@
  *
  *  AL      -> Alexander Lehmann
  *  glennrp -> Glenn Randers-Pehrson
- *  GRR     -> Greg Roelfs
+ *  GRR     -> Greg Roelofs
  *  AED     -> Andreas Dilger
  *  JB      -> John Bowler
  *
@@ -66,7 +66,7 @@
  *
  * 96.06.05 AED: added -p flag to dump the palette contents
  *
- * 96.12.31 JB: add decoding of the Zlib header from the first IDAT chunk (16-
+ * 96.12.31 JB: add decoding of the zlib header from the first IDAT chunk (16-
  *              bit header code in first two bytes, see print_zlibheader).
  *
  * 97.01.02 GRR: more sensible zlib-header output (version "1.97grr"); nuked
@@ -81,9 +81,25 @@
  *               slight modification to output of tEXt/zTXt keywords/contents
  *               change 'extract' to only output valid chunks (unless forced)
  *                 this may allow one to fix minor errors in a PNG file
+ *
+ * 97.01.07 GRR: added USE_ZLIB compile option to print line filters (with -vv)
+ * 97.01.10 GRR: fixed line-filters code for large-IDAT case
+ * 97.06.21 GRR: added compression-ratio info
  */
 
-#define VERSION "1.98 of 6 January 1997"
+/*
+ * Compilation example (GNU C, command line):
+ *
+ *    with zlib support:  gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
+ *    without:            gcc -O -o pngcheck pngcheck.c
+ *
+ * zlib info can be found at:  http://www.cdrom.com/pub/infozip/zlib/
+ * PNG info can be found at:   http://www.wco.com/~png/
+ * pngcheck can be found at:   http://www.wco.com/~png/pngcode.html  or
+ *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
+ */
+
+#define VERSION "1.98-grr3 of 21 June 1997"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,6 +108,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <ctype.h>
+#ifdef USE_ZLIB
+#  include <zlib.h>
+#endif
 
 int PNG_check_magic(unsigned char *magic, char *fname);
 int PNG_check_chunk_name(char *chunk_name, char *fname);
@@ -105,7 +124,7 @@ int keywordlen(char *buffer, int maxsize);
 char *getmonth(int m);
 void pngcheck(FILE *fp, char *_fname, int searching, FILE *fpOut);
 
-#define BS 32000 /* size of read block for CRC calculation */
+#define BS 32000 /* size of read block for CRC calculation (and zlib) */
 
 /* Mark's macros to extract big-endian short and long ints: */
 typedef unsigned char  uch;
@@ -139,6 +158,14 @@ unsigned long crc_table[256];
 
 /* Flag: has the table been computed? Initially false. */
 int crc_table_computed = 0;
+
+#ifdef USE_ZLIB
+  int first_idat = 1;   /* flag: is this the first IDAT chunk? */
+  int zlib_error = 0;
+  unsigned char outbuf[BS];
+  z_stream zstrm;
+#endif
+
 
 /* make the table for a fast crc */
 void make_crc_table(void)
@@ -301,6 +328,26 @@ char *getmonth(int m)
     return month[m];
 }
 
+int ratio(uc, c)         /* GRR 970621:  swiped from UnZip 5.31 list.c */
+    ulg uc, c;
+{
+    ulg denom;
+
+    if (uc == 0)
+        return 0;
+    if (uc > 2000000L) {    /* risk signed overflow if multiply numerator */
+        denom = uc / 1000L;
+        return ((uc >= c) ?
+            (int) ((uc-c + (denom>>1)) / denom) :
+          -((int) ((c-uc + (denom>>1)) / denom)));
+    } else {             /* ^^^^^^^^ rounding */
+        denom = uc;
+        return ((uc >= c) ?
+            (int) ((1000L*(uc-c) + (denom>>1)) / denom) :
+          -((int) ((1000L*(c-uc) + (denom>>1)) / denom)));
+    }                            /* ^^^^^^^^ rounding */
+}
+
 void print_zlibheader(unsigned long uhead)
 {
   /* See the code in zlib deflate.c that writes out the header when s->status
@@ -344,25 +391,25 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int iend_read = 0;
   int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_offs = 0;
   int have_phys = 0, have_sbit = 0, have_scal = 0, have_time = 0, have_trns = 0;
-  unsigned long zhead = 1; /* 0x10000 indicates both Zlib header bytes read. */
+  unsigned long zhead = 1; /* 0x10000 indicates both zlib header bytes read. */
   long w = 0, h = 0;
   int bits = 0, ityp = 0, lace = 0, nplte = 0;
+  int did_stat = 0;
+  struct stat statbuf;
   static int first_file=1;
   static char *type[] = {"grayscale", "undefined type", "RGB", "colormap",
                          "grayscale+alpha", "undefined type", "RGB+alpha"};
 
   error = 0;
 
-  /* GRR 970102:  conditional on separator newline was backwards; added size */
-  if(verbose || printtext) {
-    struct stat statbuf;
-
+  if (verbose || printtext) {
     printf("%sFile: %s", first_file? "":"\n", fname);
 
     if (searching) {
       printf("\n");
     } else {
       stat(fname, &statbuf);   /* know file exists => know stat() successful */
+      did_stat = 1;
       printf(" (%ld bytes)\n", statbuf.st_size);
     }
   }
@@ -390,13 +437,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("    this PNG seems to be contained in a MacBinary file\n");
       } else {
         if (check == 2)
-          printf("    this is not a PNG\n");
+          printf("    this is not a PNG image\n");
         set_err(2);
       }
     } else if ((check = PNG_check_magic(magic, fname)) != 0) {
       set_err(2);
       if (check == 2)
-        printf("%s  this is not a PNG\n", verbose? "":fname);
+        printf("%s  this is not a PNG image\n", verbose? "":fname);
     }
 
     if (is_err(1))
@@ -531,6 +578,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       ihdr_read = 1;
       last_is_idat = 0;
+#ifdef USE_ZLIB
+      first_idat = 1;  /* flag:  next IDAT will be the first in this file */
+      zlib_error = 0;  /* flag:  no zlib errors yet in this file */
+#endif
     } else if(strcmp(chunkid, "PLTE") == 0) {
       if (plte_read) {
         printf("%s  multiple PLTE not allowed\n",verbose? ":":fname);
@@ -593,7 +644,6 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         idat_read = sz > 0 ? sz:-1;
       else if (idat_read < 10)
         idat_read += sz > 10 ? 10:sz;
-      last_is_idat = 1;
 
       /* Dump the zlib header from the first two bytes. */
       if (verbose && zhead < 0x10000 && sz > 0) {
@@ -603,6 +653,148 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         if (zhead >= 0x10000)
           print_zlibheader(zhead & 0xffff);
       }
+#ifdef USE_ZLIB
+      if (verbose > 1 && !zlib_error) {
+        static unsigned char *p;   /* always points to next filter byte */
+        static int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
+        static long cur_width, cur_linebytes;
+        static long numfilt, numfilt_this_block, numfilt_total;
+        unsigned char *eod;
+        int err=Z_OK, need_space;
+
+        zstrm.next_in = buffer;
+        zstrm.avail_in = toread;
+
+        /* initialize zlib and bit/byte/line variables if not already done */
+        if (first_idat) {
+          zstrm.next_out = p = outbuf;
+          zstrm.avail_out = BS;
+          zstrm.zalloc = (alloc_func)Z_NULL;
+          zstrm.zfree = (free_func)Z_NULL;
+          zstrm.opaque = (voidpf)Z_NULL;
+          if ((err = inflateInit(&zstrm)) != Z_OK) {
+            fprintf(stderr, "    zlib:  oops! can't initialize (error = %d)\n",
+              err);
+            verbose = 1;   /* this is a fatal error for all subsequent PNGs */
+          }
+          cur_y = 0;
+          cur_pass = 1;    /* interlace pass:  1 through 7 */
+          cur_xoff = cur_yoff = 0;
+          cur_xskip = cur_yskip = lace? 8 : 1;
+          cur_width = (w + cur_xskip - 1) / cur_xskip;     /* round up */
+          cur_linebytes = ((cur_width*bits + 7) >> 3) + 1; /* round up + fltr */
+          numfilt = 0L;
+          first_idat = 0;
+          if (lace) {   /* loop through passes to calculate total filters */
+            int pass, yskip, yoff;
+
+            numfilt_total = 0L;
+            for (pass = 1;  pass <= 7;  ++pass) {
+              switch (pass) {
+                case 1:  /* fall through (see table below for full summary) */
+                case 2:  yskip = 8; yoff = 0; break;
+                case 3:  yskip = 8; yoff = 4; break;
+                case 4:  yskip = 4; yoff = 0; break;
+                case 5:  yskip = 4; yoff = 2; break;
+                case 6:  yskip = 2; yoff = 0; break;
+                case 7:  yskip = 2; yoff = 1; break;
+              }
+              /* effective height is reduced if odd pass: subtract yoff */
+              numfilt_total += (h - yoff + yskip - 1) / yskip;
+            }
+          } else
+            numfilt_total = h;   /* if non-interlaced */
+        }
+
+        printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth):\n"
+          "     ");
+        need_space = 0;
+        numfilt_this_block = 0L;
+
+        while (err != Z_STREAM_END && (zstrm.avail_in > 0 || need_space)) {
+          /* know zstrm.avail_out > 0:  get some image/filter data */
+          err = inflate(&zstrm, Z_PARTIAL_FLUSH);
+          if (err != Z_OK && err != Z_STREAM_END) {
+            fprintf(stderr, "\n    zlib:  inflate (first loop) error = %d\n",
+              err);
+            fflush(stderr);
+            zlib_error = 1;      /* fatal error only for this PNG */
+            break;               /* kill inner loop */
+          }
+
+          /* now have uncompressed, filtered image data in outbuf */
+          need_space = (zstrm.avail_out == 0);
+          eod = outbuf + BS - zstrm.avail_out;
+          while (p < eod) {
+            printf(" %1d", (int)p[0]);
+            ++numfilt;
+            if (++numfilt_this_block % 25 == 0)
+              printf("\n     ");
+            p += cur_linebytes;
+            cur_y += cur_yskip;
+            if (lace) {
+              while (cur_y >= h) {      /* may loop if very short image */
+                /*
+                          pass  xskip yskip  xoff yoff
+                            1     8     8      0    0
+                            2     8     8      4    0
+                            3     4     8      0    4
+                            4     4     4      2    0
+                            5     2     4      0    2
+                            6     2     2      1    0
+                            7     1     2      0    1
+                 */
+                ++cur_pass;
+                if (cur_pass & 1) {   /* beginning an odd pass */
+                  cur_yoff = cur_xoff;
+                  cur_xoff = 0;
+                  cur_xskip >>= 1;
+                } else {              /* beginning an even pass */
+                  if (cur_pass == 2)
+                    cur_xoff = 4;
+                  else {
+                    cur_xoff = cur_yoff >> 1;
+                    cur_yskip >>= 1;
+                  }
+                  cur_yoff = 0;
+                }
+                cur_y = cur_yoff;
+                /* effective width is reduced if even pass: subtract cur_xoff */
+                cur_width = (w - cur_xoff + cur_xskip - 1) / cur_xskip;
+                cur_linebytes = ((cur_width*bits + 7) >> 3) + 1;
+              }
+            } else if (cur_y >= h) {
+              inflateEnd(&zstrm);     /* we're all done */
+              zlib_error = 99;        /* kill outermost loop */
+              err = Z_STREAM_END;     /* kill middle loop */
+              break;                  /* kill innermost loop */
+            }
+          }
+          p -= (eod - outbuf);        /* wrap p back into outbuf region */
+          zstrm.next_out = outbuf;
+          zstrm.avail_out = BS;
+
+          /* get more input (waiting until buffer empties is not necessary best
+           * zlib strategy, but simpler than shifting left-over data around) */
+          if (zstrm.avail_in == 0 && sz > toread) {
+            int data_read;
+
+            sz -= toread;
+            toread = (sz > BS)? BS:sz;
+            if ((data_read = fread(buffer, 1, toread, fp)) != toread) {
+              printf("\nEOF while reading %s data\n", chunkid);
+              set_err(3);
+              return;
+            }
+            crc = update_crc(crc, buffer, toread);
+            zstrm.next_in = buffer;
+            zstrm.avail_in = toread;
+          }
+        }
+        printf(" (%ld out of %ld)\n", numfilt, numfilt_total);
+      }
+#endif /* USE_ZLIB */
+      last_is_idat = 1;
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose? ":":fname);
@@ -1014,7 +1206,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("\n");
         } else if (verbose) {
           printf("\n");
-	}
+        }
 
         finish_printbuffer(fname, chunkid);
       }
@@ -1152,13 +1344,32 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     return;
   }
 
-  if(error == 0) {
-    if(verbose) { /* already printed IHDR info */
-      printf("No errors detected in %s.\n", fname);
+  /* GRR 970621: print compression ratio based on file size vs. byte-packed
+   * raw data size.  Arguably it might be fairer to compare against the size
+   * of the unadorned, compressed data, but since PNG is a package deal... */
+
+  if (error == 0) {
+    char *sgn = "";
+    int cfactor;
+
+    if (!did_stat) {
+      stat(fname, &statbuf);   /* already know file exists */
+    }
+
+    /* uncompressed size (bytes), compressed size => returns 10*ratio (%) */
+    if ((cfactor = ratio((ulg)(h*((w*bits+7)>>3)), statbuf.st_size)) < 0) {
+      sgn = "-";
+      cfactor = -cfactor;
+    }
+
+    if (verbose) {  /* already printed IHDR info */
+      printf("No errors detected in %s (%s%d.%d%% compression).\n", fname, sgn,
+        cfactor/10, cfactor%10);
     } else if (!quiet) {
-      printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced).\n",
-             fname, w, h, bits, (ityp > 6)? type[1]:type[ityp],
-             lace? "":"non-");
+      printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced,"
+             " %s%d.%d%%)\n", fname, w, h, bits,
+             (ityp > 6)? type[1]:type[ityp], lace? "":"non-",
+             sgn, cfactor/10, cfactor%10);
     }
   }
 }
@@ -1256,7 +1467,7 @@ int main(int argc, char *argv[])
         i = 1;
         break;
       case 'v':
-        verbose=1;
+        ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
         quiet=0;
         i++;
         break;
@@ -1304,16 +1515,19 @@ int main(int argc, char *argv[])
     if (isatty(0)) { /* if stdin not redirected, give the user help */
 usage:
       fprintf(stderr, "PNGcheck, version %s\n", VERSION);
-      fprintf(stderr, "   by Alexander Lehmann and Andreas Dilger.\n");
-      fprintf(stderr, "Test a PNG image file for corruption.\n\n");
+      fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
+      fprintf(stderr, "Test PNG image files for corruption, and print size/type/compression info.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
-      fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-pngs...\n\n");
+      fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n\n");
       fprintf(stderr, "Options:\n");
-      fprintf(stderr, "   -v  test verbosely (output most chunk data)\n");
+      fprintf(stderr, "   -v  test verbosely (print most chunk data)\n");
+#ifdef USE_ZLIB
+      fprintf(stderr, "   -vv test very verbosely (decode & print line filters)\n");
+#endif
       fprintf(stderr, "   -q  test quietly (only output errors)\n");
       fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
-      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)\n");
+      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n");
       fprintf(stderr, "   -p  print contents of PLTE chunks (can be used with -q)\n");
       fprintf(stderr, "   -f  force continuation even after major errors\n");
       fprintf(stderr, "   -s  search for PNGs within another file\n");
@@ -1325,6 +1539,22 @@ usage:
         pngcheck(stdin, "stdin", 0, NULL);
     }
   } else {
+#ifdef USE_ZLIB
+    if (verbose > 1) {
+      /* make sure we're using the zlib version we were compiled to use */
+      if (zlib_version[0] != ZLIB_VERSION[0]) {
+        fflush(stdout);
+        fprintf(stderr, "zlib error:  incompatible version (expected %s,"
+          " using %s):  ignoring -vv\n\n", ZLIB_VERSION, zlib_version);
+        fflush(stderr);
+        verbose = 1;
+      } else if (strcmp(zlib_version, ZLIB_VERSION) != 0) {
+        fprintf(stderr, "zlib warning:  different version (expected %s,"
+          " using %s)\n\n", ZLIB_VERSION, zlib_version);
+        fflush(stderr);
+      }
+    }
+#endif /* USE_ZLIB */
     for(i = 1; i < argc; i++) {
       /* This is somewhat ugly.  It sets the file pointer to stdin if the
        * filename is "-", otherwise it tries to open the given filename.
@@ -1417,7 +1647,7 @@ int PNG_check_magic(unsigned char *magic, char *fname)
       printf("  It seems to have suffered EOL conversion\n");
 
     if (magic[0] == 9)
-      printf("  It was probably transmitted through a 7bit channel\n");
+      printf("  It was probably transmitted through a 7-bit channel\n");
     else if(magic[0] != good_magic[0])
       printf("  It was probably transmitted in text mode\n");
 
