@@ -1,0 +1,20 @@
+pngcheck version 1.99-grr1 of 13 June 1999
+
+This semi-official version of pngcheck contains several enhancements beyond
+the stock version 1.98:  zlib capability (to be able to print out the line
+filters for each line of the image); information on the compression factor
+of the image (expressed as a percentage, where 0% is no compression and 100%
+would be total compression); extended support for printing palettes (includes
+transparency info and histograms now); partial support for MNG streams con-
+forming to Draft 64; and support for MSVC compilation under Win32.  It also
+contains a fix from Tom Lane for a bug in the pHYs-reporting code.
+
+Improved support for MNG is coming this summer, but I won't make any promises
+as to when.  Maybe during a lunch hour or three one of these days.... :-)
+Support for EBCDIC-based systems and for DOS/Win32 wildcards is on the way,
+too.
+
+See http://www.cdrom.com/pub/png/pngcode.html for updates.
+
+Greg Roelofs
+newt@pobox.com

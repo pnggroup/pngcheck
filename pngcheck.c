@@ -1,30 +1,54 @@
 /*
- * Authenticate the structure of a PNG file and dump info about it if desired.
- *
- *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of June 1998)
+ * pngcheck:  Authenticate the structure of a PNG file and dump info about
+ *            it if desired.
  *
  * This program checks the PNG identifier with conversion checks,
  * the file structure and the chunk CRCs. In addition, relations and contents
  * of most defined chunks are checked, except for decompression of the IDAT
  * chunks.
  *
+ *        NOTE:  this program is currently NOT EBCDIC-compatible!
+ *               (as of February 1999)
+ */
+
+/*============================================================================
+ *
+ *   Copyright 1995-1999 by Alexander Lehmann <lehmann@usa.net>,
+ *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
+ *                          Glenn Randers-Pehrson <randeg@alumni.rpi.edu>,
+ *                          Greg Roelofs <newt@pobox.com>,
+ *                          John Bowler <jbowler@acm.org>,
+ *                          Tom Lane <tgl@sss.pgh.pa.us>
+ *  
+ *   Permission to use, copy, modify, and distribute this software and its
+ *   documentation for any purpose and without fee is hereby granted, provided
+ *   that the above copyright notice appear in all copies and that both that
+ *   copyright notice and this permission notice appear in supporting
+ *   documentation.  This software is provided "as is" without express or
+ *   implied warranty.
+ *
+ *===========================================================================*/
+
+/*
+ * ChangeLog:
+ *
  * Started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
  * extended by people as listed below.
  *
- *  AL      -> Alexander Lehmann
- *  glennrp -> Glenn Randers-Pehrson
- *  GRR     -> Greg Roelofs
- *  AED     -> Andreas Dilger
- *  JB      -> John Bowler
+ *   AL   -  Alexander Lehmann
+ *   AED  -  Andreas Dilger
+ *   GRP  -  Glenn Randers-Pehrson
+ *   GRR  -  Greg Roelofs
+ *   JB   -  John Bowler
+ *   TGL  -  Tom Lane
  *
  * 95.02.23 AL: fixed wrong magic numbers
  *
  * 95.03.13 AL: crc code from png spec, compiles on memory impaired PCs now,
  *          check for IHDR/IEND chunks
  *
- * 95.03.25 glennrp rewrote magic number checking and moved it to
- *            PNG_check_magic(buffer)
+ * 95.03.25 GRP: rewrote magic-number-checking and moved it to
+ *          PNG_check_magic(buffer)
  *
  * 95.03.27 AL: fixed CRC code for 64 bit, -t switch, unsigned char vs. char
  *          pointer changes
@@ -97,38 +121,45 @@
  * 98.07.02 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
  *               updated SAVE for MNG Draft 43
  * 98.07.11 GRR: added sPLT; extended printpal (-p) to support tRNS, hIST, sPLT
+ * 98.10.21 GRR: added Win32 fix and compilation info; fixed mng=0, DEFI and
+ *               printpal bugs
+ * 98.12.06 GRR: added "File: %s" for printpal; fixed some plural%s; fixed and
+ *               extended unknown-chunk info (separate line now); added dpi info
+ *               to pHYs and flagged unit types > 1 as error
+ * 98.12.28 GRR: nuked old comments; added proto-copyright message
+ * 99.02.01 GRR: changed control-character warning to "one or more"
+ * 99.03.27 GRR: added option to indent printtext; changed non-verbose summary
+ *               to two lines; added tRNS info to summary
+ * 99.06.13 GRR: fixed remaining "must precede IDAT" messages for MNG; updated
+ *               MHDR and LOOP for Draft 64
  */
+
+#define VERSION "1.99-grr1 of 13 June 1999"
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
  */
+
 /*
  * GRR to do:
- *   [MNG chunks:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
- *   [PNJ chunks:  JHDR, etc.]
- *   [PNG chunks:  pCAL, sRGB, fRAc, gIFg, gIFt, gIFx]
- *   [fix or disable compression ratio and non-"-v" summary info for MNGs]
- *   [fix basiflag_d43.mng "not enough IDAT data" bug (i.e., allow no IDATs)]
- *   [split out each chunk's code into handle_XXXX() function]
- *   [EBCDIC support (minimal?)]
+ *   - update existing MNG support to Draft 64 (version 0.95a) or later
+ *   - recognize JNG magic signature
+ *   - JNG chunks:  JHDR, JDAT, JSEP, etc.
+ *   - MNG chunks:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR
+ *   - PNG chunks:  pCAL, sRGB, fRAc, gIFg, gIFt, gIFx ("gIFt is deprecated")
+ *   - Macromedia Fireworks chunks:  pRVW (illegal!), prVW, mkBF, mkBS, mkBT
+ *   - add chunk-split option
+ *       (pngcheck -c foo.png -> foo-000.sig, foo-001.IHDR, foo-002.PLTE, etc.)
+ *   - fix or disable compression ratio and non-"-v" summary info for MNGs
+ *   - fix basiflag_d43.mng "not enough IDAT data" bug (i.e., allow no IDATs)
+ *   - split out each chunk's code into XXXX() function (e.g., IDAT(), tRNS())
+ *   - with USE_ZLIB, print zTXt chunks if -t option
+ *   - DOS/Win32 wildcard support beyond emx+gcc
+ *   - EBCDIC support (minimal?)
  */
 
 /*
- * GRR unreported spec problems:
- *
- * MNG Draft 43: [reported but not checked]
- *  - PROM:  cannot promote bit depth without promoting color type?
- *           (else "cases" incomplete)
- *  - SEEK:  why is null byte allowed?
- *  - SHOW:  show_mode=7: missing end quote: "do_not_show=1.
- *
- * PNG stuff:
- *  - pCAL:  "used s to identify" [`i']
- *  - gIFt:  no transparency support; rendering order?? what if oFFs in microns?
- */
-
-/*
- * Compilation example (GNU C, command line; fix "zlibpath" as appropriate):
+ * Compilation example (GNU C, command line; replace "zlibpath" as appropriate):
  *
  *    without zlib:
  *       gcc -O -o pngcheck pngcheck.c
@@ -137,15 +168,23 @@
  *    or (static zlib):
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
+ * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
+ * whatever has been run):
+ *
+ *    without zlib:
+ *       cl -nologo -O -W3 -DWIN32 pngcheck.c
+ *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
+ *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
+ *       link -nologo pngcheck.obj \zlibpath\zlib.lib
+ *       [copy pngcheck.exe and zlib.dll to installation directory]
+ *
  * zlib info:		http://www.cdrom.com/pub/infozip/zlib/
- * PNG/MNG info:	http://www.cdrom.com/pub/png/  and
+ * PNG/MNG info:	http://www.cdrom.com/pub/png/
+ *			http://www.cdrom.com/pub/mng/  and
  *                      ftp://swrinde.nde.swri.edu/pub/mng/
  * pngcheck sources:	http://www.cdrom.com/pub/png/pngcode.html  or
  *                      ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
-
-#define VERSION "1.99-grr0 of 24 August 1998"
-           /* only "mng = 0" bugfix, DEFI bugfix and comment updates so far */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,6 +193,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <ctype.h>
+#ifdef WIN32
+#  include <io.h>
+#endif
 #ifdef USE_ZLIB
 #  include "zlib.h"
 #endif
@@ -164,7 +206,7 @@ void make_crc_table(void);
 unsigned long update_crc(unsigned long crc, unsigned char *buf, int len);
 unsigned long getlong(FILE *fp, char *fname, char *where);
 void init_printbuffer(char *fname);
-void printbuffer(char *buffer, int size);
+void printbuffer(char *buffer, int size, int indent);
 void finish_printbuffer(char *fname, char *chunkid);
 int keywordlen(char *buffer, int maxsize);
 char *getmonth(int m);
@@ -188,15 +230,15 @@ typedef unsigned long  ulg;
 #define no_err(x)  ((error < (x) || (force && error == (x))) ? 1 : 0)
 
 /* Command-line flag variables */
-int verbose = 0; /* print chunk info */
-int quiet = 0; /* only print error messages */
-int printtext = 0; /* print tEXt chunks */
-int printpal = 0; /* print PLTE/tRNS/hIST/sPLT contents */
-int sevenbit = 0; /* escape characters >=160 */
-int force = 0; /* continue even if an occurs (CRC error, etc) */
-int search = 0; /* hunt for PNGs in the file... */
-int extract = 0; /* ...and extract them to arbitrary file names. */
-int mng = 0;        /* it's a MNG instead of a PNG (won't work in pipe) */
+int verbose = 0;	/* print chunk info */
+int quiet = 0;		/* only print error messages */
+int printtext = 0;	/* print tEXt chunks */
+int printpal = 0;	/* print PLTE/tRNS/hIST/sPLT contents */
+int sevenbit = 0;	/* escape characters >=160 */
+int force = 0;		/* continue even if an occurs (CRC error, etc) */
+int search = 0;		/* hunt for PNGs in the file... */
+int extract = 0;	/* ...and extract them to arbitrary file names. */
+int mng = 0;		/* it's a MNG instead of a PNG (won't work in pipe) */
 
 int error; /* the current error status */
 unsigned char buffer[BS];
@@ -398,28 +440,36 @@ void init_printbuffer(char *fname)
   esc=0;
 }
 
-void printbuffer(char *buffer, int size)	/* GRR EBCDIC WARNING */
+void printbuffer(char *buffer, int size, int indent)	/* GRR EBCDIC WARNING */
 {
-  while(size--) {
+  if (indent)
+    printf("    ");
+  while (size--) {
     unsigned char c;
 
     c = *buffer++;
 
-    if((c < ' ' && c != '\t' && c != '\n') ||
-       (sevenbit? c > 127:(c >= 127 && c < 160)))
+    if ((c < ' ' && c != '\t' && c != '\n') ||
+        (sevenbit? c > 127 : (c >= 127 && c < 160)))
       printf("\\%02X", c);
-    else
-    if(c == '\\')
+    else if (c == '\\')
       printf("\\\\");
     else
       putchar(c);
 
-    if(c < 32 || (c >= 127 && c < 160)) {
-      if(c == '\n') lf=1;
-      else if(c == '\r') cr = 1;
-      else if(c == '\0') nul = 1;
-      else control = 1;
-      if(c == 27) esc = 1;
+    if (c < 32 || (c >= 127 && c < 160)) {
+      if (c == '\n') {
+        lf = 1;
+        if (indent && size > 0)
+          printf("    ");
+      } else if (c == '\r')
+        cr = 1;
+      else if (c == '\0')
+        nul = 1;
+      else
+        control = 1;
+      if (c == 27)
+        esc = 1;
     }
   }
 }
@@ -442,7 +492,7 @@ void finish_printbuffer(char *fname, char *chunkid)
     set_err(1);
   }
   if(control) {
-    printf("%s  %s chunk contains control characters%s\n",
+    printf("%s  %s chunk contains one or more control characters%s\n",
            verbose? "":fname, chunkid, esc? " including Escape":"");
     set_err(1);
   }
@@ -545,7 +595,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
   error = 0;
 
-  if (verbose || printtext) {
+  if (verbose || printtext || printpal) {
     printf("%sFile: %s", first_file? "":"\n", fname);
 
     if (searching) {
@@ -662,7 +712,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     toread = (sz > BS)? BS:sz;
 
-    if(fread(buffer, 1, toread, fp)!=toread) {
+    if(fread(buffer, 1, (size_t)toread, fp) != (size_t)toread) {
       printf("%s  EOF while reading %s%sdata\n",
              verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
       set_err(3);
@@ -756,23 +806,83 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (mhdr_read) {
         printf("%s  multiple MHDR not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (sz != 12) {
+      } else if (sz != 28) {
         printf("%s  incorrect %slength\n",
                verbose? ":":fname, verbose? "":"MHDR ");
         set_err(2);
       }
       if (no_err(1)) {
-        ulg tps;
+        ulg tps, layers, frames, playtime, profile;
 
         w = LG(buffer);
         h = LG(buffer+4);
         tps = LG(buffer+8);
+        layers = LG(buffer+12);
+        frames = LG(buffer+16);
+        playtime = LG(buffer+20);
+        profile = LG(buffer+24);
         if (verbose) {
-          printf("\n    %lu x %lu frame size; ", w, h);
+          printf("\n    %lu x %lu frame size, ", w, h);
           if (tps)
-            printf("%lu tick%s per second\n", tps, (tps == 1L)? "" : "s");
+            printf("%lu tick%s per second, ", tps, (tps == 1L)? "" : "s");
           else
-            printf("single frame\n");
+            printf("infinite tick length, ");
+          if (layers && layers < 0x7ffffffL)
+            printf("%lu layer%s,\n", layers, (layers == 1L)? "" : "s");
+          else
+            printf("%s layer count,\n", layers? "infinite" : "unspecified");
+          if (frames && frames < 0x7ffffffL)
+            printf("    %lu frame%s, ", frames, (frames == 1L)? "" : "s");
+          else
+            printf("    %s frame count, ", frames? "infinite" : "unspecified");
+          if (playtime && playtime < 0x7ffffffL) {
+            printf("%lu-tick play time ", playtime);
+            if (tps)
+              printf("(%lu seconds), ", (playtime + (tps >> 1)) / tps);
+            else
+              printf(", ");
+          } else
+            printf("%s play time, ", playtime? "infinite" : "unspecified");
+          if (profile & 1) {
+            int vlc=1, lc=1, bits=0;
+
+            printf("valid profile:\n      ");
+            if (profile & 2) {
+              printf("simple MNG features");
+              ++bits;
+              vlc = 0;
+            }
+            if (profile & 4) {
+              printf("%scomplex MNG features", bits? ", " : "");
+              ++bits;
+              vlc = 0;
+              lc = 0;
+            }
+            if (profile & 8) {
+              printf("%scritical transparency", bits? ", " : "");
+              ++bits;
+            }
+            if (profile & 16) {
+              printf("%s%sJNG", bits? ", " : "", (bits == 3)? "\n      " : "");
+              ++bits;
+              vlc = 0;
+              lc = 0;
+            }
+            if (profile & 32) {
+              printf("%s%sdelta-PNG", bits? ", " : "",
+                (bits == 3)? "\n      " : "");
+              ++bits;
+              vlc = 0;
+              lc = 0;
+            }
+            if (vlc)
+              printf(" (MNG-VLC)");
+            else if (lc)
+              printf(" (MNG-LC)");
+            printf("\n");
+          } else
+            printf("%s\n    simplicity profile\n",
+              profile? "invalid" : "unspecified");
         }
       }
       mhdr_read = 1;
@@ -802,12 +912,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":"PLTE ",(double)sz / 3);
         set_err(2);
       }
+/*
       else if (printpal && !verbose)
         printf("\n");
+ */
       if (no_err(1)) {
         nplte = sz / 3;
-        if (verbose)
-          printf(": %d palette entries\n", nplte);
+        if (printpal && !quiet)
+          printf("  PLTE chunk");
+        if (verbose || (printpal && !quiet))
+          printf(": %d palette entr%s\n", nplte, nplte == 1? "y":"ies");
         if (printpal) {
           char *spc;
           int i, j;
@@ -819,8 +933,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           else
             spc = "    ";
           for (i = j = 0; i < nplte; i++, j += 3)
-            printf("%s%3d -> [%3d, %3d, %3d] = [0x%02x, 0x%02x, 0x%02x]\n",
-                   spc, i, buffer[j], buffer[j + 1], buffer[j + 2],
+            printf("%s%3d:  (%3d,%3d,%3d) = (0x%02x,0x%02x,0x%02x)\n", spc, i,
+                   buffer[j], buffer[j + 1], buffer[j + 2],
                    buffer[j], buffer[j + 1], buffer[j + 2]);
         }
       }
@@ -1032,7 +1146,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_bkgd) {
         printf("%s  multiple bKGD not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"bKGD ");
         set_err(1);
@@ -1175,7 +1289,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  %smust follow PLTE\n",
                verbose? ":":fname, verbose? "":"hIST ");
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"hIST ");
         set_err(1);
@@ -1184,21 +1298,23 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":"hIST ", (double)sz / 2);
         set_err(2);
       }
-      if (verbose && no_err(1)) {
-        printf(": %ld histogram entries\n", sz / 2);
-        if (printpal) {
-          char *spc;
-          int i, j;
+      if ((verbose || (printpal && !quiet)) && no_err(1)) {
+        if (printpal && !quiet)
+          printf("  hIST chunk");
+        printf(": %ld histogram entr%s\n", sz / 2, sz/2 == 1? "y":"ies");
+      }
+      if (printpal && no_err(1)) {
+        char *spc;
+        int i, j;
 
-          if (sz < 10)
-            spc = "  ";
-          else if (sz < 100)
-            spc = "   ";
-          else
-            spc = "    ";
-          for (i = j = 0;  j < sz;  ++i, j += 2)
-            printf("%s%3d -> [%5u]\n", spc, i, SH(buffer+j));
-        }
+        if (sz < 10)
+          spc = "  ";
+        else if (sz < 100)
+          spc = "   ";
+        else
+          spc = "    ";
+        for (i = j = 0;  j < sz;  ++i, j += 2)
+          printf("%s%3d:  %5u\n", spc, i, SH(buffer+j));
       }
       have_hist = 1;
       last_is_idat = 0;
@@ -1210,7 +1326,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_offs) {
         printf("%s  multiple oFFs not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"oFFs ");
         set_err(1);
@@ -1234,7 +1350,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_phys) {
         printf("%s  multiple pHYS not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"pHYS ");
         set_err(1);
@@ -1244,8 +1360,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        printf(": %ldx%ld pixels/%s\n", LG(buffer), LG(buffer +4),
+        long xres = LG(buffer);
+        long yres = LG(buffer+4);
+
+        printf(": %ldx%ld pixels/%s", xres, yres,
                buffer[8]==0 ? "unit":buffer[8]==1 ? "meter":"unknown unit");
+        if (buffer[8] == 1 && xres == yres)
+          printf(" (%ld dpi)", (long)(xres*0.0254 + 0.5));
+        else if (buffer[8] > 1)
+          set_err(1);
+        printf("\n");
       }
       have_phys = 1;
       last_is_idat = 0;
@@ -1265,7 +1389,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"sBIT ");
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"sBIT ");
         set_err(1);
@@ -1361,7 +1485,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_scal) {
         printf("%s  multiple sCAL not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"sCAL ");
         set_err(1);
@@ -1381,7 +1505,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
      | sPLT | 
      *------*/
     } else if(strcmp(chunkid, "sPLT") == 0) {
-      if (idat_read) {
+      if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"sPLT ");
         set_err(1);
@@ -1416,6 +1540,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } else {
           int bytes = (bps >> 3);
           int entry_sz = 4*bytes + 2;
+          long nsplt = remainder / entry_sz;
 
           if (remainder % entry_sz != 0) {
             printf("%s  invalid number of %sentries (%g)\n",
@@ -1423,45 +1548,46 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                    (double)remainder / entry_sz);
             set_err(2);
           }
-          if (verbose && no_err(1)) {
-            long nsplt = remainder / entry_sz;
-
-            printf(": %ld palette/histogram entries\n", nsplt);
+          if ((verbose || (printpal && !quiet)) && no_err(1)) {
+            if (printpal && !quiet)
+              printf("  sPLT chunk");
+            printf(": %ld palette/histogram entr%s\n", nsplt,
+              nsplt == 1? "y":"ies");
             printf("    sample depth = %u bits, palette name = ", bps);
             init_printbuffer(fname);
-            printbuffer(buffer, name_len);
+            printbuffer(buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             printf("\n");
-            if (printpal) {
-              char *spc;
-              long i, j=name_len+2L;
+          }
+          if (printpal && no_err(1)) {
+            char *spc;
+            long i, j=name_len+2L;
 
-              if (nsplt < 10L)
-                spc = "  ";
-              else if (nsplt < 100L)
-                spc = "   ";
-              else if (nsplt < 1000L)
-                spc = "    ";
-              else if (nsplt < 10000L)
-                spc = "     ";
-              else
-                spc = "      ";
-              /* GRR:  could check for (required) non-increasing freq order */
-              /* GRR:  could also check for all zero freqs:  undefined hist */
-              if (bytes == 1) {
-                for (i = 0L;  i < nsplt;  ++i, j += 6L)
-                  printf("%s%3ld -> [%3u, %3u, %3u, %3u] = [0x%02x, 0x%02x, 0x%02x, 0x%02x]  freq = %u\n",
-                         spc, i,
-                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
-                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
-                         SH(buffer+j+4));
-              } else {
-                for (i = 0L;  i < nsplt;  ++i, j += 10L)
-                  printf("%s%5ld -> [%5u,%5u,%5u,%5u] = [%04x,%04x,%04x,%04x]  freq = %u\n",
-                         spc, i, SH(buffer+j), SH(buffer+j+2), SH(buffer+j+4),
-                         SH(buffer+j+6), SH(buffer+j), SH(buffer+j+2),
-                         SH(buffer+j+4), SH(buffer+j+6), SH(buffer+j+8));
-              }
+            if (nsplt < 10L)
+              spc = "  ";
+            else if (nsplt < 100L)
+              spc = "   ";
+            else if (nsplt < 1000L)
+              spc = "    ";
+            else if (nsplt < 10000L)
+              spc = "     ";
+            else
+              spc = "      ";
+            /* GRR:  could check for (required) non-increasing freq order */
+            /* GRR:  could also check for all zero freqs:  undefined hist */
+            if (bytes == 1) {
+              for (i = 0L;  i < nsplt;  ++i, j += 6L)
+                printf("%s%3ld:  (%3u,%3u,%3u,%3u) = (0x%02x,0x%02x,0x%02x,0x%02x)  freq = %u\n",
+                       spc, i,
+                       buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                       buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                       SH(buffer+j+4));
+            } else {
+              for (i = 0L;  i < nsplt;  ++i, j += 10L)
+                printf("%s%5ld:  (%5u,%5u,%5u,%5u) = (%04x,%04x,%04x,%04x)  freq = %u\n",
+                       spc, i, SH(buffer+j), SH(buffer+j+2), SH(buffer+j+4),
+                       SH(buffer+j+6), SH(buffer+j), SH(buffer+j+2),
+                       SH(buffer+j+4), SH(buffer+j+6), SH(buffer+j+8));
             }
           }
         }
@@ -1531,12 +1657,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer(buffer, key_len);
+          printbuffer(buffer, key_len, 0);
         }
         if (printtext) {
-          printf(verbose? "\n":":");
+          printf(verbose? "\n" : ":\n");
           if (strcmp(chunkid, "tEXt") == 0)
-            printbuffer(buffer + key_len + 1, toread - key_len - 1);
+            printbuffer(buffer + key_len + 1, toread - key_len - 1, 1);
           else
             printf("(compressed %s text)", chunkid);
 
@@ -1585,7 +1711,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  %smust follow PLTE\n",
           verbose? ":":fname, verbose? "":"tRNS ");
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"tRNS ");
         set_err(1);
@@ -1615,22 +1741,24 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("%s  incorrect %slength for %s image\n",
                    verbose? ":":fname, verbose? "":"tRNS ", type[ityp]);
             set_err(2);
-          } else if (verbose && no_err(1)) {
-            printf(": %ld transparency entries\n", sz);
-            if (printpal) {
-              char *spc;
-              int i;
 
-              if (sz < 10)
-                spc = "  ";
-              else if (sz < 100)
-                spc = "   ";
-              else
-                spc = "    ";
-              for (i = 0;  i < sz;  ++i)
-                printf("%s%3d -> [%3d] = [0x%02x]\n", spc, i, buffer[i],
-                       buffer[i]);
-            }
+          } else if ((verbose || (printpal && !quiet)) && no_err(1)) {
+            if (printpal && !quiet)
+              printf("  tRNS chunk");
+            printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
+          }
+          if (printpal && no_err(1)) {
+            char *spc;
+            int i;
+
+            if (sz < 10)
+              spc = "  ";
+            else if (sz < 100)
+              spc = "   ";
+            else
+              spc = "    ";
+            for (i = 0;  i < sz;  ++i)
+              printf("%s%3d:  %3d = 0x%02x\n", spc, i, buffer[i], buffer[i]);
           }
           break;
         default:
@@ -1863,7 +1991,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (sz > 0 && verbose) {
         printf("\n    ");
         init_printbuffer(fname);
-        printbuffer(buffer, sz);
+        printbuffer(buffer, sz, 0);
         finish_printbuffer(fname, chunkid);
       }
       last_is_idat = 0;
@@ -2061,23 +2189,30 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
      | LOOP | 
      *------*/
     } else if(strcmp(chunkid, "LOOP") == 0) {
-      if (sz != 6 && sz != 14 && sz != 18) {
+      if (sz < 5 || (sz > 6 && ((sz-6) % 4) != 0)) {
         printf("%s  incorrect %slength\n",
           verbose? ":":fname, verbose? "":"LOOP ");
         set_err(2);
       }
       if (verbose && no_err(1)) {
         printf(":  nest level = %u\n    count = %lu, termination = %s\n",
-          (unsigned)(buffer[0]), LG(buffer+2),
-          termination_condition[buffer[1] & 0x3]);
+          (unsigned)(buffer[0]), LG(buffer+1), sz == 5?
+          termination_condition[0] : termination_condition[buffer[5] & 0x3]);
           /* GRR:  not checking for valid buffer[1] values */
         if (sz > 6) {
-          printf("    iteration min = %lu, max = %lu",
-            LG(buffer+6), LG(buffer+10));
-          if (sz > 14) {
-            printf(", signal number = %lu\n", LG(buffer+14));
-          } else
-            printf("\n");
+          printf("    iteration min = %lu", LG(buffer+6));
+          if (sz > 10) {
+            printf(", max = %lu", LG(buffer+10));
+            if (sz > 14) {
+              long i, count = (sz-14) >> 2;
+
+              printf(", signal number%s = %lu", (count > 1)? "s" : "",
+                LG(buffer+14));
+              for (i = 1;  i < count;  ++i)
+                printf(", %lu", LG(buffer+14+(i<<2)));
+            }
+          }
+          printf("\n");
         }
       }
       last_is_idat = 0;
@@ -2189,11 +2324,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(1);
       }
       else if (verbose) {
-        printf(": unknown %s%s%s%s chunk\n",
-               chunkid[0] & 0x20 ? "ancillary ":"critical ",
-               chunkid[1] & 0x20 ? "private ":"",
-               chunkid[2] & 0x20 ? "reserved-bit-set ":"",
-               chunkid[3] & 0x20 ? "safe-to-copy":"unsafe-to-copy");
+        printf("\n    unknown %s, %s, %s%ssafe-to-copy chunk\n",
+               chunkid[1] & 0x20 ? "private":"public",
+               chunkid[0] & 0x20 ? "ancillary":"critical",
+               chunkid[2] & 0x20 ? "reserved-bit-set, ":"",
+               chunkid[3] & 0x20 ? "":"un");
       }
       last_is_idat = 0;
     }
@@ -2273,10 +2408,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       printf("No errors detected in %s (%s%d.%d%% compression).\n", fname, sgn,
         cfactor/10, cfactor%10);
     } else if (!quiet) {
-      printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced,"
-             " %s%d.%d%%).\n", fname, w, h, bits,
-             (ityp > 6)? type[1]:type[ityp], lace? "":"non-",
-             sgn, cfactor/10, cfactor%10);
+      printf("No errors detected in %s\n  (%ldx%ld, %d-bit %s%s, %sinterlaced,"
+        " %s%d.%d%%).\n", fname, w, h, bits, (ityp > 6)? type[1] : type[ityp],
+        (ityp == 3 && have_trns)? "+trns" : "", lace? "" : "non-",
+        sgn, cfactor/10, cfactor%10);
     }
   }
 }
@@ -2427,7 +2562,7 @@ usage:
       fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
         ZLIB_VERSION, zlib_version);
 #endif
-      fprintf(stderr, "Test PNG image files for corruption, and print size/type/compression info.\n\n");
+      fprintf(stderr, "\nTest PNG image files for corruption, and print size/type/compression info.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
@@ -2526,44 +2661,40 @@ int PNG_MNG_check_magic(unsigned char *magic, char *fname, int which)
       magic[6] != good_magic[6] || magic[7] != good_magic[7]) {
 
     if (!verbose) {
-      printf("%s  file is CORRUPTED by text conversion.\n", fname);
+      printf("%s:  File is CORRUPTED by text conversion.\n", fname);
       return 1;
     }
 
-    printf("  file is CORRUPTED.\n");
+    printf("  File is CORRUPTED.  It seems to have suffered ");
 
     /* This coding derived from Alexander Lehmann's checkpng code   */
-    if(strncmp((char *)&magic[4], "\012\032", 2) == 0)
-      printf("  It seems to have suffered DOS->Unix conversion\n");
+    if (strncmp((char *)&magic[4], "\012\032", 2) == 0)
+      printf("DOS->Unix");
+    else if (strncmp((char *)&magic[4], "\015\032", 2) == 0)
+      printf("DOS->Mac");
+    else if (strncmp((char *)&magic[4], "\015\015\032", 3) == 0)
+      printf("Unix->Mac");
+    else if (strncmp((char *)&magic[4], "\012\012\032", 3) == 0)
+      printf("Mac->Unix");
+    else if (strncmp((char *)&magic[4], "\012\012", 2) == 0)
+      printf("DOS->Unix");
+    else if (strncmp((char *)&magic[4], "\015\015\012\032", 4) == 0)
+      printf("Unix->DOS");
+    else if (strncmp((char *)&magic[4], "\015\012\032\015", 4) == 0)
+      printf("Unix->DOS");
+    else if (strncmp((char *)&magic[4], "\015\012\012", 3) == 0)
+      printf("DOS EOF");
+    else if (strncmp((char *)&magic[4], "\015\012\032\012", 4) != 0)
+      printf("EOL");
+    else
+      printf("an unknown");
 
-    else if(strncmp((char *)&magic[4], "\015\032", 2) == 0)
-      printf("  It seems to have suffered DOS->Mac conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\015\015\032", 3) == 0)
-      printf("  It seems to have suffered Unix->Mac conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\012\012\032", 3) == 0)
-      printf("  It seems to have suffered Mac->Unix conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\012\012", 2) == 0)
-      printf("  It seems to have suffered DOS->Unix conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\015\015\012\032", 4) == 0)
-      printf("  It seems to have suffered Unix->DOS conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\015\012\032\015", 4) == 0)
-      printf("  It seems to have suffered Unix->DOS conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\015\012\012", 3) == 0)
-      printf("  It seems to have suffered DOS EOF conversion\n");
-
-    else if(strncmp((char *)&magic[4], "\015\012\032\012", 4) != 0)
-      printf("  It seems to have suffered EOL conversion\n");
+    printf(" conversion.\n");
 
     if (magic[0] == 9)
-      printf("  It was probably transmitted through a 7-bit channel\n");
-    else if(magic[0] != good_magic[0])
-      printf("  It was probably transmitted in text mode\n");
+      printf("  It was probably transmitted through a 7-bit channel.\n");
+    else if (magic[0] != good_magic[0])
+      printf("  It was probably transmitted in text mode.\n");
 
     return 1;
   }
@@ -2571,16 +2702,20 @@ int PNG_MNG_check_magic(unsigned char *magic, char *fname, int which)
   return 0;
 }
 
+
+
 int PNG_check_chunk_name(char *chunk_name, char *fname)
 {
-  if(!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
-     !isalpha(chunk_name[2]) || !isalpha(chunk_name[3])) {
-    printf("%s%schunk name %02x %02x %02x %02x doesn't comply to naming rules\n",
-           verbose? "":fname, verbose? "":": ",
-           chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
+  if (!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
+      !isalpha(chunk_name[2]) || !isalpha(chunk_name[3]))
+  {
+    printf(
+      "%s%s  Chunk name %02x %02x %02x %02x doesn't conform to naming rules.\n",
+      verbose? "":fname, verbose? "":":",
+      chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
     set_err(2);
-    return (1);
+    return 1;
   }
 
-  return (0);
+  return 0;
 }
