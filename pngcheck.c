@@ -21,7 +21,7 @@
  *
  * 96.06.01 AL: check for data after IEND chunk
  *
- * 95.06.01 :-) GRR: reformatted; print tEXt and zTXt keywords; add usage
+ * 95.06.01 GRR: reformatted; print tEXt and zTXt keywords; added usage
  *
  * 95.07.31 AL: check for control chars, check for MacBinary header, new
  *          force option
@@ -44,9 +44,11 @@
  *
  * 96.01.19 AED: added ability to parse multiple options with a single '-'
  *               changed tIME output to be in RFC 1123 format
+ *
+ * 96.05.17 GRR: fixed obvious(?) fprintf error; fixed multiple-tIME error msg
  */
 
-#define VERSION "1.93 of 6 March 1996"
+#define VERSION "1.94 of 17 May 1996"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -780,7 +782,7 @@ void pngcheck(FILE *fp, char *_fname)
       last_is_idat = 0;
     } else if(strcmp(chunkid, "tIME") == 0) {
       if (have_time) {
-        printf(": multiple tIME not allowed\n");
+        printf("%s  multiple tIME not allowed\n", verbose?":":fname);
         error=1;
       } else if (s != 7) {
         printf("%s  incorrect %slength\n",
@@ -955,9 +957,8 @@ int main(int argc, char *argv[])
   if(argc == 1) {
     if (isatty(0)) {       /* if stdin not redirected, give the user help */
 usage:
-      fprintf(stderr, "PNGcheck, version %s\n",
-      fprintf(stderr, "   by Alexander Lehmann and Andreas Dilger.\n",
-              VERSION);
+      fprintf(stderr, "PNGcheck, version %s\n", VERSION);
+      fprintf(stderr, "   by Alexander Lehmann and Andreas Dilger.\n");
       fprintf(stderr, "Test a PNG image file for corruption.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-vqt7f]\n\n");
