@@ -61,12 +61,15 @@
  *
  * 96.06.05 AED: added -p flag to dump the palette contents
  *
- * 96.12.31 JB: add decoding of the Zlib header from the first IDAT chunk (16 bit
- *              header code in first two bytes, see print_zlibheader).
+ * 96.12.31 JB: add decoding of the Zlib header from the first IDAT chunk (16-
+ *              bit header code in first two bytes, see print_zlibheader).
+ *
+ * 97.01.02 GRR: more sensible zlib-header output (version "1.97grr"); nuked
+ *               some tabs; fixed blank lines between files in verbose output
  */
 
 /* NOTE: Base version is 1.97 from swrinde */
-#define VERSION "1.97jb of 31 December 1996"
+#define VERSION "1.97grr of 2 January 1997"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -277,35 +280,59 @@ char *getmonth(int m)
 
 void print_zlibheader(unsigned long uhead)
 {
-  /* See the code in zlib deflate.c which writes out the header when s->status is
-	  INIT_STATE.  In fact this code is based on the zlib specification in
-	  RFC 1950, i.e. ftp://ds.internic.net/rfc/rfc1950.txt with the implicit
-	  assumption that the zlib header *is* written (it always should be inside
-	  a valid PNG file)  The variable names are taken, verbatim, from the RFC
-	  */
+  /* See the code in zlib deflate.c that writes out the header when s->status
+     is INIT_STATE.  In fact this code is based on the zlib specification in
+     RFC 1950, i.e., ftp://ds.internic.net/rfc/rfc1950.txt, with the implicit
+     assumption that the zlib header *is* written (it always should be inside
+     a valid PNG file)  The variable names are taken, verbatim, from the RFC.
+   */
   unsigned int CM = (uhead & 0xf00) >> 8;
   unsigned int CINFO = (uhead & 0xf000) >> 12;
   unsigned int FDICT = (uhead & 0x20) >> 5;
   unsigned int FLEVEL = (uhead & 0xc0) >> 6;
 
+#ifdef JOHN_VERSION
+
   /* The following is awkable. */
-  printf("    ZLIB %ld %s %d %d %d %d\n", uhead,
-			uhead % 31 == 0 ? "OK" : "XX",
-			CM, CINFO, FDICT, FLEVEL);
+  printf("    ZLIB %ld %s %d %d %d %d\n", uhead, uhead % 31 == 0 ? "OK" : "XX",
+         CM, CINFO, FDICT, FLEVEL);
+
   /* The following is (maybe) readable, note that we only get 4 level
-	  values from the header so the possible input range is output (based
+     values from the header so the possible input range is output (based
      on the code in deflate.c).  Also level==0 seems to result in an
      overflow in the initializer, so 3 gets stored. */
-  if (CM  == 8)
-	  printf("    deflate(%d ln2-bits%s) compression level %d-%d%s\n",
-	  CINFO+8, CINFO>7?" INVALID":"",
-	  (FLEVEL<<1)+1, FLEVEL > 2 ? 0 : (FLEVEL<<1)+2,
-	  FDICT ? " preset dictionary" : "");
+  if (CM == 8)
+    printf("    deflate(%d ln2-bits%s) compression level %d-%d%s\n",
+    CINFO+8, CINFO>7?" INVALID":"",
+    (FLEVEL<<1)+1, FLEVEL > 2 ? 0 : (FLEVEL<<1)+2,
+    FDICT ? " preset dictionary" : "");
   else if (CM == 15)
-     /* probably an experiment! */
-	  printf("    RESERVED(%d) compression\n", CINFO);
+    /* probably an experiment! */
+    printf("    RESERVED(%d) compression\n", CINFO);
   else
-	  printf("    ZLIB(%d, %d) compression (INVALID)\n", CM, CINFO);
+    printf("    ZLIB(%d, %d) compression (INVALID)\n", CM, CINFO);
+
+#else /* GREG_VERSION */
+
+  if (uhead % 31) {
+    fprintf(stderr, "   zlib:  compression header fails checksum\n");
+    fflush(stderr);
+    return;
+  }
+
+  if (CM == 8) {
+    static char *flevel[4] = {"superfast", "fast", "default", "maximum"};
+
+    if (CINFO > 1)
+      printf("    zlib:  deflated, %dK window, %s compression%s\n",
+        (1 << (CINFO-2)), flevel[FLEVEL], FDICT? ", preset dictionary" : "");
+    else
+      printf("    zlib:  deflated, %d-byte window, %s compression%s\n",
+        (1 << (CINFO+8)), flevel[FLEVEL], FDICT? ", preset dictionary" : "");
+  } else
+    printf("    zlib:  non-deflate compression method (%d)\n", CM);
+
+#endif /* ?JOHN_VERSION */
 }
 
 void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
@@ -329,8 +356,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
   error = 0;
 
+  /* GRR 970102:  conditional on separator newline was backwards; added size */
   if(verbose || printtext) {
-    printf("%sFile: %s\n", first_file?"\n":"", fname);
+    struct stat statbuf;
+
+    stat(fname, &statbuf);   /* know file exists => know stat() successful */
+    printf("%sFile: %s (%ld bytes)\n", first_file?"":"\n", fname,
+      statbuf.st_size);
   }
 
   first_file = 0;
@@ -548,14 +580,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         idat_read += sz > 10 ? 10 : sz;
       last_is_idat = 1;
 
-		/* Dump the zlib header from the first two bytes. */
-		if (zhead < 0x10000 && sz > 0) {
-			zhead = (zhead << 8) + buffer[0];
-			if (sz > 1 && zhead < 0x10000)
-			  zhead = (zhead << 8) + buffer[1];
-			if (verbose && zhead >= 0x10000)
-			  print_zlibheader(zhead & 0xffff);
-		}
+      /* Dump the zlib header from the first two bytes. */
+      if (verbose && zhead < 0x10000 && sz > 0) {
+        zhead = (zhead << 8) + buffer[0];
+        if (sz > 1 && zhead < 0x10000)
+          zhead = (zhead << 8) + buffer[1];
+        if (zhead >= 0x10000)
+          print_zlibheader(zhead & 0xffff);
+      }
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose?":":fname);
