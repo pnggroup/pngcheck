@@ -96,17 +96,7 @@
  * 98.06.16 GRR: extended MNG (PROM, SAVE, SEEK)
  * 98.07.02 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
  *               updated SAVE for MNG Draft 43
- *
- * [to do:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
- * [to do:  EBCDIC support (minimal?)]
- * [to do:  fix or disable compression ratio for MNG streams]
- * [to do:  split out each chunk's code into handle_XXXX() function]
- *
- * MNG Draft 43:
- *  - PROM:  cannot promote bit depth without promoting color type?
- *           (else "cases" incomplete)
- *  - SEEK:  why is null byte allowed?
- *  - SHOW:  show_mode=7: missing end quote: "do_not_show=1.
+ * 98.07.11 GRR: added sPLT; extended printpal (-p) to support tRNS, hIST, sPLT
  */
 
 /*
@@ -114,13 +104,35 @@
  */
 
 /*
- * Compilation example (GNU C, command line; second example assumes libz.a or
- * libz.so is in the normal search path--add "-L/your/path" if elsewhere):
+ * GRR to do:
+ *   [MNG chunks:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
+ *   [PNG chunks:  pCAL, sRGB, fRAc, gIFg, gIFt, gIFx]
+ *   [EBCDIC support (minimal?)]
+ *   [fix or disable compression ratio for MNG streams]
+ *   [split out each chunk's code into handle_XXXX() function]
+ */
+
+/*
+ * GRR unreported spec problems:
+ *
+ * MNG Draft 43:
+ *  - PROM:  cannot promote bit depth without promoting color type?
+ *           (else "cases" incomplete)
+ *  - SEEK:  why is null byte allowed?
+ *  - SHOW:  show_mode=7: missing end quote: "do_not_show=1.
+ *
+ * PNG stuff:
+ *  - pCAL:  "used s to identify" [`i']
+ *  - gIFt:  no transparency support; rendering order?? what if oFFs in microns?
+ */
+
+/*
+ * Compilation example (GNU C, command line; fix "zlibpath" as appropriate):
  *
  *    without zlib:
  *       gcc -O -o pngcheck pngcheck.c
  *    with zlib support:
- *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -lz
+ *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
  *    or (static zlib):
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
@@ -130,7 +142,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr8 of 2 July 1998"
+#define VERSION "1.98-grr9 of 11 July 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,7 +188,7 @@ typedef unsigned long  ulg;
 int verbose = 0; /* print chunk info */
 int quiet = 0; /* only print error messages */
 int printtext = 0; /* print tEXt chunks */
-int printpal = 0; /* print PLTE contents */
+int printpal = 0; /* print PLTE/tRNS/hIST/sPLT contents */
 int sevenbit = 0; /* escape characters >=160 */
 int force = 0; /* continue even if an occurs (CRC error, etc) */
 int search = 0; /* hunt for PNGs in the file... */
@@ -803,8 +815,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           else
             spc = "    ";
           for (i = j = 0; i < nplte; i++, j += 3)
-            printf("%s%3d ->> [%3d, %3d, %3d] = [%02x, %02x, %02x]\n", spc, i,
-                   buffer[j], buffer[j + 1], buffer[j + 2],
+            printf("%s%3d -> [%3d, %3d, %3d] = [0x%02x, 0x%02x, 0x%02x]\n",
+                   spc, i, buffer[j], buffer[j + 1], buffer[j + 2],
                    buffer[j], buffer[j + 1], buffer[j + 2]);
         }
       }
@@ -1170,6 +1182,19 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf(": %ld histogram entries\n", sz / 2);
+        if (printpal) {
+          char *spc;
+          int i, j;
+
+          if (sz < 10)
+            spc = "  ";
+          else if (sz < 100)
+            spc = "   ";
+          else
+            spc = "    ";
+          for (i = j = 0;  j < sz;  ++i, j += 2)
+            printf("%s%3d -> [%5u]\n", spc, i, SH(buffer+j));
+        }
       }
       have_hist = 1;
       last_is_idat = 0;
@@ -1348,6 +1373,97 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_scal = 1;
       last_is_idat = 0;
 
+    /*------* 
+     | sPLT | 
+     *------*/
+    } else if(strcmp(chunkid, "sPLT") == 0) {
+      if (idat_read) {
+        printf("%s  %smust precede IDAT\n",
+               verbose? ":":fname, verbose? "":"sPLT ");
+        set_err(1);
+      } else {
+        uch *p=buffer, bps;
+        int name_len;
+        long remainder;
+
+        while (*p && p < buffer + sz)
+          ++p;
+        name_len = p - buffer;
+        if (name_len == 0) {
+          printf("%s  zero length %spalette name\n",
+                 verbose? ":":fname, verbose? "":"sPLT ");
+          set_err(1);
+        } else if (name_len > 79) {
+          printf("%s  %s palette name longer than 79 characters\n",
+                 verbose? ":":fname, verbose? "":chunkid);
+          set_err(1);
+        } else if ((remainder = sz - name_len - 2) < 0L) {
+          printf("%s  incorrect %slength\n",
+                 verbose? ":":fname, verbose? "":"sPLT ");
+          set_err(2);
+        } else if (buffer[name_len] != 0) {
+          printf("%s  missing NULL after %spalette name\n",
+                 verbose? ":":fname, verbose? "":"sPLT ");
+          set_err(2);
+        } else if ((bps = buffer[name_len+1]) != 8 && bps != 16) {
+          printf("%s  invalid %ssample depth (%u bits)\n",
+                 verbose? ":":fname, verbose? "":"sPLT ", bps);
+          set_err(2);
+        } else {
+          int bytes = (bps >> 3);
+          int entry_sz = 4*bytes + 2;
+
+          if (remainder % entry_sz != 0) {
+            printf("%s  invalid number of %sentries (%g)\n",
+                   verbose? ":":fname, verbose? "":"sPLT ",
+                   (double)remainder / entry_sz);
+            set_err(2);
+          }
+          if (verbose && no_err(1)) {
+            long nsplt = remainder / entry_sz;
+
+            printf(": %ld palette/histogram entries\n", nsplt);
+            printf("    sample depth = %u bits, palette name = ", bps);
+            init_printbuffer(fname);
+            printbuffer(buffer, name_len);
+            finish_printbuffer(fname, chunkid);
+            printf("\n");
+            if (printpal) {
+              char *spc;
+              long i, j=name_len+2L;
+
+              if (nsplt < 10L)
+                spc = "  ";
+              else if (nsplt < 100L)
+                spc = "   ";
+              else if (nsplt < 1000L)
+                spc = "    ";
+              else if (nsplt < 10000L)
+                spc = "     ";
+              else
+                spc = "      ";
+              /* GRR:  could check for (required) non-increasing freq order */
+              /* GRR:  could also check for all zero freqs:  undefined hist */
+              if (bytes == 1) {
+                for (i = 0L;  i < nsplt;  ++i, j += 6L)
+                  printf("%s%3ld -> [%3u, %3u, %3u, %3u] = [0x%02x, 0x%02x, 0x%02x, 0x%02x]  freq = %u\n",
+                         spc, i,
+                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                         SH(buffer+j+4));
+              } else {
+                for (i = 0L;  i < nsplt;  ++i, j += 10L)
+                  printf("%s%5ld -> [%5u,%5u,%5u,%5u] = [%04x,%04x,%04x,%04x]  freq = %u\n",
+                         spc, i, SH(buffer+j), SH(buffer+j+2), SH(buffer+j+4),
+                         SH(buffer+j+6), SH(buffer+j), SH(buffer+j+2),
+                         SH(buffer+j+4), SH(buffer+j+6), SH(buffer+j+8));
+              }
+            }
+          }
+        }
+      }
+      last_is_idat = 0;
+
     /*------*  *------* 
      | tEXt |  | zTXt | 
      *------*  *------*/
@@ -1423,7 +1539,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           /* For the sake of simplifying this program, we will not print
            * the contents of a tEXt chunk whose size is larger than the
            * buffer size (currently 32K).  People should use zTXt for
-           * such large amounts of text anyways!  Note that this does not
+           * such large amounts of text, anyway!  Note that this does not
            * mean that the tEXt/zTXt contents will be lost if extracting.
            */
           printf("\n");
@@ -1497,6 +1613,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             set_err(2);
           } else if (verbose && no_err(1)) {
             printf(": %ld transparency entries\n", sz);
+            if (printpal) {
+              char *spc;
+              int i;
+
+              if (sz < 10)
+                spc = "  ";
+              else if (sz < 100)
+                spc = "   ";
+              else
+                spc = "    ";
+              for (i = 0;  i < sz;  ++i)
+                printf("%s%3d -> [%3d] = [0x%02x]\n", spc, i, buffer[i],
+                       buffer[i]);
+            }
           }
           break;
         default:
@@ -2289,6 +2419,10 @@ int main(int argc, char *argv[])
 usage:
       fprintf(stderr, "PNGcheck, version %s\n", VERSION);
       fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
+#ifdef USE_ZLIB
+      fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
+        ZLIB_VERSION, zlib_version);
+#endif
       fprintf(stderr, "Test PNG image files for corruption, and print size/type/compression info.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]\n");
@@ -2302,7 +2436,7 @@ usage:
       fprintf(stderr, "   -q  test quietly (only output errors)\n");
       fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
       fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n");
-      fprintf(stderr, "   -p  print contents of PLTE chunks (can be used with -q)\n");
+      fprintf(stderr, "   -p  print contents of PLTE, tRNS, hIST and sPLT chunks (can be used with -q)\n");
       fprintf(stderr, "   -f  force continuation even after major errors\n");
       fprintf(stderr, "   -s  search for PNGs within another file\n");
       fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
