@@ -97,19 +97,24 @@
  * 98.07.02 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
  *               updated SAVE for MNG Draft 43
  * 98.07.11 GRR: added sPLT; extended printpal (-p) to support tRNS, hIST, sPLT
+ * 98.10.21 GRR: added Win32 fix and compilation info; fixed mng=0, DEFI and
+ *               printpal bugs
  */
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
  */
+
 /*
  * GRR to do:
+ *   [update for MNG Draft 51]
  *   [MNG chunks:  BASI, PAST, DISC, tERm, IPNG, DROP, DBYK, ORDR]
  *   [PNJ chunks:  JHDR, etc.]
  *   [PNG chunks:  pCAL, sRGB, fRAc, gIFg, gIFt, gIFx]
  *   [fix or disable compression ratio and non-"-v" summary info for MNGs]
  *   [fix basiflag_d43.mng "not enough IDAT data" bug (i.e., allow no IDATs)]
  *   [split out each chunk's code into handle_XXXX() function]
+ *   [DOS/Win32 wildcard support]
  *   [EBCDIC support (minimal?)]
  */
 
@@ -137,6 +142,16 @@
  *    or (static zlib):
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
+ * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
+ * whatever has been run):
+ *
+ *    without zlib:
+ *       cl -nologo -O -W3 -DWIN32 pngcheck.c
+ *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
+ *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
+ *       link -nologo pngcheck.obj \zlibpath\zlib.lib
+ *       [copy pngcheck.exe and zlib.dll to installation directory]
+ *
  * zlib info:		http://www.cdrom.com/pub/infozip/zlib/
  * PNG/MNG info:	http://www.cdrom.com/pub/png/  and
  *                      ftp://swrinde.nde.swri.edu/pub/mng/
@@ -144,8 +159,7 @@
  *                      ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.99-grr0 of 24 August 1998"
-           /* only "mng = 0" bugfix, DEFI bugfix and comment updates so far */
+#define VERSION "1.99-grr0 of 21 October 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,6 +168,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <ctype.h>
+#ifdef WIN32
+#  include <io.h>
+#endif
 #ifdef USE_ZLIB
 #  include "zlib.h"
 #endif
@@ -662,7 +679,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     toread = (sz > BS)? BS:sz;
 
-    if(fread(buffer, 1, toread, fp)!=toread) {
+    if(fread(buffer, 1, (size_t)toread, fp) != (size_t)toread) {
       printf("%s  EOF while reading %s%sdata\n",
              verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
       set_err(3);
@@ -802,11 +819,15 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":"PLTE ",(double)sz / 3);
         set_err(2);
       }
+/*
       else if (printpal && !verbose)
         printf("\n");
+ */
       if (no_err(1)) {
         nplte = sz / 3;
-        if (verbose)
+        if (printpal && !quiet)
+          printf("  PLTE chunk");
+        if (verbose || (printpal && !quiet))
           printf(": %d palette entries\n", nplte);
         if (printpal) {
           char *spc;
@@ -819,8 +840,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           else
             spc = "    ";
           for (i = j = 0; i < nplte; i++, j += 3)
-            printf("%s%3d -> [%3d, %3d, %3d] = [0x%02x, 0x%02x, 0x%02x]\n",
-                   spc, i, buffer[j], buffer[j + 1], buffer[j + 2],
+            printf("%s%3d:  (%3d,%3d,%3d) = (0x%02x,0x%02x,0x%02x)\n", spc, i,
+                   buffer[j], buffer[j + 1], buffer[j + 2],
                    buffer[j], buffer[j + 1], buffer[j + 2]);
         }
       }
@@ -1184,21 +1205,23 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":"hIST ", (double)sz / 2);
         set_err(2);
       }
-      if (verbose && no_err(1)) {
+      if ((verbose || (printpal && !quiet)) && no_err(1)) {
+        if (printpal && !quiet)
+          printf("  hIST chunk");
         printf(": %ld histogram entries\n", sz / 2);
-        if (printpal) {
-          char *spc;
-          int i, j;
+      }
+      if (printpal && no_err(1)) {
+        char *spc;
+        int i, j;
 
-          if (sz < 10)
-            spc = "  ";
-          else if (sz < 100)
-            spc = "   ";
-          else
-            spc = "    ";
-          for (i = j = 0;  j < sz;  ++i, j += 2)
-            printf("%s%3d -> [%5u]\n", spc, i, SH(buffer+j));
-        }
+        if (sz < 10)
+          spc = "  ";
+        else if (sz < 100)
+          spc = "   ";
+        else
+          spc = "    ";
+        for (i = j = 0;  j < sz;  ++i, j += 2)
+          printf("%s%3d:  %5u\n", spc, i, SH(buffer+j));
       }
       have_hist = 1;
       last_is_idat = 0;
@@ -1416,6 +1439,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } else {
           int bytes = (bps >> 3);
           int entry_sz = 4*bytes + 2;
+          long nsplt = remainder / entry_sz;
 
           if (remainder % entry_sz != 0) {
             printf("%s  invalid number of %sentries (%g)\n",
@@ -1423,45 +1447,45 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                    (double)remainder / entry_sz);
             set_err(2);
           }
-          if (verbose && no_err(1)) {
-            long nsplt = remainder / entry_sz;
-
+          if ((verbose || (printpal && !quiet)) && no_err(1)) {
+            if (printpal && !quiet)
+              printf("  sPLT chunk");
             printf(": %ld palette/histogram entries\n", nsplt);
             printf("    sample depth = %u bits, palette name = ", bps);
             init_printbuffer(fname);
             printbuffer(buffer, name_len);
             finish_printbuffer(fname, chunkid);
             printf("\n");
-            if (printpal) {
-              char *spc;
-              long i, j=name_len+2L;
+          }
+          if (printpal && no_err(1)) {
+            char *spc;
+            long i, j=name_len+2L;
 
-              if (nsplt < 10L)
-                spc = "  ";
-              else if (nsplt < 100L)
-                spc = "   ";
-              else if (nsplt < 1000L)
-                spc = "    ";
-              else if (nsplt < 10000L)
-                spc = "     ";
-              else
-                spc = "      ";
-              /* GRR:  could check for (required) non-increasing freq order */
-              /* GRR:  could also check for all zero freqs:  undefined hist */
-              if (bytes == 1) {
-                for (i = 0L;  i < nsplt;  ++i, j += 6L)
-                  printf("%s%3ld -> [%3u, %3u, %3u, %3u] = [0x%02x, 0x%02x, 0x%02x, 0x%02x]  freq = %u\n",
-                         spc, i,
-                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
-                         buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
-                         SH(buffer+j+4));
-              } else {
-                for (i = 0L;  i < nsplt;  ++i, j += 10L)
-                  printf("%s%5ld -> [%5u,%5u,%5u,%5u] = [%04x,%04x,%04x,%04x]  freq = %u\n",
-                         spc, i, SH(buffer+j), SH(buffer+j+2), SH(buffer+j+4),
-                         SH(buffer+j+6), SH(buffer+j), SH(buffer+j+2),
-                         SH(buffer+j+4), SH(buffer+j+6), SH(buffer+j+8));
-              }
+            if (nsplt < 10L)
+              spc = "  ";
+            else if (nsplt < 100L)
+              spc = "   ";
+            else if (nsplt < 1000L)
+              spc = "    ";
+            else if (nsplt < 10000L)
+              spc = "     ";
+            else
+              spc = "      ";
+            /* GRR:  could check for (required) non-increasing freq order */
+            /* GRR:  could also check for all zero freqs:  undefined hist */
+            if (bytes == 1) {
+              for (i = 0L;  i < nsplt;  ++i, j += 6L)
+                printf("%s%3ld:  (%3u,%3u,%3u,%3u) = (0x%02x,0x%02x,0x%02x,0x%02x)  freq = %u\n",
+                       spc, i,
+                       buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                       buffer[j], buffer[j+1], buffer[j+2], buffer[j+3],
+                       SH(buffer+j+4));
+            } else {
+              for (i = 0L;  i < nsplt;  ++i, j += 10L)
+                printf("%s%5ld:  (%5u,%5u,%5u,%5u) = (%04x,%04x,%04x,%04x)  freq = %u\n",
+                       spc, i, SH(buffer+j), SH(buffer+j+2), SH(buffer+j+4),
+                       SH(buffer+j+6), SH(buffer+j), SH(buffer+j+2),
+                       SH(buffer+j+4), SH(buffer+j+6), SH(buffer+j+8));
             }
           }
         }
@@ -1615,22 +1639,24 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("%s  incorrect %slength for %s image\n",
                    verbose? ":":fname, verbose? "":"tRNS ", type[ityp]);
             set_err(2);
-          } else if (verbose && no_err(1)) {
-            printf(": %ld transparency entries\n", sz);
-            if (printpal) {
-              char *spc;
-              int i;
 
-              if (sz < 10)
-                spc = "  ";
-              else if (sz < 100)
-                spc = "   ";
-              else
-                spc = "    ";
-              for (i = 0;  i < sz;  ++i)
-                printf("%s%3d -> [%3d] = [0x%02x]\n", spc, i, buffer[i],
-                       buffer[i]);
-            }
+          } else if ((verbose || (printpal && !quiet)) && no_err(1)) {
+            if (printpal && !quiet)
+              printf("  tRNS chunk");
+            printf(": %ld transparency entries\n", sz);
+          }
+          if (printpal && no_err(1)) {
+            char *spc;
+            int i;
+
+            if (sz < 10)
+              spc = "  ";
+            else if (sz < 100)
+              spc = "   ";
+            else
+              spc = "    ";
+            for (i = 0;  i < sz;  ++i)
+              printf("%s%3d:  %3d = 0x%02x\n", spc, i, buffer[i], buffer[i]);
           }
           break;
         default:
@@ -2427,7 +2453,7 @@ usage:
       fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
         ZLIB_VERSION, zlib_version);
 #endif
-      fprintf(stderr, "Test PNG image files for corruption, and print size/type/compression info.\n\n");
+      fprintf(stderr, "\nTest PNG image files for corruption, and print size/type/compression info.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
       fprintf(stderr, "   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
