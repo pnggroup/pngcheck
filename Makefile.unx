@@ -1,0 +1,63 @@
+# gcc/gmake makefile for pngcheck.
+# Greg Roelofs
+# Last modified:  18 November 1999
+#
+# Invoke via:
+#
+#	make -f Makefile.unx
+#
+# This makefile assumes zlib has already been built or downloaded and is in
+# a subdirectory at the same level as the current subdirectory (as indicated
+# by the ZPATH macro below).  Edit as appropriate.
+#
+# Note that the names of the dynamic and static zlib libraries used below may
+# change in later releases of the library.  This makefile builds statically
+# linked executables, but that can be changed by uncommenting the appropriate
+# ZLIB lines.
+
+
+# macros --------------------------------------------------------------------
+
+ZPATH = ../zlib
+ZINC = -I$(ZPATH)
+#ZLIB = -L$(ZPATH) -lz
+ZLIB = $(ZPATH)/libz.a
+
+INCS = $(ZINC)
+LIBS = $(ZLIB)
+
+CC = gcc
+LD = gcc
+RM = rm
+CFLAGS = -O3 -Wall $(INCS) -DUSE_ZLIB
+# [note that -Wall is a gcc-specific compilation flag ("all warnings on")]
+O = .o
+E =
+
+LDFLAGS =
+
+PROG = pngcheck
+
+OBJS  = $(PROG)$(O)
+
+EXES = $(PROG)$(E)
+
+
+# implicit make rules -------------------------------------------------------
+
+.c$(O):
+	$(CC) -c $(CFLAGS) $<
+
+
+# dependencies --------------------------------------------------------------
+
+all:  $(EXES)
+
+$(PROG)$(E): $(PROG).c
+	$(CC) $(CFLAGS) -o $@ $(PROG).c $(LIBS)
+
+
+# maintenance ---------------------------------------------------------------
+
+clean:
+	$(RM) -f $(PROG)$(O) $(PROG)$(E)
