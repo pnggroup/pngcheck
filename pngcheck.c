@@ -1,6 +1,9 @@
 /*
  * Authenticate the structure of a PNG file and dump info about it if desired.
  *
+ *        NOTE:  this program is currently NOT EBCDIC-compatible!
+ *               (as of June 1998)
+ *
  * This program checks the PNG identifier with conversion checks,
  * the file structure and the chunk CRCs. In addition, relations and contents
  * of most defined chunks are checked, except for decompression of the IDAT
@@ -87,7 +90,26 @@
  * 97.06.21 GRR: added compression-ratio info
  * 98.06.09 TGL: fixed pHYs buglet
  * 98.06.09 GRR: re-integrated minimal MNG support from 97.01.21 branch
- * 98.06.10 GRR: extended MNG support (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
+ * 98.06.10 GRR: extended MNG (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
+ * 98.06.11 GRR: extended MNG (more FRAM info; LOOP, ENDL)
+ * 98.06.12 GRR: extended MNG (FRAM, BACK, MOVE, CLON, SHOW, CLIP, fPRI, eXPI)
+ *
+ * [to do:  SAVE, SEEK, BASI, PAST, DISC, tERm, PROM, IPNG, DROP, DBYK, ORDR]
+ * [to do:  EBCDIC support (minimal?)]
+ * [to do:  fix or disable compression ratio for MNG streams]
+ * [to do:  split out each chunk's code into handle_XXXX() function]
+ *
+ * MNG Draft 42:
+ *  - CLON:  missing paren in clone_type 1
+ *  - SHOW:  last_image refers to "potential visibility byte", not show_mode
+ *  - SHOW:  show_mode:  what is "cycle"?
+ *  - fPRI:  can't be 255 if signed byte
+ *  - eXPI:  no limits given on snapshot name (at least 1 byte??)
+ *  - 4.4.6:  "are also defined the MNG top level"
+ */
+
+/*
+ * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
  */
 
 /*
@@ -104,7 +126,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr5c of 11 June 1998"
+#define VERSION "1.98-grr6 of 12 June 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +199,9 @@ int crc_table_computed = 0;
 #endif
 
 /* MNG stuff */
+
+static char *inv = "INVALID";
+
 static char *delta_type[] = {
   "full image replacement",
   "block pixel addition",
@@ -189,10 +214,10 @@ static char *delta_type[] = {
 static char *framing_mode[] = {
   "don't change",
   "individual images with delays and background restoration (default)",
-  "composite frame with no delay and initial background restoration",
+  "composite frame with final delay and initial background restoration",
   "individual images with delays and initial background restoration",
   "individual images with delays and no background restoration",
-  "composite frame with no delay and no background restoration"
+  "composite frame with final delay and no background restoration"
 };
 
 static char *termination_condition[] = {
@@ -228,8 +253,31 @@ static char *change_frame_clipping_boundaries[] = {
 
 static char *change_sync_id_list[] = {
   "no change in sync ID list",
-  "change sync ID list for this frame",		/* GRR: not next frame?? */
-  "change sync ID list and make default"
+  "change sync ID list for this frame:",	/* GRR: not next frame?? */
+  "change sync ID list and make default:"
+};
+
+static char *clone_type[] = {
+  "full",
+  "partial",
+  "renumber"
+};
+
+static char *do_not_show[] = {
+  "potentially visible",
+  "do not show",
+  "same visibility as parent"
+};
+
+static char *show_mode[] = {
+  "make objects potentially visible and display",
+  "make objects invisible",
+  "display potentially visible objects",
+  "make objects potentially visible but do not display",
+  "toggle potentially visible and invisible objects; display visible ones",
+  "toggle potentially visible and invisible objects but do not display any",
+  "make next object potentially visible and display; make rest invisible",
+  "make next object potentially visible but do not display; make rest invisible"
 };
 
 
@@ -323,7 +371,7 @@ void init_printbuffer(char *fname)
   esc=0;
 }
 
-void printbuffer(char *buffer, int size)
+void printbuffer(char *buffer, int size)	/* GRR EBCDIC WARNING */
 {
   while(size--) {
     unsigned char c;
@@ -555,6 +603,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       return;
     }
 
+    /* GRR:  add 4-character EBCDIC conversion here (chunkid) */
+
     chunkid[4] = '\0';
 
     if (PNG_check_chunk_name(chunkid, fname) != 0) {
@@ -593,6 +643,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     crc = update_crc(crc, (unsigned char *)buffer, toread);
 
+    /*===========================*
+     * PNG and MNG header chunks *
+     *===========================*/
+
+    /*------* 
+     | IHDR | 
+     *------*/
     if(strcmp(chunkid, "IHDR") == 0) {
       if (!mng && ihdr_read) {
         printf("%s  multiple IHDR not allowed\n", verbose? ":":fname);
@@ -663,6 +720,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       first_idat = 1;  /* flag:  next IDAT will be the first in this file */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
 #endif
+
+    /*------* 
+     | MHDR | 
+     *------*/
     } else if(strcmp(chunkid, "MHDR") == 0 && mng) {
       if (mhdr_read) {
         printf("%s  multiple MHDR not allowed\n", verbose? ":":fname);
@@ -681,13 +742,21 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         if (verbose) {
           printf("\n    %lu x %lu frame size; ", w, h);
           if (tps)
-            printf("%lu ticks per second\n", tps);
+            printf("%lu tick%s per second\n", tps, (tps == 1L)? "" : "s");
           else
             printf("single frame\n");
         }
       }
       mhdr_read = 1;
       last_is_idat = 0;
+
+    /*================================================*
+     * PNG chunks (with the exception of IHDR, above) *
+     *================================================*/
+
+    /*------* 
+     | PLTE | 
+     *------*/
     } else if(strcmp(chunkid, "PLTE") == 0) {
       if (!mng && plte_read) {
         printf("%s  multiple PLTE not allowed\n",verbose? ":":fname);
@@ -707,12 +776,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       else if (printpal && !verbose)
         printf("\n");
-
       if (no_err(1)) {
         nplte = sz / 3;
         if (verbose)
           printf(": %d palette entries\n", nplte);
-
         if (printpal) {
           char *spc;
           int i, j;
@@ -723,7 +790,6 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             spc = "   ";
           else
             spc = "    ";
-
           for (i = j = 0; i < nplte; i++, j += 3)
             printf("%s%3d ->> [%3d, %3d, %3d] = [%02x, %02x, %02x]\n", spc, i,
                    buffer[j], buffer[j + 1], buffer[j + 2],
@@ -732,6 +798,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       plte_read = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | IDAT | 
+     *------*/
     } else if(strcmp(chunkid, "IDAT") == 0) {
       /* GRR:  need to check for consecutive IDATs within MNG segments */
       if (idat_read && !last_is_idat) {
@@ -908,6 +978,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
 #endif /* USE_ZLIB */
       last_is_idat = 1;
+
+    /*------* 
+     | IEND | 
+     *------*/
     } else if(strcmp(chunkid, "IEND") == 0) {
       if (!mng && iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose? ":":fname);
@@ -923,6 +997,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       iend_read = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | bKGD | 
+     *------*/
     } else if(strcmp(chunkid, "bKGD") == 0) {
       if (!mng && have_bkgd) {
         printf("%s  multiple bKGD not allowed\n",verbose? ":":fname);
@@ -969,6 +1047,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_bkgd = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | cHRM | 
+     *------*/
     } else if(strcmp(chunkid, "cHRM") == 0) {
       if (!mng && have_chrm) {
         printf("%s  multiple cHRM not allowed\n",verbose? ":":fname);
@@ -1028,6 +1110,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_chrm = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | gAMA | 
+     *------*/
     } else if(strcmp(chunkid, "gAMA") == 0) {
       if (!mng && have_gama) {
         printf("%s  multiple gAMA not allowed\n",verbose? ":":fname);
@@ -1050,6 +1136,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_gama = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | hIST | 
+     *------*/
     } else if(strcmp(chunkid, "hIST") == 0) {
       if (!mng && have_hist) {
         printf("%s  multiple hIST not allowed\n",verbose? ":":fname);
@@ -1072,6 +1162,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_hist = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | oFFs | 
+     *------*/
     } else if(strcmp(chunkid, "oFFs") == 0) {
       if (!mng && have_offs) {
         printf("%s  multiple oFFs not allowed\n",verbose? ":":fname);
@@ -1092,6 +1186,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_offs = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | pHYs | 
+     *------*/
     } else if(strcmp(chunkid, "pHYs") == 0) {
       if (!mng && have_phys) {
         printf("%s  multiple pHYS not allowed\n",verbose? ":":fname);
@@ -1111,6 +1209,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_phys = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | sBIT | 
+     *------*/
     } else if(strcmp(chunkid, "sBIT") == 0) {
       int maxbits;
 
@@ -1211,6 +1313,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_sbit = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | sCAL | 
+     *------*/
     } else if(strcmp(chunkid, "sCAL") == 0) {
       if (!mng && have_scal) {
         printf("%s  multiple sCAL not allowed\n",verbose? ":":fname);
@@ -1230,11 +1336,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_scal = 1;
       last_is_idat = 0;
+
+    /*------*  *------* 
+     | tEXt |  | zTXt | 
+     *------*  *------*/
     } else if(strcmp(chunkid, "tEXt") == 0 || strcmp(chunkid, "zTXt") == 0) {
       int key_len;
 
       key_len = keywordlen(buffer, toread);
-
       if(key_len == 0) {
         printf("%s  zero length %s%skeyword\n",
                verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
@@ -1244,19 +1353,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":chunkid);
         set_err(1);
       }
-
       if (verbose && no_err(1) && buffer[0] == ' ') {
         printf("%s  %s keyword has leading space(s)\n",
                verbose? ":":fname, verbose? "":chunkid);
         set_err(1);
       }
-
       if (verbose && no_err(1) && buffer[key_len - 1] == ' ') {
         printf("%s  %s keyword has trailing space(s)\n",
                verbose? ":":fname, verbose? "":chunkid);
         set_err(1);
       }
-
       if (no_err(1)) {
         int i, prev_space = 0;
 
@@ -1275,7 +1381,6 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-
       if (verbose && no_err(1)) {
         int i;
 
@@ -1289,21 +1394,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-
       if (no_err(1)) {
         init_printbuffer(fname);
-
         if (verbose) {
           printf(", keyword: ");
         }
-
         if (verbose || printtext) {
           printbuffer(buffer, key_len);
         }
-
         if (printtext) {
           printf(verbose? "\n":":");
-
           if (strcmp(chunkid, "tEXt") == 0)
             printbuffer(buffer + key_len + 1, toread - key_len - 1);
           else
@@ -1315,15 +1415,17 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
            * such large amounts of text anyways!  Note that this does not
            * mean that the tEXt/zTXt contents will be lost if extracting.
            */
-
           printf("\n");
         } else if (verbose) {
           printf("\n");
         }
-
         finish_printbuffer(fname, chunkid);
       }
       last_is_idat = 0;
+
+    /*------* 
+     | tIME | 
+     *------*/
     } else if(strcmp(chunkid, "tIME") == 0) {
       if (!mng && have_time) {
         printf("%s  multiple tIME not allowed\n", verbose? ":":fname);
@@ -1340,6 +1442,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_time = 1;
       last_is_idat = 0;
+
+    /*------* 
+     | tRNS | 
+     *------*/
     } else if(strcmp(chunkid, "tRNS") == 0) {
       if (!mng && have_trns) {
         printf("%s  multiple tRNS not allowed\n", verbose? ":":fname);
@@ -1391,9 +1497,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_trns = 1;
       last_is_idat = 0;
     }
-    /*=======================================================*
-     * now check for MNG chunks (with the exception of MHDR) *
-     *=======================================================*/
+
+    /*================================================*
+     * MNG chunks (with the exception of MHDR, above) *
+     *================================================*/
+
+    /*------* 
+     | DHDR | 
+     *------*/
     else if(strcmp(chunkid, "DHDR") == 0) {	/* DELTA-PNG */
       if (sz != 4 && sz != 12 && sz != 20) {
         printf("%s  incorrect %slength\n",
@@ -1406,7 +1517,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("\n    object ID = %u, image type = %s, delta type = %s\n",
           SH(buffer), buffer[2]? "PNG":"unspecified",
           (dtype < sizeof(delta_type)/sizeof(char *))?
-          delta_type[dtype]:"INVALID");
+          delta_type[dtype] : inv);
         if (sz > 4) {
           if (dtype == 5) {
             printf("%s  incorrect %slength for delta type %d\n",
@@ -1430,8 +1541,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       dhdr_read = 1;
       last_is_idat = 0;
 
-
-
+    /*------* 
+     | FRAM | 
+     *------*/
     } else if(strcmp(chunkid, "FRAM") == 0) {
       if (sz == 0 && verbose) {
         printf(":  empty\n");
@@ -1439,7 +1551,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         uch fmode = buffer[0];
 
         printf("\n    %s\n", (fmode < sizeof(framing_mode)/sizeof(char *))?
-          framing_mode[fmode]:"INVALID");
+          framing_mode[fmode] : inv);
         if (sz > 1) {
           uch *p = buffer+1;
           int bytes_left;
@@ -1448,7 +1560,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("    frame name = ");
             do {
               if (*p)
-                putchar(*p);
+                putchar(*p);	/* GRR EBCDIC WARNING */
               else {
                 putchar('\n');
                 ++p;
@@ -1475,33 +1587,52 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             } else {
               bytes_left -= 4;
               printf("    %s\n", change_interframe_delay[cid]);
+              /* GRR:  need real error-checking here: */
               if (cid && bytes_left >= 4) {
-                printf("      new delay = %lu ticks\n", LG(p));
+                ulg delay = LG(p);
+
+                printf("      new delay = %lu tick%s\n", delay, (delay == 1L)?
+                  "" : "s");
                 p += 4;
                 bytes_left -= 4;
               }
               printf("    %s\n", change_sync_timeout_and_termination[cstt]);
+              /* GRR:  need real error-checking here: */
               if (cstt && bytes_left >= 4) {
                 ulg val = LG(p);
 
                 if (val == 0x7fffffffL)
                   printf("      new timeout = infinite\n");
                 else
-                  printf("      new timeout = %lu [ticks?]\n", val);
+                  printf("      new timeout = %lu tick%s\n", val, (val == 1L)?
+                    "" : "s");
                 p += 4;
                 bytes_left -= 4;
               }
               printf("    %s\n", change_frame_clipping_boundaries[cfcb]);
-/*
-GRR
- */
+              /* GRR:  need real error-checking here: */
+              if (cfcb && bytes_left >= 17) {
+                printf("      new frame clipping boundaries (%s):\n", (*p++)?
+                  "differences from previous values":"absolute pixel values");
+                printf(
+                  "        left = %ld, right = %ld, top = %ld, bottom = %ld\n",
+                  LG(p), LG(p+4), LG(p+8), LG(p+12));
+                p += 16;
+                bytes_left -= 17;
+              }
               printf("    %s\n", change_sync_id_list[csil]);
-/*
-GRR
- */
+              if (csil) {
+                if (bytes_left) {
+                  while (bytes_left >= 4) {
+                    printf("      %lu\n", LG(p));
+                    p += 4;
+                    bytes_left -= 4;
+                  }
+                } else
+                  printf("      [empty list]\n");
+              }
             }
           }
-
 /*
           if (p < buffer + sz)
             printf("    (bytes left = %d)\n", sz - (p-buffer));
@@ -1512,6 +1643,9 @@ GRR
       }
       last_is_idat = 0;
 
+    /*------* 
+     | nEED | 
+     *------*/
     } else if(strcmp(chunkid, "nEED") == 0) {
       if (sz > 0 && verbose) {
         uch *p = buffer;
@@ -1523,7 +1657,7 @@ GRR
           printf("\n    ");
         do {
           if (*p)
-            putchar(*p);
+            putchar(*p);	/* GRR EBCDIC WARNING */
           else if (p - lastbreak > 40)
             printf("\n    ");
           else {
@@ -1535,6 +1669,9 @@ GRR
       }
       last_is_idat = 0;
 
+    /*------* 
+     | DEFI | 
+     *------*/
     } else if(strcmp(chunkid, "DEFI") == 0) {
       if (sz != 2 && sz != 3 && sz != 4 && sz != 12 && sz != 28) {
         printf("%s  incorrect %slength\n",
@@ -1542,13 +1679,17 @@ GRR
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        uch noshow = 0;
+        char *noshow = do_not_show[0];
         uch concrete = 0;
         long x = 0L;
         long y = 0L;
 
-        if (sz > 2)
-          noshow = buffer[2];
+        if (sz > 2) {
+          if (buffer[2] == 1)
+            noshow = do_not_show[1];
+          else
+            noshow = inv;
+        }
         if (sz > 3)
           concrete = buffer[3];
         if (sz > 4) {
@@ -1556,8 +1697,7 @@ GRR
           y = LG(buffer+8);
         }
         printf("\n    object ID = %u, %s, %s, x = %ld, y = %ld\n", SH(buffer),
-          noshow? "do not show":"potentially visible",
-          concrete? "concrete":"abstract", x, y);
+          noshow, concrete? "concrete":"abstract", x, y);
         if (sz > 12) {
           printf(
             "    clipping:  left = %ld, right = %ld, top = %ld, bottom = %ld\n",
@@ -1566,6 +1706,135 @@ GRR
       }
       last_is_idat = 0;
 
+    /*------* 
+     | BACK | 
+     *------*/
+    } else if(strcmp(chunkid, "BACK") == 0) {
+      if (sz != 6 && sz != 7) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"BACK ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        printf("\n    red = %u, green = %u, blue = %u (%s)\n",
+          SH(buffer), SH(buffer+2), SH(buffer+4), (sz > 6 && buffer[6])?
+          "mandatory":"advisory");
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | MOVE | 
+     *------*/
+    } else if(strcmp(chunkid, "MOVE") == 0) {
+      if (sz != 13) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"MOVE ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        printf("\n    first object ID = %u, last object ID = %u\n",
+          SH(buffer), SH(buffer+2));
+        if (buffer[4])
+          printf(
+            "    relative change in position:  delta-x = %ld, delta-y = %ld\n",
+            LG(buffer+5), LG(buffer+9));
+        else
+          printf("    new position:  x = %ld, y = %ld\n",
+            LG(buffer+5), LG(buffer+9));
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | CLON | 
+     *------*/
+    } else if(strcmp(chunkid, "CLON") == 0) {
+      if (sz != 4 && sz != 5 && sz != 6 && sz != 7 && sz != 16) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"CLON ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        uch ct = 0;	/* full clone */
+        uch dns = 2;	/* same as parent's */
+        uch cf = 0;	/* same as parent's */
+        uch ldt = 1;	/* delta from parent */
+        long x = 0L;
+        long y = 0L;
+
+        if (sz > 4)
+          ct = buffer[4];
+        if (sz > 5)
+          dns = buffer[5];
+        if (sz > 6)
+          cf = buffer[6];
+        if (sz > 7) {
+          ldt = buffer[7];
+          x = LG(buffer+8);
+          y = LG(buffer+12);
+        }
+        printf("\n    parent object ID = %u, clone object ID = %u\n",
+          SH(buffer), SH(buffer+2));
+        printf("    clone type = %s, %s, %s\n",
+          (ct < sizeof(clone_type)/sizeof(char *))? clone_type[ct] : inv,
+          (dns < sizeof(do_not_show)/sizeof(char *))? do_not_show[dns] : inv,
+          cf? "same concreteness as parent":"abstract");
+        if (ldt)
+          printf("    difference from parent's position:  delta-x = %ld,"
+            " delta-y = %ld\n", x, y);
+        else
+          printf("    absolute position:  x = %ld, y = %ld\n", x, y);
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | SHOW | 
+     *------*/
+    } else if(strcmp(chunkid, "SHOW") == 0) {
+      if (sz != 0 && sz != 2 && sz != 4 && sz != 5) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"SHOW ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        ush first = 0;
+        ush last = 65535;
+        uch smode = 2;
+
+        if (sz > 0) {
+          first = last = SH(buffer);
+          smode = 0;
+        }
+        if (sz > 2)
+          last = SH(buffer+2);
+        if (sz > 4)
+          smode = buffer[4];
+        printf("\n    first object = %u, last object = %u\n", first, last);
+        printf("    %s\n",
+          (smode < sizeof(show_mode)/sizeof(char *))? show_mode[smode] : inv);
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | CLIP | 
+     *------*/
+    } else if(strcmp(chunkid, "CLIP") == 0) {
+      if (sz != 21) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"CLIP ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        printf(
+          "\n    first object = %u, last object = %u; %s clip boundaries:\n",
+          SH(buffer), SH(buffer+2), buffer[4]? "relative change in":"absolute");
+        printf("      left = %ld, right = %ld, top = %ld, bottom = %ld\n",
+          LG(buffer+5), LG(buffer+9), LG(buffer+13), LG(buffer+17));
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | LOOP | 
+     *------*/
     } else if(strcmp(chunkid, "LOOP") == 0) {
       if (sz != 6 && sz != 14 && sz != 18) {
         printf("%s  incorrect %slength\n",
@@ -1588,6 +1857,9 @@ GRR
       }
       last_is_idat = 0;
 
+    /*------* 
+     | ENDL | 
+     *------*/
     } else if(strcmp(chunkid, "ENDL") == 0) {
       if (sz != 1) {
         printf("%s  incorrect %slength\n",
@@ -1598,6 +1870,38 @@ GRR
         printf(":  nest level = %u\n", (unsigned)(buffer[0]));
       last_is_idat = 0;
 
+    /*------* 
+     | fPRI | 
+     *------*/
+    } else if(strcmp(chunkid, "fPRI") == 0) {
+      if (sz != 2) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"fPRI ");
+        set_err(2);
+      }
+      if (verbose && no_err(1))
+        printf(":  %spriority = %u\n", buffer[0]? "delta " : "",
+          (unsigned)(buffer[1]));
+      last_is_idat = 0;
+
+    /*------* 
+     | eXPI | 
+     *------*/
+    } else if(strcmp(chunkid, "eXPI") == 0) {
+      if (sz <= 2) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"eXPI ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
+          sz-2, buffer+2);	/* GRR EBCDIC WARNING */
+      }
+      last_is_idat = 0;
+
+    /*------* 
+     | MEND | 
+     *------*/
     } else if(strcmp(chunkid, "MEND") == 0) {
       if (mend_read) {
         printf("%s  multiple MEND not allowed\n",verbose? ":":fname);
@@ -1611,6 +1915,10 @@ GRR
       }
       mend_read = 1;
       last_is_idat = 0;
+
+    /*===============*
+     * unknown chunk *
+     *===============*/
 
     } else {
       /* A critical safe-to-copy chunk is an error */
@@ -1628,6 +1936,8 @@ GRR
       }
       last_is_idat = 0;
     }
+
+    /*=======================================================================*/
 
     if (no_err(1)) {
       if (fpOut != NULL) {
@@ -1854,6 +2164,7 @@ usage:
       fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
       fprintf(stderr, "Test PNG image files for corruption, and print size/type/compression info.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
+      fprintf(stderr, "   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]\n");
       fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
       fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n\n");
       fprintf(stderr, "Options:\n");
@@ -1868,6 +2179,7 @@ usage:
       fprintf(stderr, "   -f  force continuation even after major errors\n");
       fprintf(stderr, "   -s  search for PNGs within another file\n");
       fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
+      fprintf(stderr, "\nNote:  MNG support is incomplete.  Based on MNG Draft 42.\n");
     } else {
       if (search)
         pngsearch(stdin, "stdin", extract);
