@@ -25,11 +25,11 @@
  * 01.06.95 AL: check for data after IEND chunk
  *
  * 95.06.01 GRR: reformatted; print tEXt and zTXt keywords; add usage
- *
+ * 95.06.07 GRR: print image info (IHDR) and tIME; EMX wildcards
  *
  */
 
-#define VERSION "1.6 of 1 June 1995"
+#define VERSION "1.61 of 7 June 1995"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +40,14 @@ int PNG_check_magic(unsigned char *magic);
 int PNG_check_chunk_name(char *chunk_name);
 
 #define BS 32000 /* size of read block for CRC calculation */
+
+/* Mark's macros to extract big-endian short and long ints: */
+typedef unsigned char  uch;
+typedef unsigned short ush;
+typedef unsigned long  ulg;
+#define SH(p) ((ush)(uch)((p)[1]) | ((ush)(uch)((p)[0]) << 8))
+#define LG(p) ((ulg)(SH((p)+2)) | ((ulg)(SH(p)) << 16))
+
 int verbose; /* ==1 print chunk info */
 int printtext; /* ==1 print tEXt chunks */
 char *fname;
@@ -118,9 +126,13 @@ void pngcheck(FILE *fp, char *_fname)
   int c;
   unsigned long crc, filecrc;
   int first=1;
-  int istext, isztxt, isanytext, chunkstart;
+  int istext, isztxt, ishead, istime, continuing, chunkstart;
   int iend_read=0;
+  long w, h;
+  int bits, ityp, lace;
   static int first_file=1;
+  static char *type[] = {"grayscale", "undefined type", "RGB",
+       "colormap", "grayscale+alpha", "undefined type", "RGB+alpha"};
 
   fname=_fname; /* make filename available to functions above */
 
@@ -152,23 +164,30 @@ void pngcheck(FILE *fp, char *_fname)
 
     if (PNG_check_chunk_name(chunkid) != 0) return;
 
-    istext = isztxt = isanytext = 0;
+    istext = isztxt = ishead = istime = continuing = 0;
     if(strcmp(chunkid, "tEXt") == 0) {
       istext = 1;
-      isanytext = 1;
+      continuing = 1;
     } else if(strcmp(chunkid, "zTXt") == 0) {
       isztxt = 1;
-      isanytext = 1;
+      continuing = 1;
+    } else if(strcmp(chunkid, "IHDR") == 0) {
+      ishead = 1;
+      continuing = 1;
+    } else if(strcmp(chunkid, "tIME") == 0) {
+      istime = 1;
+      continuing = 1;
     }
 
     if(verbose) {
       printf("   chunk %s at offset 0x%05lx, length %ld%s", chunkid,
-        ftell(fp)-4, s, isanytext? "":"\n");
-    }
+        ftell(fp)-4, s, continuing? "":"\n");
+    } else
+      continuing = 0;
 
     if(first && strcmp(chunkid,"IHDR")!=0) {
       printf("%s%s   file doesn't start with a IHDR chunk\n",
-        isanytext? "\n":"", verbose? "":fname);
+        continuing? "\n":"", verbose? "":fname);
     }
     first=0;
 
@@ -178,12 +197,44 @@ void pngcheck(FILE *fp, char *_fname)
     while(s>0) {
       toread=(s>BS)? BS : s;
       if(fread(buffer, 1, toread, fp)!=toread) {
-        printf("%s%s   EOF while reading chunk data (%s)\n", isanytext? "\n":"",
+        printf("%s%s   EOF while reading chunk data (%s)\n", continuing? "\n":"",
           verbose? "":fname, chunkid);
         return;
       }
-      if (verbose && isanytext && chunkstart) {
-        printf(", keyword: %s\n", (char *)buffer);
+      if (chunkstart) {
+        if (ishead) {
+          w = LG(buffer);
+          h = LG(buffer+4);
+          bits = (unsigned)buffer[8];
+          ityp = (unsigned)buffer[9];
+          lace = (unsigned)buffer[12];
+          switch (ityp) {
+            case 2:
+              bits *= 3;   /* RGB */
+              break;
+            case 4:
+              bits *= 2;   /* gray+alpha */
+              break;
+            case 6:
+              bits *= 4;   /* RGBA */
+              break;
+          }
+        }
+        if (verbose) {
+          if (istext || isztxt)
+            printf(", keyword:  %s\n", (char *)buffer);
+          else if (ishead)
+            printf(":\n      %ld x %ld image, %d-bit %s, %sinterlaced\n", w, h,
+              bits, (ityp > 6)? type[1]:type[ityp], lace? "":"non-");
+          else if (istime) {
+            static char *month[] = {"January", "February", "March", "April",
+              "May", "June", "July", "August", "September", "October",
+              "November", "December"};
+
+            printf(":  %d %s %d %02d:%02d:%02d\n", SH(buffer),
+              month[buffer[2]-1], buffer[3], buffer[4], buffer[5], buffer[6]);
+          }
+        }
       }
       crc=update_crc(crc, buffer, toread);
       s-=toread;
@@ -212,7 +263,11 @@ void pngcheck(FILE *fp, char *_fname)
     printf("%s   file doesn't end with an IEND chunk\n", verbose? "":fname);
     return;
   }
-  printf("No errors detected in %s.\n", fname);
+  if(verbose)  /* already printed IHDR info */
+    printf("No errors detected in %s.\n", fname);
+  else
+    printf("No errors detected in %s (%ldx%ld, %d-bit %s, %sinterlaced).\n",
+      fname, w, h, bits, (ityp > 6)? type[1]:type[ityp], lace? "":"non-");
 }
 
 int main(int argc, char *argv[])
@@ -220,6 +275,9 @@ int main(int argc, char *argv[])
   FILE *fp;
   int i;
 
+#ifdef __EMX__
+  _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
+#endif
   if(argc>1 && strcmp(argv[1],"-v")==0) {
     verbose=1;
     argc--;
