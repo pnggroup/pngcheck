@@ -1,5 +1,5 @@
 /*
- * authenticate a PNG file (as per draft 10)
+ * authenticate a PNG file (as per draft 0.92)
  *
  * this program checks the PNG identifier with conversion checks,
  * the file structure and the chunk CRCs.
@@ -41,9 +41,12 @@
  * 95.12.04 AED: minor bug in cHRM error output fixed
  *
  * 96.01.05 AED: added -q flaq to only output a message if an error occurrs
+ *
+ * 96.01.19 AED: added ability to parse multiple options with a single '-'
+ *               changed tIME output to be in RFC 1123 format
  */
 
-#define VERSION "1.92 of 5 January 1996"
+#define VERSION "1.93 of 6 March 1996"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,6 +120,7 @@ unsigned long update_crc(unsigned long crc, unsigned char *buf, int len)
   if (!crc_table_computed) {
     make_crc_table();
   }
+
   if (n > 0) do {
     c = crc_table[(c ^ (*p++)) & 0xff] ^ (c >> 8);
   } while (--n);
@@ -172,7 +176,7 @@ void printbuffer(char *buffer, int size, int printtext)
 
   while(size--) {
     c = *buffer++;
-    if(printtext)
+    if(printtext) {
       if((c < ' ' && c != '\t' && c != '\n') ||
          (sevenbit ? c > 127 : (c >= 127 && c < 160)))
         printf("\\%02X", c);
@@ -181,6 +185,7 @@ void printbuffer(char *buffer, int size, int printtext)
         printf("\\\\");
       else
         putchar(c);
+    }
 
     if(c < 32 || (c >= 127 && c < 160)) {
       if(c == '\n') lf=1;
@@ -227,10 +232,10 @@ int keywordlen(char *buffer, int maxsize)
 char *getmonth(int m)
 {
   static char *month[] =
-  {"(undefined)", "January", "February", "March", "April", "May", "June",
-   "July", "August", "September", "October", "November", "December"};
+  {"(undefined)", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
-  if(m<1 || m>12) return month[0];
+  if (m < 1 || m > 12) return month[0];
   else return month[m];
 }
 
@@ -238,7 +243,7 @@ void pngcheck(FILE *fp, char *_fname)
 {
   long s;
   unsigned char magic[8];
-  char chunkid[5];
+  char chunkid[5] = {'\0', '\0', '\0', '\0', '\0'};
   int toread;
   int c;
   unsigned long crc, filecrc;
@@ -254,7 +259,7 @@ void pngcheck(FILE *fp, char *_fname)
   static int first_file=1;
   int i;
   static char *type[] = {"grayscale", "undefined type", "RGB", "colormap",
-                           "grayscale+alpha", "undefined type", "RGB+alpha"};
+                         "grayscale+alpha", "undefined type", "RGB+alpha"};
 
   fname=_fname; /* make filename available to functions above */
 
@@ -294,7 +299,7 @@ void pngcheck(FILE *fp, char *_fname)
 
     if(iend_read) {
       if (!quiet)
-	printf("%s  additional data after IEND chunk\n", verbose? "":fname);
+        printf("%s  additional data after IEND chunk\n", verbose? "":fname);
       if(force)
         error = 1;
       else
@@ -326,10 +331,10 @@ void pngcheck(FILE *fp, char *_fname)
     if(!ihdr_read && strcmp(chunkid,"IHDR")!=0) {
         printf("\n%s  file doesn't start with a IHDR chunk\n",
                verbose? "":fname);
-	if (force)
+        if (force)
           error = 2;
-	else
-	  return;
+        else
+          return;
     }
 
     toread = (s>BS)? BS : s;
@@ -406,11 +411,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"PLTE ");
+               verbose?":":fname, verbose?"":"PLTE ");
         error = 1;
       } else if (have_bkgd) {
         printf("%s  %smust precede bKGD\n",
-	       verbose?":":fname, verbose?"":"PLTE ");
+               verbose?":":fname, verbose?"":"PLTE ");
         error = 1;
       } else if (s < 3 || s > 768 || s % 3 != 0) {
         printf("%s  invalid number of %sentries (%g)\n",
@@ -457,7 +462,7 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"bKGD ");
+               verbose?":":fname, verbose?"":"bKGD ");
         error = 1;
       }
       switch (ityp) {
@@ -503,11 +508,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (plte_read) {
         printf("%s  %smust precede PLTE\n",
-	       verbose?":":fname, verbose?"":"cHRM ");
+               verbose?":":fname, verbose?"":"cHRM ");
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"cHRM ");
+               verbose?":":fname, verbose?"":"cHRM ");
         error = 1;
       } else if (s != 32) {
         printf("%s  incorrect %slength\n",
@@ -564,11 +569,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"gAMA ");
+               verbose?":":fname, verbose?"":"gAMA ");
         error = 1;
       } else if (plte_read) {
         printf("%s  %smust precede PLTE\n",
-	       verbose?":":fname, verbose?"":"gAMA ");
+               verbose?":":fname, verbose?"":"gAMA ");
         error = 1;
       } else if (s != 4) {
         printf("%s  incorrect %slength\n",
@@ -586,11 +591,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (!plte_read) {
         printf("%s  %smust follow PLTE\n",
-	       verbose?":":fname, verbose?"":"hIST ");
+               verbose?":":fname, verbose?"":"hIST ");
         error=1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"hIST ");
+               verbose?":":fname, verbose?"":"hIST ");
         error = 1;
       } else if (s != nplte * 2) {
         printf("%s  invalid number of %sentries (%g)\n",
@@ -608,7 +613,7 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"oFFs ");
+               verbose?":":fname, verbose?"":"oFFs ");
         error = 1;
       } else if (s != 9) {
         printf("%s  incorrect %slength\n",
@@ -627,7 +632,7 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"pHYS ");
+               verbose?":":fname, verbose?"":"pHYS ");
         error = 1;
       } else if (s != 9) {
         printf("%s  incorrect %slength\n",
@@ -646,11 +651,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (plte_read) {
         printf("%s  %smust precede PLTE\n",
-	       verbose?":":fname, verbose?"":"sBIT ");
+               verbose?":":fname, verbose?"":"sBIT ");
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"sBIT ");
+               verbose?":":fname, verbose?"":"sBIT ");
         error = 1;
       }
       switch (ityp) {
@@ -702,7 +707,7 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"sCAL ");
+               verbose?":":fname, verbose?"":"sCAL ");
         error = 1;
       }
       if (verbose && (error == 0 || force)) {
@@ -782,9 +787,10 @@ void pngcheck(FILE *fp, char *_fname)
                    verbose?":":fname, verbose?"":"tIME ");
         error = 2;
       }
+      /* Print the date in RFC 1123 format, rather than stored order */
       if (verbose && (error == 0 || (error == 1 && force))) {
-        printf(": %d %s %d %02d:%02d:%02d GMT\n", SH(buffer),
-               getmonth(buffer[2]), buffer[3], buffer[4], buffer[5], buffer[6]);
+        printf(": %2d %s %4d %02d:%02d:%02d GMT\n", buffer[3],
+               getmonth(buffer[2]), SH(buffer), buffer[4], buffer[5], buffer[6]);
       }
       have_time = 1;
       last_is_idat = 0;
@@ -794,11 +800,11 @@ void pngcheck(FILE *fp, char *_fname)
         error = 1;
       } else if (!plte_read) {
         printf("%s  %smust follow PLTE\n",
-	       verbose?":":fname, verbose?"":"tRNS ");
+               verbose?":":fname, verbose?"":"tRNS ");
         error = 1;
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
-	       verbose?":":fname, verbose?"":"tRNS ");
+               verbose?":":fname, verbose?"":"tRNS ");
         error = 1;
       }
       switch (ityp) {
@@ -835,17 +841,26 @@ void pngcheck(FILE *fp, char *_fname)
           }
         default:
           printf("%s  %snot allowed in %s image\n",
-                 verbose?":":fname, verbose?"":"tRNS ",type[ityp]);
+                 verbose?":":fname, verbose?"":"tRNS ", type[ityp]);
           error = 1;
       }
       have_trns = 1;
       last_is_idat = 0;
-    } else if (verbose) {
-      printf(": unknown %s%s%s%s chunk\n",
-             chunkid[0]&0x10?"ancillary ":"critical ",
-             chunkid[1]&0x10?"private ":"",
-             chunkid[2]&0x10?"reserved-bit-set ":"",
-             chunkid[3]&0x10?"safe-to-copy":"unsafe-to-copy");
+    } else {
+
+      /* A critical safe-to-copy chunk is an error */
+      if (!(chunkid[0] & 0x20) && chunkid[3] & 0x20) {
+	printf("%s  illegal critical, safe-to-copy chunk%s%s\n",
+	       verbose?":":fname, verbose?"":" ", verbose?"":chunkid);
+	error = 1;
+      }
+      else if (verbose) {
+        printf(": unknown %s%s%s%s chunk\n",
+               chunkid[0] & 0x20 ? "ancillary " : "critical ",
+               chunkid[1] & 0x20 ? "private " : "",
+               chunkid[2] & 0x20 ? "reserved-bit-set " : "",
+               chunkid[3] & 0x20 ? "safe-to-copy" : "unsafe-to-copy");
+      }
 
       last_is_idat = 0;
     }
@@ -895,50 +910,53 @@ void pngcheck(FILE *fp, char *_fname)
 int main(int argc, char *argv[])
 {
   FILE *fp;
-  int i;
+  int i = 1;
 
 #ifdef __EMX__
   _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
 #endif
 
-  while(argc>1 && argv[1][0]=='-') {
-    if(strcmp(argv[1],"-v")==0) {
-      verbose=1;
-      quiet=0;
-      argc--;
-      argv++;
-    } else
-    if(strcmp(argv[1],"-q")==0) {
-      verbose=0;
-      quiet=1;
-      argc--;
-      argv++;
-    } else
-    if(strcmp(argv[1],"-t")==0) {
-      printtext=1;
-      argc--;
-      argv++;
-    } else
-    if(strcmp(argv[1],"-7")==0) {
-      printtext=1;
-      sevenbit=1;
-      argc--;
-      argv++;
-    } else
-    if(strcmp(argv[1],"-f")==0) {
-      force=1;
-      argc--;
-      argv++;
-    } else {
-      fprintf(stderr, "unknown option %s\n", argv[1]);
-      goto usage;
+  while(argc > 1 && argv[1][0] == '-') {
+    switch(argv[1][i]) {
+      case '\0':
+        argc--;
+        argv++;
+        i = 1;
+        break;
+      case 'v':
+        verbose=1;
+        quiet=0;
+        i++;
+        break;
+      case 'q':
+        verbose=0;
+        quiet=1;
+        i++;
+        break;
+      case 't':
+        printtext=1;
+        i++;
+        break;
+      case '7':
+        printtext=1;
+        sevenbit=1;
+        i++;
+        break;
+      case 'f':
+        force=1;
+        i++;
+        break;
+      default:
+        fprintf(stderr, "unknown option %c\n", argv[1][i]);
+        goto usage;
     }
   }
 
-  if(argc==1) {
+  if(argc == 1) {
     if (isatty(0)) {       /* if stdin not redirected, give the user help */
 usage:
-      fprintf(stderr, "PNGcheck, version %s, by Alexander Lehmann.\n",
+      fprintf(stderr, "PNGcheck, version %s\n",
+      fprintf(stderr, "   by Alexander Lehmann and Andreas Dilger.\n",
               VERSION);
       fprintf(stderr, "Test a PNG image file for corruption.\n\n");
       fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
@@ -949,11 +967,12 @@ usage:
       fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
       fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7bit terminals)\n");
       fprintf(stderr, "   -f  force continuation even after major errors\n");
-    } else
+    } else {
       pngcheck(stdin, "stdin");
+    }
   } else {
-    for(i=1;i<argc;i++) {
-      if((fp=fopen(argv[i],"rb"))==NULL) {
+    for(i = 1; i < argc; i++) {
+      if ((fp = fopen(argv[i], "rb"))==NULL) {
         perror(argv[i]);
       } else {
         pngcheck(fp, argv[i]);
@@ -989,47 +1008,58 @@ usage:
 
 int PNG_check_magic(unsigned char *magic)
 {
-  if (strncmp((char *)&magic[1],"PNG",3) != 0) {
-             fprintf(stderr, "not a PNG file\n");
-             return(ERROR);
-            }
+  if (strncmp((char *)&magic[1], "PNG", 3) != 0) {
+    printf("%s not a PNG file\n", verbose ? "" : fname);
+    return(ERROR);
+  }
 
-    if (magic[0] != 0x89 ||
-         strncmp((char *)&magic[4],"\015\012\032\012",4) != 0) {
-         fprintf(stderr, "PNG file is CORRUPTED.\n");
+  if (magic[0] != 0x89 ||
+      strncmp((char *)&magic[4], "\015\012\032\012", 4) != 0) {
 
-         /* this coding taken from Alexander Lehmanns checkpng code   */
+    if (verbose) {
+      printf("  file is CORRUPTED.\n");
+    } else {
+      printf("%s: file is CORRUPTED by text conversion.\n", fname);
+      return (ERROR);
+    }
 
-        if(strncmp((char *)&magic[4],"\n\032",2) == 0) fprintf
-             (stderr," It seems to have suffered DOS->unix conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\r\032",2) == 0) fprintf
-             (stderr," It seems to have suffered DOS->Mac conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\r\r\032",3) == 0) fprintf
-             (stderr," It seems to have suffered unix->Mac conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\n\n\032",3) == 0) fprintf
-             (stderr," It seems to have suffered Mac-unix conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\r\n\032\r",4) == 0) fprintf
-             (stderr," It seems to have suffered unix->DOS conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\r\r\n\032",4) == 0) fprintf
-             (stderr," It seems to have suffered unix->DOS conversion\n");
-        else
-        if(strncmp((char *)&magic[4],"\r\n\032\n",4) != 0) fprintf
-             (stderr," It seems to have suffered EOL conversion\n");
+    /* This coding derived from Alexander Lehmanns checkpng code   */
+    if(strncmp((char *)&magic[4], "\012\032", 2) == 0)
+      printf("  It seems to have suffered DOS->unix conversion\n");
 
-        if(magic[0]==9) fprintf
-             (stderr," It was probably transmitted through a 7bit channel\n");
-        else
-        if(magic[0]!=0x89) fprintf
-             (stderr,"  It was probably transmitted in text mode\n");
-        /*  end of Alexander Lehmann's code  */
-        return(ERROR);
-        }
-    return (OK);
+    else if(strncmp((char *)&magic[4], "\015\032", 2) == 0)
+      printf("  It seems to have suffered DOS->Mac conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\015\015\032", 3) == 0)
+      printf("  It seems to have suffered unix->Mac conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\012\012\032", 3) == 0)
+      printf("  It seems to have suffered Mac->unix conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\012\012", 2) == 0)
+      printf("  It seems to have suffered DOS->unix conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\015\015\012\032", 4) == 0)
+      printf("  It seems to have suffered unix->DOS conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\015\012\032\015", 4) == 0)
+      printf("  It seems to have suffered unix->DOS conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\015\012\012", 3) == 0)
+      printf("  It seems to have suffered DOS EOF conversion\n");
+
+    else if(strncmp((char *)&magic[4], "\015\012\032\012", 4) != 0)
+      printf("  It seems to have suffered EOL conversion\n");
+
+    if (magic[0] == 9)
+      printf("  It was probably transmitted through a 7bit channel\n");
+    else if(magic[0] != 0x89)
+      printf("  It was probably transmitted in text mode\n");
+
+    return(ERROR);
+  }
+
+  return (OK);
 }
 
 /* (int)PNG_check_magic ((char*) magic)
@@ -1040,11 +1070,13 @@ int PNG_check_magic(unsigned char *magic)
 
 int PNG_check_chunk_name(char *chunk_name)
 {
-     if(!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
-        !isalpha(chunk_name[2]) || !isalpha(chunk_name[3])) {
-         printf("chunk name %02x %02x %02x %02x doesn't comply to naming rules\n",
-         chunk_name[0],chunk_name[1],chunk_name[2],chunk_name[3]);
-         return (ERROR);
-         }
-     else return (OK);
+  if(!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
+     !isalpha(chunk_name[2]) || !isalpha(chunk_name[3]))
+  {
+    printf("%s%schunk name %02x %02x %02x %02x doesn't comply to naming rules\n",
+           verbose ? "" : fname, verbose ? "" : ": ", 
+           chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
+    return (ERROR);
+  }
+  else return (OK);
 }
