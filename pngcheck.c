@@ -24,8 +24,12 @@
  *
  * 01.06.95 AL: check for data after IEND chunk
  *
+ * 95.06.01 GRR: reformatted; print tEXt and zTXt keywords; add usage
+ *
  *
  */
+
+#define VERSION "1.6 of 1 June 1995"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,12 +118,19 @@ void pngcheck(FILE *fp, char *_fname)
   int c;
   unsigned long crc, filecrc;
   int first=1;
+  int istext, isztxt, isanytext, chunkstart;
   int iend_read=0;
+  static int first_file=1;
 
   fname=_fname; /* make filename available to functions above */
 
+  if(verbose) {
+    printf("%sFile:  %s\n", first_file? "":"\n", fname);
+  }
+  first_file = 0;
+
   if(fread(magic, 1, 8, fp)!=8) {
-    printf("%s: Cannot read PNG header\n", fname);
+    printf("%s   cannot read PNG header\n", verbose? "":fname);
     return;
   }
 
@@ -128,12 +139,12 @@ void pngcheck(FILE *fp, char *_fname)
   while((c=fgetc(fp))!=EOF) {
     ungetc(c, fp);
     if(iend_read) {
-      printf("%s: additional data after IEND chunk\n", fname);
+      printf("%s   additional data after IEND chunk\n", verbose? "":fname);
       return;
     }
     s=getlong(fp);
     if(fread(chunkid, 1, 4, fp)!=4) {
-      printf("%s: EOF while reading chunk type\n", fname);
+      printf("%s   EOF while reading chunk type\n", verbose? "":fname);
       return;
     }
 
@@ -141,42 +152,56 @@ void pngcheck(FILE *fp, char *_fname)
 
     if (PNG_check_chunk_name(chunkid) != 0) return;
 
+    istext = isztxt = isanytext = 0;
+    if(strcmp(chunkid, "tEXt") == 0) {
+      istext = 1;
+      isanytext = 1;
+    } else if(strcmp(chunkid, "zTXt") == 0) {
+      isztxt = 1;
+      isanytext = 1;
+    }
+
     if(verbose) {
-      printf("%s: chunk %s at %lx length %lx\n", fname, chunkid, ftell(fp)-4, s);
+      printf("   chunk %s at offset 0x%05lx, length %ld%s", chunkid,
+        ftell(fp)-4, s, isanytext? "":"\n");
     }
 
     if(first && strcmp(chunkid,"IHDR")!=0) {
-      printf("%s: file doesn't start with a IHDR chunk\n", fname);
+      printf("%s%s   file doesn't start with a IHDR chunk\n",
+        isanytext? "\n":"", verbose? "":fname);
     }
     first=0;
 
     crc=update_crc(CRCINIT, (unsigned char *)chunkid, 4);
 
+    chunkstart=1;
     while(s>0) {
-      toread=s;
-      if(toread>BS) {
-        toread=BS;
-      }
+      toread=(s>BS)? BS : s;
       if(fread(buffer, 1, toread, fp)!=toread) {
-        printf("%s: EOF while reading chunk data (%s)\n", fname, chunkid);
+        printf("%s%s   EOF while reading chunk data (%s)\n", isanytext? "\n":"",
+          verbose? "":fname, chunkid);
         return;
+      }
+      if (verbose && isanytext && chunkstart) {
+        printf(", keyword: %s\n", (char *)buffer);
       }
       crc=update_crc(crc, buffer, toread);
       s-=toread;
-      if(printtext && strcmp(chunkid, "tEXt")==0) {
+      if(printtext && istext) {
         if(strlen((char *)buffer)<toread) {
           buffer[strlen((char *)buffer)]=':';
         }
         fwrite(buffer, 1, toread, stdout);
       }
+      chunkstart=0;
     }
-    if(printtext && strcmp(chunkid, "tEXt")==0) {
+    if(printtext && istext) {
       printf("\n");
     }
     filecrc=getlong(fp);
     if(filecrc!=CRCCOMPL(crc)) {
-      printf("%s: CRC error in chunk %s (actual %08lx, should be %08lx)\n",
-              fname, chunkid, CRCCOMPL(crc), filecrc);
+      printf("%s   CRC error in chunk %s (actual %08lx, should be %08lx)\n",
+              verbose? "":fname, chunkid, CRCCOMPL(crc), filecrc);
       return;
     }
     if(strcmp(chunkid, "IEND")==0) {
@@ -184,10 +209,10 @@ void pngcheck(FILE *fp, char *_fname)
     }
   }
   if(!iend_read) {
-    printf("%s: file doesn't end with a IEND chunk\n", fname);
+    printf("%s   file doesn't end with an IEND chunk\n", verbose? "":fname);
     return;
   }
-  printf("%s: file appears to be OK\n", fname);
+  printf("No errors detected in %s.\n", fname);
 }
 
 int main(int argc, char *argv[])
@@ -207,7 +232,15 @@ int main(int argc, char *argv[])
   }
 
   if(argc==1) {
-    pngcheck(stdin, "stdin");
+    if (isatty(0)) {       /* if stdin not redirected, give the user help */
+      printf("PNGcheck, version %s, by Alexander Lehmann.\n", VERSION);
+      printf("Test a PNG image file for corruption.\n\n");
+      printf("Usage:  pngcheck [-v | -t] file.png [file.png [...]]\n");
+      printf("   or:  ... | pngcheck [-v | -t]\n\n");
+      printf("Options:\n");
+      printf("   -v  test verbosely      -t  print contents of tEXt chunks\n");
+    } else
+      pngcheck(stdin, "stdin");
   } else {
     for(i=1;i<argc;i++) {
       if((fp=fopen(argv[i],"rb"))==NULL) {
