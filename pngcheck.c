@@ -87,6 +87,7 @@
  * 97.06.21 GRR: added compression-ratio info
  * 98.06.09 TGL: fixed pHYs buglet
  * 98.06.09 GRR: re-integrated minimal MNG support from 97.01.21 branch
+ * 98.06.10 GRR: extended MNG support slightly (MHDR info, subdue PNG errors)
  */
 
 /*
@@ -102,7 +103,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr5 of 9 June 1998"
+#define VERSION "1.98-grr5b of 10 June 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,13 +158,11 @@ int mng = 0;        /* it's a MNG instead of a PNG (won't work in pipe) */
 int error; /* the current error status */
 unsigned char buffer[BS];
 
-/* What the PNG magic number should be */
+/* What the PNG and MNG magic numbers should be */
 static unsigned char good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
-
-/* What the MNG magic number should be */
 static unsigned char good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
 
-/* table of crc's of all 8-bit messages */
+/* table of CRCs of all 8-bit messages */
 unsigned long crc_table[256];
 
 /* Flag: has the table been computed? Initially false. */
@@ -175,6 +174,23 @@ int crc_table_computed = 0;
   unsigned char outbuf[BS];
   z_stream zstrm;
 #endif
+
+/* MNG stuff */
+static char *delta_type[] = {
+  "full image replacement",
+  "block pixel addition",
+  "block alpha addition",
+  "block pixel replacement",
+  "block alpha replacement",
+  "no change"
+};
+
+static char *framing_mode[] = {
+  "don't change",
+  "individual images with delays and background restoration (default)",
+  "composite frame with no delay",
+  "individual images with delays and no background restoration",
+};
 
 
 /* make the table for a fast crc */
@@ -397,9 +413,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int toread;
   int c;
   unsigned long crc, filecrc;
-  int ihdr_read = 0, plte_read = 0, idat_read = 0, last_is_idat = 0;
-  int iend_read = 0;
+  int ihdr_read = 0, iend_read = 0;
   int mhdr_read = 0, mend_read = 0;
+  int dhdr_read = 0;
+  int plte_read = 0, idat_read = 0, last_is_idat = 0;
   int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_offs = 0;
   int have_phys = 0, have_sbit = 0, have_scal = 0, have_time = 0, have_trns = 0;
   unsigned long zhead = 1; /* 0x10000 indicates both zlib header bytes read. */
@@ -459,8 +476,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         if ((check = PNG_MNG_check_magic(magic, fname, DO_MNG)) == 0)
           mng = 1;        /* yup */
         else {
-      set_err(2);
-      if (check == 2)
+          set_err(2);
+          if (check == 2)
             printf("%s  this is neither a PNG image nor a MNG stream\n",
               verbose? "":fname);
         }
@@ -474,12 +491,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   while((c=fgetc(fp))!=EOF) {
     ungetc(c, fp);
 
-    if(iend_read) {
+    if (!mng && iend_read || mng && mend_read) {
       if (searching) /* Start looking again in the current file. */
         return;
 
       if (!quiet)
-        printf("%s  additional data after IEND chunk\n", verbose? "":fname);
+        printf("%s  additional data after %cEND chunk\n", verbose? "":fname,
+          mng? 'M':'I');
 
       set_err(1);
       if(!force)
@@ -614,11 +632,24 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                verbose? ":":fname, verbose? "":"MHDR ");
         set_err(2);
       }
-      printf("\n");   /* GRR: placeholder for now */
+      if (no_err(1)) {
+        ulg tps;
+
+        w = LG(buffer);
+        h = LG(buffer+4);
+        tps = LG(buffer+8);
+        if (verbose) {
+          printf("\n    %lu x %lu frame size; ", w, h);
+          if (tps)
+            printf("%lu ticks per second\n", tps);
+          else
+            printf("single frame\n");
+        }
+      }
       mhdr_read = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "PLTE") == 0) {
-      if (plte_read && !mng) {
+      if (!mng && plte_read) {
         printf("%s  multiple PLTE not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -662,7 +693,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       plte_read = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "IDAT") == 0) {
-      if (idat_read && !last_is_idat) {
+      /* GRR:  need to check for consecutive IDATs within MNG segments */
+      if (idat_read && !last_is_idat && !mng) {
         printf("%s  IDAT chunks must be consecutive\n",verbose? ":":fname);
         set_err(2);
         if (!force)
@@ -831,7 +863,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 #endif /* USE_ZLIB */
       last_is_idat = 1;
     } else if(strcmp(chunkid, "IEND") == 0) {
-      if (iend_read) {
+      if (!mng && iend_read) {
         printf("%s  multiple IEND not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (sz != 0) {
@@ -846,7 +878,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       iend_read = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "bKGD") == 0) {
-      if (have_bkgd) {
+      if (!mng && have_bkgd) {
         printf("%s  multiple bKGD not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -892,7 +924,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_bkgd = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "cHRM") == 0) {
-      if (have_chrm) {
+      if (!mng && have_chrm) {
         printf("%s  multiple cHRM not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (plte_read) {
@@ -951,7 +983,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_chrm = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "gAMA") == 0) {
-      if (have_gama) {
+      if (!mng && have_gama) {
         printf("%s  multiple gAMA not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -973,7 +1005,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_gama = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "hIST") == 0) {
-      if (have_hist) {
+      if (!mng && have_hist) {
         printf("%s  multiple hIST not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (!plte_read) {
@@ -995,7 +1027,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_hist = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "oFFs") == 0) {
-      if (have_offs) {
+      if (!mng && have_offs) {
         printf("%s  multiple oFFs not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -1015,7 +1047,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_offs = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "pHYs") == 0) {
-      if (have_phys) {
+      if (!mng && have_phys) {
         printf("%s  multiple pHYS not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -1038,7 +1070,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
       maxbits = ityp == 3 ? 8:bits;
 
-      if (have_sbit) {
+      if (!mng && have_sbit) {
         printf("%s  multiple sBIT not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (plte_read) {
@@ -1134,7 +1166,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       have_sbit = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "sCAL") == 0) {
-      if (have_scal) {
+      if (!mng && have_scal) {
         printf("%s  multiple sCAL not allowed\n",verbose? ":":fname);
         set_err(1);
       } else if (idat_read) {
@@ -1247,23 +1279,23 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       last_is_idat = 0;
     } else if(strcmp(chunkid, "tIME") == 0) {
-      if (have_time) {
+      if (!mng && have_time) {
         printf("%s  multiple tIME not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 7) {
         printf("%s  incorrect %slength\n",
-                   verbose? ":":fname, verbose? "":"tIME ");
+          verbose? ":":fname, verbose? "":"tIME ");
         set_err(2);
       }
       /* Print the date in RFC 1123 format, rather than stored order */
       if (verbose && no_err(1)) {
         printf(": %2d %s %4d %02d:%02d:%02d GMT\n", buffer[3],
-               getmonth(buffer[2]), SH(buffer), buffer[4], buffer[5], buffer[6]);
+          getmonth(buffer[2]), SH(buffer), buffer[4], buffer[5], buffer[6]);
       }
       have_time = 1;
       last_is_idat = 0;
     } else if(strcmp(chunkid, "tRNS") == 0) {
-      if (have_trns) {
+      if (!mng && have_trns) {
         printf("%s  multiple tRNS not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (ityp == 3 && !plte_read) {
@@ -1312,6 +1344,79 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       have_trns = 1;
       last_is_idat = 0;
+    }
+    /*=======================================================*
+     * now check for MNG chunks (with the exception of MHDR) *
+     *=======================================================*/
+    else if(strcmp(chunkid, "DHDR") == 0) {	/* DELTA-PNG */
+      if (sz != 4 && sz != 12 && sz != 20) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"DHDR ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        ush id;
+        uch dtype = buffer[3];
+
+        id = SH(buffer);
+        printf("\n    object ID = %ld, image type = %s, delta type = %s\n", id,
+          buffer[2]? "PNG":"unspecified",
+          (dtype < sizeof(delta_type)/sizeof(char *))?
+          delta_type[dtype]:"INVALID");
+        if (sz > 4) {
+          if (dtype == 5) {
+            printf("%s  incorrect %slength for delta type %d\n",
+              verbose? ":":fname, verbose? "":"DHDR ", dtype);
+            set_err(1);
+          } else {
+            printf("    block width = %lu, block height = %lu\n", LG(buffer+4),
+              LG(buffer+8));
+            if (sz > 12) {
+              if (dtype == 0 || dtype == 5) {
+                printf("%s  incorrect %slength for delta type %d\n",
+                  verbose? ":":fname, verbose? "":"DHDR ", dtype);
+                set_err(1);
+              } else
+                printf("    x offset = %lu, y offset = %lu\n", LG(buffer+12),
+                  LG(buffer+16));
+            }
+          }
+        }
+      }
+      dhdr_read = 1;
+      last_is_idat = 0;
+
+
+
+    } else if(strcmp(chunkid, "FRAM") == 0) {
+      if (sz == 0 && verbose) {
+        printf(":  empty\n");
+      } else if (verbose) {
+        uch fmode = buffer[0];
+
+        printf("\n    framing mode = %s\n",
+          (fmode < sizeof(framing_mode)/sizeof(char *))?
+          framing_mode[fmode]:"INVALID");
+        if (sz > 1) {
+        }
+      }
+      mend_read = 1;
+      last_is_idat = 0;
+
+    } else if(strcmp(chunkid, "MEND") == 0) {
+      if (mend_read) {
+        printf("%s  multiple MEND not allowed\n",verbose? ":":fname);
+        set_err(1);
+      } else if (sz != 0) {
+        printf("%s  incorrect %slength\n",
+               verbose? ":":fname, verbose? "":"MEND ");
+        set_err(1);
+      } else if (verbose) {
+        printf("\n");
+      }
+      mend_read = 1;
+      last_is_idat = 0;
+
     } else {
       /* A critical safe-to-copy chunk is an error */
       if (!(chunkid[0] & 0x20) && chunkid[3] & 0x20) {
@@ -1373,8 +1478,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       return;
   }
 
-  if(!iend_read) {
-    printf("%s  file doesn't end with an IEND chunk\n", verbose? "":fname);
+  if(!mng && !iend_read || mng && !mend_read) {
+    printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
+      mng? " M":"n I");
     set_err(1);
     return;
   }
