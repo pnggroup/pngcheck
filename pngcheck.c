@@ -87,15 +87,16 @@
  * 97.06.21 GRR: added compression-ratio info
  * 98.06.09 TGL: fixed pHYs buglet
  * 98.06.09 GRR: re-integrated minimal MNG support from 97.01.21 branch
- * 98.06.10 GRR: extended MNG support slightly (MHDR info, subdue PNG errors)
+ * 98.06.10 GRR: extended MNG support (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
  */
 
 /*
- * Compilation example (GNU C, command line; first example assumes libz.a or
+ * Compilation example (GNU C, command line; second example assumes libz.a or
  * libz.so is in the normal search path--add "-L/your/path" if elsewhere):
  *
+ *    without zlib:       gcc -O -o pngcheck pngcheck.c
  *    with zlib support:  gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
- *    without:            gcc -O -o pngcheck pngcheck.c
+ *    or (static zlib):   gcc -O -DUSE_ZLIB -o pngcheck pngcheck.c /path/libz.a
  *
  * zlib info can be found at:  http://www.cdrom.com/pub/infozip/zlib/
  * PNG info can be found at:   http://www.cdrom.com/pub/png/
@@ -103,7 +104,7 @@
  *                             ftp://swrinde.nde.swri.edu/pub/png/applications/
  */
 
-#define VERSION "1.98-grr5b of 10 June 1998"
+#define VERSION "1.98-grr5c of 11 June 1998"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,8 +189,47 @@ static char *delta_type[] = {
 static char *framing_mode[] = {
   "don't change",
   "individual images with delays and background restoration (default)",
-  "composite frame with no delay",
+  "composite frame with no delay and initial background restoration",
+  "individual images with delays and initial background restoration",
   "individual images with delays and no background restoration",
+  "composite frame with no delay and no background restoration"
+};
+
+static char *termination_condition[] = {
+  "deterministic",
+  "decoder discretion",
+  "user discretion",
+  "external signal"
+};
+
+static char *change_interframe_delay[] = {
+  "no change in interframe delay",
+  "change interframe delay for next frame",
+  "change interframe delay and make default"
+};
+
+static char *change_sync_timeout_and_termination[] = {
+  "no change in sync timeout and termination",
+  "deterministic change in sync timeout and termination for next frame",
+  "deterministic change in sync timeout and termination; make default",
+  "decoder-discretion change in sync timeout and termination for next frame",
+  "decoder-discretion change in sync timeout and termination; make default",
+  "user-discretion change in sync timeout and termination for next frame",
+  "user-discretion change in sync timeout and termination; make default",
+  "change in sync timeout and termination for next frame via signal",
+  "change in sync timeout and termination via signal; make default"
+};
+
+static char *change_frame_clipping_boundaries[] = {
+  "no change in frame clipping boundaries",
+  "change frame clipping boundaries for next frame",
+  "change frame clipping boundaries and make default"
+};
+
+static char *change_sync_id_list[] = {
+  "no change in sync ID list",
+  "change sync ID list for this frame",		/* GRR: not next frame?? */
+  "change sync ID list and make default"
 };
 
 
@@ -553,13 +593,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     crc = update_crc(crc, (unsigned char *)buffer, toread);
 
-    if(strcmp(chunkid, "IHDR") == 0 && !mng) {
-      if (ihdr_read) {
+    if(strcmp(chunkid, "IHDR") == 0) {
+      if (!mng && ihdr_read) {
         printf("%s  multiple IHDR not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 13) {
         printf("%s  incorrect %slength\n",
-               verbose? ":":fname, verbose? "":"IHDR ");
+          verbose? ":":fname, verbose? "":"IHDR ");
         set_err(2);
       }
       if (no_err(1)) {
@@ -567,7 +607,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         h = LG(buffer+4);
         if (w == 0 || h == 0) {
           printf("%s  invalid %simage dimensions (%ldx%ld)\n",
-                 verbose? ":":fname, verbose? "":"IHDR ", w, h);
+            verbose? ":":fname, verbose? "":"IHDR ", w, h);
           set_err(1);
         }
         bits = (unsigned)buffer[8];
@@ -652,11 +692,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && plte_read) {
         printf("%s  multiple PLTE not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"PLTE ");
         set_err(1);
-      } else if (have_bkgd) {
+      } else if (!mng && have_bkgd) {
         printf("%s  %smust precede bKGD\n",
                verbose? ":":fname, verbose? "":"PLTE ");
         set_err(1);
@@ -694,14 +734,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       last_is_idat = 0;
     } else if(strcmp(chunkid, "IDAT") == 0) {
       /* GRR:  need to check for consecutive IDATs within MNG segments */
-      if (idat_read && !last_is_idat && !mng) {
-        printf("%s  IDAT chunks must be consecutive\n",verbose? ":":fname);
-        set_err(2);
-        if (!force)
-          return;
-      } else if (verbose) {
+      if (idat_read && !last_is_idat) {
+        if (mng) {  /* reset things (GRR SEMI-HACK:  check for segments!) */
+          idat_read = 0;
+          zhead = 1;
+          if (verbose)
+            printf("\n");
+        } else {
+          printf("%s  IDAT chunks must be consecutive\n",verbose? ":":fname);
+          set_err(2);
+          if (!force)
+            return;
+        }
+      } else if (verbose)
         printf("\n");
-      }
 
       /* We just want to check that we have read at least the minimum (10)
        * IDAT bytes possible, but avoid any overflow for short ints.  We
@@ -927,11 +973,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_chrm) {
         printf("%s  multiple cHRM not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (plte_read) {
+      } else if (!mng && plte_read) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"cHRM ");
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"cHRM ");
         set_err(1);
@@ -986,11 +1032,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!mng && have_gama) {
         printf("%s  multiple gAMA not allowed\n",verbose? ":":fname);
         set_err(1);
-      } else if (idat_read) {
+      } else if (!mng && idat_read) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"gAMA ");
         set_err(1);
-      } else if (plte_read) {
+      } else if (!mng && plte_read) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"gAMA ");
         set_err(1);
@@ -1300,7 +1346,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(1);
       } else if (ityp == 3 && !plte_read) {
         printf("%s  %smust follow PLTE\n",
-               verbose? ":":fname, verbose? "":"tRNS ");
+          verbose? ":":fname, verbose? "":"tRNS ");
         set_err(1);
       } else if (idat_read) {
         printf("%s  %smust precede IDAT\n",
@@ -1355,12 +1401,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        ush id;
         uch dtype = buffer[3];
 
-        id = SH(buffer);
-        printf("\n    object ID = %ld, image type = %s, delta type = %s\n", id,
-          buffer[2]? "PNG":"unspecified",
+        printf("\n    object ID = %u, image type = %s, delta type = %s\n",
+          SH(buffer), buffer[2]? "PNG":"unspecified",
           (dtype < sizeof(delta_type)/sizeof(char *))?
           delta_type[dtype]:"INVALID");
         if (sz > 4) {
@@ -1394,13 +1438,164 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (verbose) {
         uch fmode = buffer[0];
 
-        printf("\n    framing mode = %s\n",
-          (fmode < sizeof(framing_mode)/sizeof(char *))?
+        printf("\n    %s\n", (fmode < sizeof(framing_mode)/sizeof(char *))?
           framing_mode[fmode]:"INVALID");
         if (sz > 1) {
+          uch *p = buffer+1;
+          int bytes_left;
+
+          if (*p) {
+            printf("    frame name = ");
+            do {
+              if (*p)
+                putchar(*p);
+              else {
+                putchar('\n');
+                ++p;
+                break;
+              }
+            } while (++p < buffer + sz);
+          } else
+            ++p;  /* skip over null */
+          bytes_left = sz - (p-buffer);
+          if (bytes_left < 4) {
+            printf("%s  incorrect %slength\n",
+              verbose? ":":fname, verbose? "":"FRAM ");
+            set_err(2);
+          } else {
+            uch cid = *p++;	/* change_interframe_delay */
+            uch cstt = *p++;	/* change_sync_timeout_and_termination */
+            uch cfcb = *p++;	/* change_frame_clipping_boundaries */
+            uch csil = *p++;	/* change_sync_id_list */
+
+            if (cid > 2 || cstt > 8 || cfcb > 2 || csil > 2) {
+              printf("%s  invalid %schange flags\n",
+                verbose? ":":fname, verbose? "":"FRAM ");
+              set_err(1);
+            } else {
+              bytes_left -= 4;
+              printf("    %s\n", change_interframe_delay[cid]);
+              if (cid && bytes_left >= 4) {
+                printf("      new delay = %lu ticks\n", LG(p));
+                p += 4;
+                bytes_left -= 4;
+              }
+              printf("    %s\n", change_sync_timeout_and_termination[cstt]);
+              if (cstt && bytes_left >= 4) {
+                ulg val = LG(p);
+
+                if (val == 0x7fffffffL)
+                  printf("      new timeout = infinite\n");
+                else
+                  printf("      new timeout = %lu [ticks?]\n", val);
+                p += 4;
+                bytes_left -= 4;
+              }
+              printf("    %s\n", change_frame_clipping_boundaries[cfcb]);
+/*
+GRR
+ */
+              printf("    %s\n", change_sync_id_list[csil]);
+/*
+GRR
+ */
+            }
+          }
+
+/*
+          if (p < buffer + sz)
+            printf("    (bytes left = %d)\n", sz - (p-buffer));
+          else
+            printf("    (no bytes left)\n");
+ */
         }
       }
-      mend_read = 1;
+      last_is_idat = 0;
+
+    } else if(strcmp(chunkid, "nEED") == 0) {
+      if (sz > 0 && verbose) {
+        uch *p = buffer;
+        uch *lastbreak = buffer;
+
+        if (sz < 32)
+          printf(":  ");
+        else
+          printf("\n    ");
+        do {
+          if (*p)
+            putchar(*p);
+          else if (p - lastbreak > 40)
+            printf("\n    ");
+          else {
+            putchar(';');
+            putchar(' ');
+          }
+        } while (++p < buffer + sz);
+        printf("\n");
+      }
+      last_is_idat = 0;
+
+    } else if(strcmp(chunkid, "DEFI") == 0) {
+      if (sz != 2 && sz != 3 && sz != 4 && sz != 12 && sz != 28) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"DEFI ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        uch noshow = 0;
+        uch concrete = 0;
+        long x = 0L;
+        long y = 0L;
+
+        if (sz > 2)
+          noshow = buffer[2];
+        if (sz > 3)
+          concrete = buffer[3];
+        if (sz > 4) {
+          x = LG(buffer+4);
+          y = LG(buffer+8);
+        }
+        printf("\n    object ID = %u, %s, %s, x = %ld, y = %ld\n", SH(buffer),
+          noshow? "do not show":"potentially visible",
+          concrete? "concrete":"abstract", x, y);
+        if (sz > 12) {
+          printf(
+            "    clipping:  left = %ld, right = %ld, top = %ld, bottom = %ld\n",
+            LG(buffer+12), LG(buffer+16), LG(buffer+20), LG(buffer+24));
+        }
+      }
+      last_is_idat = 0;
+
+    } else if(strcmp(chunkid, "LOOP") == 0) {
+      if (sz != 6 && sz != 14 && sz != 18) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"LOOP ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        printf(":  nest level = %u\n    count = %lu, termination = %s\n",
+          (unsigned)(buffer[0]), LG(buffer+2),
+          termination_condition[buffer[1] & 0x3]);
+          /* GRR:  not checking for valid buffer[1] values */
+        if (sz > 6) {
+          printf("    iteration min = %lu, max = %lu",
+            LG(buffer+6), LG(buffer+10));
+          if (sz > 14) {
+            printf(", signal number = %lu\n", LG(buffer+14));
+          } else
+            printf("\n");
+        }
+      }
+      last_is_idat = 0;
+
+    } else if(strcmp(chunkid, "ENDL") == 0) {
+      if (sz != 1) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"ENDL ");
+        set_err(2);
+      }
+      if (verbose && no_err(1))
+        printf(":  nest level = %u\n", (unsigned)(buffer[0]));
       last_is_idat = 0;
 
     } else if(strcmp(chunkid, "MEND") == 0) {
