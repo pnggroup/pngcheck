@@ -1,0 +1,114 @@
+ * ChangeLog (oldest first):
+ *
+ * Started by Alexander Lehmann <alex@hal.rhein-main.de> and subsequently
+ * extended by people as listed below.
+ *
+ *   AL   -  Alexander Lehmann
+ *   AED  -  Andreas Dilger
+ *   GRP  -  Glenn Randers-Pehrson
+ *   GRR  -  Greg Roelofs
+ *   JB   -  John Bowler
+ *   TGL  -  Tom Lane
+ *
+ * 19950223 AL: fixed wrong magic numbers
+ *
+ * 19950313 AL: crc code from png spec, compiles on memory impaired PCs now,
+ *          check for IHDR/IEND chunks
+ *
+ * 19950325 GRP: rewrote magic-number-checking and moved it to
+ *          PNG_check_magic(buffer)
+ *
+ * 19950327 AL: fixed CRC code for 64 bit, -t switch, unsigned char vs. char
+ *          pointer changes
+ *
+ * 19960601 AL: check for data after IEND chunk
+ *
+ * 19950601 GRR: reformatted; print tEXt and zTXt keywords; added usage
+ *
+ * 19950731 AL: check for control chars, check for MacBinary header, new
+ *          force option
+ *
+ * 19950827 AL: merged Greg's 1.61 changes: print IHDR and tIME contents,
+ *          call emx wildcard function
+ *
+ * 19951121 AED: re-ordered internal chunk checking in pngcheck().
+ *          Now decodes most of the known chunk types to check for invalid
+ *          contents (except IDAT and zTXt).  Information is printed
+ *          about the contents of known chunks, and unknown chunks have
+ *          their chunk name flags decoded.  Also checks chunk ordering.
+ *
+ * 19951126 AED: minor bug fixes and nicening of the output.  Checks for
+ *          valid cHRM contents per Chris Lilley's recommendation.
+ *
+ * 19951204 AED: minor bug in cHRM error output fixed
+ *
+ * 19960105 AED: added -q flaq to only output a message if an error occurrs
+ *
+ * 19960119 AED: added ability to parse multiple options with a single '-'
+ *               changed tIME output to be in RFC 1123 format
+ *
+ * 19960517 GRR: fixed obvious(?) fprintf error; fixed multiple-tIME error msg
+ *
+ * 19960521 AL: fixed two tRNS errors reported by someone from W3C (whose name
+ *              I currently don't remember) (complained about missing palette
+ *              in greyscale images, missing breaks in case statement)
+ *              avoid reference to undefined array entry with out of range ityp
+ *
+ * 19960605 AED: removed extra linefeed from cHRM output when not verbose
+ *               added test to see if sBIT contents are valid
+ *               added test for zero width or height in IHDR
+ *               added test for insufficient IDAT data (minimum 10 bytes)
+ *
+ * 19960605 AED: added -p flag to dump the palette contents
+ *
+ * 19961231 JB: add decoding of the zlib header from the first IDAT chunk (16-
+ *              bit header code in first two bytes, see print_zlibheader).
+ *
+ * 19970102 GRR: more sensible zlib-header output (version "1.97grr"); nuked
+ *               some tabs; fixed blank lines between files in verbose output
+ *
+ * 19970106 AED: initialize the command-line flags
+ *               add macros to ensure the error level doesn't go down
+ *               return error level to calling program
+ *               consolidate PNG magic on one place
+ *               add "-" as input file for stdin
+ *               check for valid tEXt/zTXt keywords per PNG Spec 1.0
+ *               slight modification to output of tEXt/zTXt keywords/contents
+ *               change 'extract' to only output valid chunks (unless forced)
+ *                 this may allow one to fix minor errors in a PNG file
+ *
+ * 19970107 GRR: added USE_ZLIB compile option to print line filters (with -vv)
+ * 19970110 GRR: fixed line-filters code for large-IDAT case
+ * 19970621 GRR: added compression-ratio info
+ * 19980609 TGL: fixed pHYs buglet
+ * 19980609 GRR: re-integrated minimal MNG support from 97.01.21 branch
+ * 19980610 GRR: extended MNG (MHDR info, DHDR, nEED, DEFI, FRAM, MEND)
+ * 19980611 GRR: extended MNG (more FRAM info; LOOP, ENDL)
+ * 19980612 GRR: extended MNG (FRAM, BACK, MOVE, CLON, SHOW, CLIP, fPRI, eXPI)
+ * 19980616 GRR: extended MNG (PROM, SAVE, SEEK)
+ * 19980702 GRR: fixed line-filters bug reported by Theodore Goodman (97.10.19);
+ *               updated SAVE for MNG Draft 43
+ * 19980711 GRR: added sPLT; extended printpal (-p) to support tRNS, hIST, sPLT
+ * 19981021 GRR: added Win32 fix and compilation info; fixed mng=0, DEFI and
+ *               printpal bugs
+ * 19981206 GRR: added "File: %s" for printpal; fixed some plural%s; fixed and
+ *               extended unknown-chunk info (separate line now); added dpi info
+ *               to pHYs and flagged unit types > 1 as error
+ * 19981228 GRR: nuked old comments; added proto-copyright message
+ * 19990201 GRR: changed control-character warning to "one or more"
+ * 19990327 GRR: added option to indent printtext; changed non-verbose summary
+ *               to two lines; added tRNS info to summary
+ * 19990613 GRR: fixed remaining "must precede IDAT" messages for MNG; updated
+ *               MHDR and LOOP for Draft 64
+ * 19990619 GRR: released version 1.99-grr1
+ * 19990620 GRR: fixed Glenn's e-mail address and help-screen MNG-draft version;
+ *               disabled compression ratio for MNG; updated FRAM for Draft 64;
+ *               fixed "not enough IDAT data" IEND bug; renamed
+ *               PNG_MNG_check_magic() to check_magic(); renamed
+ *               PNG_check_chunk_name() to check_chunk_name();
+ * 19990713 GRP: fixed MNG global-PLTE case (zero-length allowed)
+ * 19990718 GRR: shortened non-verbose summary so fits on one line again; added
+ *               BASI and PPLT
+ * 19991114 GRR: added gIFg, gIFx and part of gIFt
+ * 19991117 GRR: finished gIFt; added sRGB and iCCP
+ * 19991117 GRR: released version 1.99.2
