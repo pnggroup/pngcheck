@@ -1,0 +1,7 @@
+CPU=68000
+DATA=FAR
+CODE=FAR
+OPT
+NOSTACKCHECK
+LINK
+library=lib:scm.lib

@@ -1,0 +1,138 @@
+Amiga port of pngcheck compiled by Simon N Goodwin, July 2003
+-------------------------------------------------------------
+
+PNG is a Portable Network Graphics files format designed to
+address the flaws of GIF. It has better compression, support
+for images with more than 256 colours, and no licence fees.
+
+This utility checks the integrity of a PNG file and optionally
+extracts information from it such as the colour format, palette
+contents, and embedded text identification strings.
+
+It was compiled with SAS C for all Amigas at the request of the
+maintainer Greg Roelofs, whose readme for the source follows. I
+volunteered for this after spotting that the link to Aminet on the
+pngcheck home page was broken, and sending the correction to Greg.
+He pointed out that pngcheck has since been updated (the latest
+source is about three times the size of that for the old Aminet 
+release) and asked me to compile the latest one for Amiga users.
+
+Simon Goodwin, ami@studio.co.uk
+
+
+
+Limitations of the Amiga port
+-----------------------------
+
+The optional ZLIB capability is not implemented on the Amiga version.
+
+Wildcards are not supported (as they are implemented by the shell on
+Unix/Linux, but not in AmigaDOS) but can be simulated with the Amiga
+Shell LIST .. LFORMAT facility, e.g:
+
+    list cbig:Graphix/#?.png lformat="pngcheck %P%N" >ram:temp
+    type ram:temp
+
+pngcheck cbig:Graphix/ZX80A.PNG
+pngcheck cbig:Graphix/ZX80A16.PNG
+pngcheck cbig:Graphix/ZX80A32.PNG
+pngcheck cbig:Graphix/ZX80A8.PNG
+pngcheck cbig:Graphix/ZX80grey.PNG
+
+    execute ram:temp
+
+OK: cbig:Graphix/ZX80A.PNG (656x480, 8-bit colormap, non-interlaced, 41.5%).
+OK: cbig:Graphix/ZX80A16.PNG (656x480, 4-bit colormap, non-interlaced, 75.3%).
+OK: cbig:Graphix/ZX80A32.PNG (656x480, 8-bit colormap, non-interlaced, 81.1%).
+OK: cbig:Graphix/ZX80A8.PNG (656x480, 4-bit colormap, non-interlaced, 72.5%).
+OK: cbig:Graphix/ZX80grey.PNG (656x480, 8-bit colormap, non-interlaced, 41.3%).
+
+A Amiga shell script, pngcheck_all, is included to simplify this for you:
+
+    pngcheck_all cbig:Graphix/ZX80A#?.png
+
+OK: cbig:Graphix/ZX80A.PNG (656x480, 8-bit colormap, non-interlaced, 41.5%).
+OK: cbig:Graphix/ZX80A16.PNG (656x480, 4-bit colormap, non-interlaced, 75.3%).
+OK: cbig:Graphix/ZX80A32.PNG (656x480, 8-bit colormap, non-interlaced, 81.1%).
+OK: cbig:Graphix/ZX80A8.PNG (656x480, 4-bit colormap, non-interlaced, 72.5%).
+
+Note: optional parameters (-t, -v etc) are not yet supported by this script.
+
+
+Usage
+-----
+
+PNGcheck, version 1.99.3 of 2 September 2000
+   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.
+
+Test PNG image files for corruption, and print size/type/compression info.
+
+Usage:  pngcheck [-vqt7f] file.png [file.png [...]]
+   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]
+   or:  ... | pngcheck [-sx][vqt7f]
+   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...
+
+Options:
+   -v  test verbosely (print most chunk data)
+   -q  test quietly (only output errors)
+   -t  print contents of tEXt chunks (can be used with -q)
+   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)
+   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)
+   -f  force continuation even after major errors
+   -s  search for PNGs within another file
+   -x  search for PNGs and extract them when found
+
+Note:  MNG support is incomplete.  Based on MNG Draft 64.
+
+
+
+Compilation notes
+-----------------
+
+The source was compiled without alteration using this AmigaDOS command:
+
+    sc data=far code=far opt lib lib:scm.lib pngcheck.c
+
+If you have the supplied scoptions file in the current directory with
+the source you can simplify this to:
+
+    sc pngcheck.c
+
+The compiled version uses generic 68000 code. This makes it 516 bytes
+longer and marginally slower on some CPUs than a 32 bit optimised
+version, but means it is suitable for any Amiga. The 68020 optimised
+version is available on request from Simon Goodwin, ami@studio.co.uk
+If you have a suitable compiler (SAS was used for 1.99, and 1.97 was
+compiled with GCC) you can easily build your own.
+
+
+
+Original notes from the source release
+-------------------------------------- 
+
+pngcheck version 1.99.3 of 2 September 2000
+
+I believe this is the fourth or fifth major release since version 1.98,
+which is when I took over maintenance of pngcheck from Alexander Lehmann
+and Andreas Dilger.  Enhancements since 1.98 include:  zlib capability
+(to be able to print out the line filters for each line of the image);
+information on the compression factor of the image (expressed as a per-
+centage, where 0% is no compression and 100% would be total compression--
+note that this can be negative since it counts PNG's chunk overhead against
+the compression factor); extended support for printing palettes (includes
+transparency info and histograms now); support for all known PNG chunks;
+support for JNG images conforming to Draft 70 or later; partial support
+for MNG streams conforming to Draft 64 or later; and support for MSVC
+compilation under Win32.  It also contains a fix from Tom Lane for a bug
+in the pHYs-reporting code.
+
+Improved ("finished") support for MNG is coming relatively soon, at which
+point the version number will finally reach 2.0, but I won't make any
+promises as to when.  Support for EBCDIC-based systems will show up some-
+day, too.  DOS/Win32 wildcards should already be supported, at least in
+the distributed binaries.
+
+See http://www.libpng.org/pub/png/apps/pngcheck.html for updates.
+
+Greg Roelofs
+newt@pobox.com
