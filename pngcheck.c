@@ -25,7 +25,7 @@
  * 01.06.95 AL: check for data after IEND chunk
  *
  * 95.06.01 GRR: reformatted; print tEXt and zTXt keywords; add usage
- * 95.06.07 GRR: print image info (IHDR) and tIME; EMX wildcards
+ * 95.06.07 GRR: print image info (IHDR) and tIME; enable EMX wildcards
  *
  */
 
