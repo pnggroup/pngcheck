@@ -101,6 +101,7 @@
  * 19990613 GRR: fixed remaining "must precede IDAT" messages for MNG; updated
  *               MHDR and LOOP for Draft 64
  * 19990619 GRR: released version 1.99-grr1
+ *               --------------------------
  * 19990620 GRR: fixed Glenn's e-mail address and help-screen MNG-draft version;
  *               disabled compression ratio for MNG; updated FRAM for Draft 64;
  *               fixed "not enough IDAT data" IEND bug; renamed
@@ -112,6 +113,7 @@
  * 19991114 GRR: added gIFg, gIFx and part of gIFt
  * 19991117 GRR: finished gIFt; added sRGB and iCCP
  * 19991117 GRR: released version 1.99.2
+ *               -----------------------
  * 19991122 GRR: fixed typo in gIFx application ID format (%.*s)
  * 19991215 GRR: added notes about wildcard expansion under Windows
  * 20000304 GRR: fixed indentation on -vt printing of zTXt chunk; fixed bogus
@@ -120,3 +122,35 @@
  * 20000902 GRR: added JNG support; JHDR, JDAT, JSEP; fRAc, iTXt, pCAL, mkBF,
  *               mkBS, mkBT, prVW
  * 20000902 GRR: released version 1.99.3
+ *               -----------------------
+ * 20000904 GRR: updated usage screen to include JNG; changed dtime to double
+ *               to quiet an MSVC conversion warning
+ * 20000905 GRR: quieted several IRIX gcc warnings
+ * 20000927 GRR: fixed formatting error when both -v and -p options given;
+ *               incorporated Tom Zerucha <tz@execpc.com>'s patch to use zlib
+ *               CRC routines if USE_ZLIB defined
+ * 20001127 GRR: fixed MNG "incorrect [tRNS] length for grayscale image" bug
+ * 20010104 GRR: added support for profile bits 6-9, with minimal checking of
+ *               10-15 and 16-30
+ * 20010116 GRR: incorported Glenn's USE_ZLIB interlacing bugfix of 20000727
+ * 20010127 GRR: enhanced summary lines for PNG/MNG/JNG; fixed MNG "sBIT must
+ *               precede PLTE" bug
+ * 20011209 GRR: started adding PAST support (incomplete!); further work on
+ *               summary lines and error-detection?
+ * 20020922 GRR: fixed verbose missing newlines for SEEK and empty SAVE chunks
+ * 20040120 GRR: fixed missing error level for zlib_error (thanks to Gerrit
+ *               Hannaert for the bug report) and for "not enough IDAT data"
+ *               (thanks to Eduardo Morras for the test file)
+ * 20050712 GRR: updated/fixed SAVE support according to final MNG spec
+ * 20050716 GRR: updated/fixed BACK support according to final MNG spec; added
+ *               TERM support; added summary of errors if multiple files;
+ *               incorporated Paul Matzke's Mac fixes; incorporated Darren
+ *               Salt's RISC OS fixes; fixed bad-PNG-signature bug; fixed bKGD
+ *               index-out-of-range bug; fixed typos ("pHYS", IDAT vs. JDAT);
+ *               cleaned up code and output formatting
+ * 20050717 GRR: enabled zlib checking independent of verbosity level; added
+ *               more stringent zlib windowBits test (from John Bowler) to
+ *               check for libpng 1.2.6 bug; added -w option to disable
+ *               windowBits test; fixed faulty zlib "error" detection
+ * 20050717 GRR: released version 2.0.0
+ *               ----------------------

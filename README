@@ -1,26 +1,44 @@
-pngcheck version 1.99.3 of 2 September 2000
+pngcheck version 2.0.0 of 17 July 2005
 
-I believe this is the fourth or fifth major release since version 1.98,
+I believe this is the fifth or sixth major release since version 1.98,
 which is when I took over maintenance of pngcheck from Alexander Lehmann
 and Andreas Dilger.  Enhancements since 1.98 include:  zlib capability
-(to be able to print out the line filters for each line of the image);
-information on the compression factor of the image (expressed as a per-
-centage, where 0% is no compression and 100% would be total compression--
-note that this can be negative since it counts PNG's chunk overhead against
-the compression factor); extended support for printing palettes (includes
-transparency info and histograms now); support for all known PNG chunks;
-support for JNG images conforming to Draft 70 or later; partial support
-for MNG streams conforming to Draft 64 or later; and support for MSVC
-compilation under Win32.  It also contains a fix from Tom Lane for a bug
-in the pHYs-reporting code.
+(to test the compressed stream and, optionally, to print out the image's
+row filters); support for all known PNG chunks; support for JNG images
+conforming to Draft 70 or later (or maybe the 1.0 spec?); partial support
+for MNG streams conforming to the 1.0 specification; extended support for
+printing palettes (includes transparency info and histograms now); info
+on the compression factor of the image (expressed as a percentage, where
+0% is no compression and 100% would be total compression--note that this
+can be negative since it counts PNG's chunk overhead against the compression
+factor); and support for MSVC compilation under Win32.  It also contains
+many fixes, including ones from Tom Lane, Glenn Randers-Pehrson, Tom Zerucha,
+Paul Matzke, Darren Salt, John Bowler, and others.
 
-Improved ("finished") support for MNG is coming relatively soon, at which
-point the version number will finally reach 2.0, but I won't make any
-promises as to when.  Support for EBCDIC-based systems will show up some-
-day, too.  DOS/Win32 wildcards should already be supported, at least in
-the distributed binaries.
+The README for 1.99.3 said this:
 
-See http://www.libpng.org/pub/png/apps/pngcheck.html for updates.
+   Improved ("finished") support for MNG is coming relatively soon, at
+   which point the version number will finally reach 2.0, but I won't
+   make any promises as to when.  Support for EBCDIC-based systems will
+   show up someday, too.  DOS/Win32 wildcards should already be supported,
+   at least in the distributed binaries.
+
+Then five years passed...  (I blame the kids.)  Good thing there were no
+promises, eh?  Anyway, here's version 2.0.  MNG support is better but
+still incomplete, contrary to the claim above, and there are still no
+promises as to when it will be finished (though it will happen eventually
+...probably).  No, the version got bumped because (1) zlib checking is now
+turned on regardless of verbosity level, which makes pngcheck slower but
+far more useful as an integrity-tester, and (2) who takes bugfix/patchlevel
+version-increments seriously?  (OK, there's the Linux kernel, but that's
+another matter entirely...)
+
+And as for finishing MNG support, note that sample MNGs with not-yet-supported
+chunks in them tend to be a good motivator.  (Thank GraalOnline's emoticons
+for TERM support and Bob Friesenhahn's test stream for fixed SAVE support,
+for example.)
+
+As always, see http://www.libpng.org/pub/png/apps/pngcheck.html for updates.
 
 Greg Roelofs
-newt@pobox.com
+http://pobox.com/~newt/greg_contact.html

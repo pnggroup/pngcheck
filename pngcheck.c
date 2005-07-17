@@ -2,20 +2,21 @@
  * pngcheck:  Authenticate the structure of a PNG file and dump info about
  *            it if desired.
  *
- * This program checks the PNG identifier with conversion checks,
- * the file structure and the chunk CRCs. In addition, relations and contents
- * of most defined chunks are checked, except for decompression of the IDAT
- * chunks.
+ * This program checks the PNG signature bytes (with tests for various forms
+ * of text-mode corruption), chunks (CRCs, dependencies, out-of-range values),
+ * and compressed image data (IDAT zlib stream).  In addition, it optionally
+ * dumps the contents of PNG, JNG and MNG image streams in more-or-less human-
+ * readable form.
  *
  *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of September 2000)
+ *               (as of July 2005)
  *
  * ChangeLog:  see CHANGELOG file
  */
 
 /*============================================================================
  *
- *   Copyright 1995-2000 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2005 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -31,27 +32,51 @@
  *
  *===========================================================================*/
 
-#define VERSION "1.99.3 of 2 September 2000"
+#define VERSION "2.0.0 of 17 July 2005"
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
  * 
+ * 
+ * Currently supported chunks, in order of appearance in pngcheck() function:
+ *
+ *   IHDR JHDR MHDR				// PNG/JNG/MNG header chunks
+ *
+ *   PLTE IDAT IEND				// critical PNG chunks
+ *
+ *   bKGD cHRM fRAc gAMA gIFg gIFt gIFx hIST	// ancillary PNG chunks
+ *   iCCP iTXt oFFs pCAL pHYs sBIT sCAL sPLT
+ *   sRGB tEXt zTXt tIME tRNS
+ *
+ *   mkBF mkBS mkBT prVW			// known private PNG chunks
+ *
+ *   JDAT JSEP  				// critical JNG chunks
+ *
+ *   DHDR FRAM SAVE SEEK nEED DEFI BACK MOVE	// MNG chunks
+ *   CLON SHOW CLIP LOOP ENDL PROM fPRI eXPI
+ *   BASI IPNG PPLT [PAST] TERM MEND
+ * 
  *
  * GRR to do:
- *   - update existing MNG support to Draft 70 (version 0.97) or later
- *   - MNG chunks:  PAST, DISC, tERm, DROP, DBYK, ORDR
+ *   - fix tEXt chunk:  small buffers or lots of text => truncation
+ *       (see pngcheck-1.99.4-test.c.dif)
+ *   - update existing MNG support to version 1.0
+ *   - MNG chunks:  PAST, MAGN, DISC, DROP, DBYK, ORDR, pHYg
  *   - add JNG restrictions to bKGD
+ *   - allow top-level ancillary PNGs in MNG (i.e., subsequent ones may be NULL)
+ *   - add MNG profile report based on actual chunks found
  *   - report illegal Macromedia Fireworks pRVW chunk?
  *   - add chunk-split option
  *       (pngcheck -c foo.png -> foo.000.sig, foo.001.IHDR, foo.002.PLTE, etc.)
  *   - split out each chunk's code into XXXX() function (e.g., IDAT(), tRNS())
- *   - with USE_ZLIB, print zTXt chunks if -t option
- *   - DOS/Win32 wildcard support beyond emx+gcc (wildargs.obj?)
+ *   - with USE_ZLIB, print zTXt and compressed iTXt chunks if -t option
+ *       (break out zlib decoder into separate function and reuse)
+ *   - DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   - EBCDIC support (minimal?)
  */
 
 /*
- * Compilation example (GNU C, command line; replace "zlibpath" as appropriate):
+ * Compilation example (GNU C, command line; replace "/zlibpath" appropriately):
  *
  *    without zlib:
  *       gcc -O -o pngcheck pngcheck.c
@@ -64,7 +89,8 @@
  * whatever has been run):
  *
  *    without zlib:
- *       cl -nologo -O -W3 -DWIN32 pngcheck.c
+ *       cl -nologo -O -W3 -DWIN32 -c pngcheck.c
+ *       link -nologo pngcheck.obj setargv.obj
  *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
  *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
  *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
@@ -80,42 +106,70 @@
  * rsxnt + gcc for Windows NT) has a special _wildcard() function call, which
  * is already included at the top of main() below.
  *
- * zlib info:		http://www.info-zip.org/pub/infozip/zlib/
+ * zlib info:		http://www.zlib.net/
  * PNG/MNG/JNG info:	http://www.libpng.org/pub/png/
  *			http://www.libpng.org/pub/mng/  and
- *                      ftp://swrinde.nde.swri.edu/pub/mng/
+ *                      ftp://ftp.simplesystems.org/pub/libpng/mng/
  * pngcheck sources:	http://www.libpng.org/pub/png/apps/pngcheck.html
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <string.h>
 #include <ctype.h>
+#include <string.h>
+
+#ifdef __riscos
+   /* not sure if this will work (fragile!), but relatively clean... */
+   struct stat { long st_size; };
+#  define stat(f,s)   _swix(8 /*OS_File*/, 3 | 1<<27, 17, f, s.st_size)
+#  define isatty(fd)  (!__iob[fd].__file)
+#else
+#  include <fcntl.h>
+#  if defined(__MWERKS__) && defined(macintosh)  /* pxm for CodeWarrior */
+#    include <types.h>
+#    include <stat.h>
+#  elif defined(applec) || defined(THINK_C)  /* via Mark Fleming; not tested */
+#    include <Types.h>
+#    include <ToolUtils.h>
+#  else
+#    include <sys/types.h>
+#    include <sys/stat.h>
+#  endif
+#endif
+
+#if defined(unix) || (defined(__MWERKS__) && defined(macintosh))  /* pxm */
+#  include <unistd.h>	/* isatty() */
+#endif
 #ifdef WIN32
 #  include <io.h>
 #endif
+
 #ifdef USE_ZLIB
-#  include "zlib.h"
+#  include <zlib.h>
 #endif
 
 typedef unsigned char  uch;
 typedef unsigned short ush;
 typedef unsigned long  ulg;
 
-int check_magic(uch *magic, char *fname, int which);
-int check_chunk_name(char *chunk_name, char *fname);
-void make_crc_table(void);
-ulg update_crc(ulg crc, uch *buf, int len);
-ulg getlong(FILE *fp, char *fname, char *where);
-void init_printbuffer(char *fname);
-void printbuffer(char *buffer, int size, int indent);
-void finish_printbuffer(char *fname, char *chunkid);
-int keywordlen(char *buffer, int maxsize);
-char *getmonth(int m);
-void pngcheck(FILE *fp, char *_fname, int searching, FILE *fpOut);
+/* int  main (int argc, char *argv[]); */
+#ifndef USE_ZLIB
+void make_crc_table (void);
+ulg  update_crc (ulg crc, uch *buf, int len);
+#endif
+ulg  getlong (FILE *fp, char *fname, char *where);
+void putlong (FILE *fpOut, ulg ul);
+void init_printbuffer (void);
+void printbuffer (uch *buffer, int size, int indent);
+void finish_printbuffer (char *fname, char *chunkid);
+int  keywordlen (uch *buffer, int maxsize);
+char *getmonth (int m);
+int  ratio (ulg uc, ulg c);
+void pngcheck (FILE *fp, char *_fname, int searching, FILE *fpOut);
+void pnginfile (FILE *fp, char *fname, int ipng, int extracting);
+void pngsearch (FILE *fp, char *fname, int extracting);
+int  check_magic (uch *magic, char *fname, int which);
+int  check_chunk_name (char *chunk_name, char *fname);
 
 #define BS 32000 /* size of read block for CRC calculation (and zlib) */
 
@@ -134,36 +188,36 @@ void pngcheck(FILE *fp, char *_fname, int searching, FILE *fpOut);
 
 /* Command-line flag variables */
 int verbose = 0;	/* print chunk info */
-int quiet = 0;		/* only print error messages */
+int quiet = 0;		/* print only error messages */
 int printtext = 0;	/* print tEXt chunks */
 int printpal = 0;	/* print PLTE/tRNS/hIST/sPLT contents */
 int sevenbit = 0;	/* escape characters >=160 */
-int force = 0;		/* continue even if an occurs (CRC error, etc) */
+int force = 0;		/* continue even if an error occurs (CRC error, etc) */
+int check_windowbits = 1;	/* more stringent zlib stream-checking */
 int search = 0;		/* hunt for PNGs in the file... */
 int extract = 0;	/* ...and extract them to arbitrary file names. */
 int png = 0;		/* it's a PNG */
 int mng = 0;		/* it's a MNG instead of a PNG (won't work in pipe) */
 int jng = 0;		/* it's a JNG */
 
-int error; /* the current error status */
+int error = 0; /* the current error status (single file only) */
 uch buffer[BS];
 
-/* What the PNG, MNG and JNG magic numbers should be */
+/* what the PNG, MNG and JNG magic numbers should be */
 static uch good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 static uch good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
 static uch good_JNG_magic[8] = {139, 74, 78, 71, 13, 10, 26, 10};
 
-/* table of CRCs of all 8-bit messages */
-ulg crc_table[256];
-
-/* Flag: has the table been computed? Initially false. */
-int crc_table_computed = 0;
-
 #ifdef USE_ZLIB
-  int first_idat = 1;   /* flag: is this the first IDAT chunk? */
-  int zlib_error = 0;
-  uch outbuf[BS];
-  z_stream zstrm;
+   int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
+   int zlib_error = 0;           /* reset in IHDR section; used for IDAT */
+   int check_zlib = 1;           /* validate zlib stream (just IDATs for now) */
+   unsigned zlib_windowbits = 15;
+   uch outbuf[BS];
+   z_stream zstrm;
+#else
+   ulg crc_table[256];           /* table of CRCs of all 8-bit messages */
+   int crc_table_computed = 0;   /* flag:  has the table been computed? */
 #endif
 
 
@@ -172,9 +226,9 @@ static char *inv = "INVALID";
 
 /* PNG stuff */
 
-static char *png_type[] = {
+static char *png_type[] = {			/* IHDR, tRNS, BASI, summary */
   "grayscale",
-  "INVALID",	/* inv? */
+  "INVALID",   /* can't use inv as initializer */
   "RGB",
   "colormap",
   "grayscale+alpha",
@@ -182,19 +236,37 @@ static char *png_type[] = {
   "RGB+alpha"
 };
 
-static char *eqn_type[] = {
+static char *deflate_type[] = {				/* IDAT */
+  "superfast",
+  "fast",
+  "default",
+  "maximum"
+};
+
+#ifdef USE_ZLIB
+static char *zlib_error_type[] = {			/* IDAT */
+  "filesystem error",
+  "stream error",
+  "data error",
+  "memory error",
+  "buffering error",
+  "version error"
+};
+#endif
+
+static char *eqn_type[] = {				/* pCAL */
   "physical_value = p0 + p1 * original_sample / (x1-x0)",
   "physical_value = p0 + p1 * exp(p2 * original_sample / (x1-x0))",
   "physical_value = p0 + p1 * pow(p2, (original_sample / (x1-x0)))",
   "physical_value = p0 + p1 * sinh(p2 * (original_sample - p3) / (x1-x0))"
 };
 
-static int eqn_params[] = { 2, 3, 3, 4 };   /* pCAL */
+static int eqn_params[] = { 2, 3, 3, 4 };		/* pCAL */
 
 
 /* JNG stuff */
 
-static char *jng_type[] = {
+static char *jng_type[] = {				/* JHDR, summary */
   "grayscale",
   "YCbCr",
   "grayscale+alpha",
@@ -204,14 +276,14 @@ static char *jng_type[] = {
 
 /* MNG stuff */
 
-static char *rendering_intent[] = {
+static char *rendering_intent[] = {			/* sRGB */
   "perceptual",
   "relative colorimetric",
   "saturation-preserving",
   "absolute colorimetric"
 };
 
-static char *delta_type[] = {
+static char *delta_type[] = {				/* DHDR */
   "full image replacement",
   "block pixel addition",
   "block alpha addition",
@@ -220,36 +292,35 @@ static char *delta_type[] = {
   "no change"
 };
 
-static char *framing_mode[] = {
-  "no change in framing mode",
-  "no background layer; interframe delay before each image displayed",
-  "no background layer; interframe delay before each FRAM chunk",
-  "interframe delay and background layer before each image displayed",
-  "interframe delay and background layer after each FRAM chunk"
-/*
-  OLD (~ Draft 43):
-  "individual images with delays and background restoration (default)",
-  "composite frame with final delay and initial background restoration",
-  "individual images with delays and initial background restoration",
-  "individual images with delays and no background restoration",
-  "composite frame with final delay and no background restoration"
- */
-};
-
-static char *termination_condition[] = {
+static char *termination_condition[] = {		/* LOOP */
   "deterministic",
   "decoder discretion",
   "user discretion",
   "external signal"
 };
 
-static char *change_interframe_delay[] = {
+static char *termination_action[] = {			/* TERM */
+  "show last frame indefinitely",
+  "cease displaying anything",
+  "show first frame after TERM",
+  "repeat sequence between TERM and MEND"
+};
+
+static char *framing_mode[] = {				/* FRAM */
+  "no change in framing mode",
+  "no background layer; interframe delay before each image displayed",
+  "no background layer; interframe delay before each FRAM chunk",
+  "interframe delay and background layer before each image displayed",
+  "interframe delay and background layer after each FRAM chunk"
+};
+
+static char *change_interframe_delay[] = {		/* FRAM */
   "no change in interframe delay",
   "change interframe delay for next subframe",
   "change interframe delay and make default"
 };
 
-static char *change_timeout_and_termination[] = {
+static char *change_timeout_and_termination[] = {	/* FRAM */
   "no change in timeout and termination",
   "deterministic change in timeout and termination for next subframe",
   "deterministic change in timeout and termination; make default",
@@ -261,31 +332,31 @@ static char *change_timeout_and_termination[] = {
   "change in timeout and termination via signal; make default"
 };
 
-static char *change_subframe_clipping_boundaries[] = {
+static char *change_subframe_clipping_boundaries[] = {	/* FRAM */
   "no change in subframe clipping boundaries",
   "change frame clipping boundaries for next subframe",
   "change frame clipping boundaries and make default"
 };
 
-static char *change_sync_id_list[] = {
+static char *change_sync_id_list[] = {			/* FRAM */
   "no change in sync ID list",
   "change sync ID list for next subframe:",
   "change sync ID list and make default:"
 };
 
-static char *clone_type[] = {
+static char *clone_type[] = {				/* CLON */
   "full",
   "partial",
   "renumber"
 };
 
-static char *do_not_show[] = {
+static char *do_not_show[] = {				/* DEFI, CLON */
   "potentially visible",
   "do not show",
   "same visibility as parent"
 };
 
-static char *show_mode[] = {
+static char *show_mode[] = {				/* SHOW */
   "make objects potentially visible and display",
   "make objects invisible",
   "display potentially visible objects",
@@ -296,14 +367,14 @@ static char *show_mode[] = {
   "make next object potentially visible but do not display; make rest invisible"
 };
 
-static char *entry_type[] = {
-  "INVALID",
+static char *entry_type[] = {				/* SAVE */
+  "segment with full info",
   "segment",
-  "frame",
+  "subframe",
   "exported image"
 };
 
-static char *pplt_delta_type[] = {
+static char *pplt_delta_type[] = {			/* PPLT */
   "replacement RGB samples",
   "delta RGB samples",
   "replacement alpha samples",
@@ -313,23 +384,193 @@ static char *pplt_delta_type[] = {
 };
 
 
+
+int main(int argc, char *argv[])
+{
+  FILE *fp;
+  int i = 1;
+  int num_files = 0;
+  int num_errors = 0;
+
+#ifdef __EMX__
+  _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
+#endif
+
+  while (argc > 1 && argv[1][0] == '-') {
+    switch (argv[1][i]) {
+      case '\0':
+        --argc;
+        ++argv;
+        i = 1;
+        break;
+      case '7':
+        printtext = 1;
+        sevenbit = 1;
+        ++i;
+        break;
+      case 'f':
+        force = 1;
+        ++i;
+        break;
+      case 'h':
+        goto usage;
+        break;
+      case 'p':
+        printpal = 1;
+        ++i;
+        break;
+      case 'q':
+        verbose = 0;
+        quiet = 1;
+        ++i;
+        break;
+      case 's':
+        search = 1;
+        ++i;
+        break;
+      case 't':
+        printtext = 1;
+        ++i;
+        break;
+      case 'v':
+        ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
+        quiet = 0;
+        ++i;
+        break;
+      case 'w':
+        check_windowbits = 0;
+        ++i;
+        break;
+      case 'x':
+        search = extract = 1;
+        ++i;
+        break;
+      default:
+        fprintf(stderr, "unknown option %c\n", argv[1][i]);
+        set_err(1);
+        goto usage;
+    }
+  }
+
+  if (argc == 1) {
+    if (isatty(0)) { /* if stdin not redirected, give the user help */
+usage:
+      fprintf(stderr, "PNGcheck, version %s\n", VERSION);
+      fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
+#ifdef USE_ZLIB
+      fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
+        ZLIB_VERSION, zlib_version);
+#endif
+      fprintf(stderr, "\nTest PNG, JNG or MNG image files for corruption, and print size/type info.\n\n");
+      fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n");
+      fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
+      fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n\n");
+      fprintf(stderr, "Options:\n");
+      fprintf(stderr, "   -v  test verbosely (print most chunk data)\n");
+#ifdef USE_ZLIB
+      fprintf(stderr, "   -vv test very verbosely (decode & print line filters)\n");
+#endif
+      fprintf(stderr, "   -q  test quietly (only output errors)\n");
+#ifdef USE_ZLIB
+      fprintf(stderr, "   -w  suppress windowBits test (more-stringent compression check)\n");
+#endif
+      fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
+      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n");
+      fprintf(stderr, "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n");
+      fprintf(stderr, "   -f  force continuation even after major errors\n");
+      fprintf(stderr, "   -s  search for PNGs within another file\n");
+      fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
+      fprintf(stderr, "\nNote:  MNG support is incomplete.  Based on MNG 1.0 spec and MNG Draft 64.\n");
+    } else {
+      if (search)
+        pngsearch(stdin, "stdin", extract);
+      else
+        pngcheck(stdin, "stdin", 0, NULL);
+      ++num_files;
+      if (error)
+        ++num_errors;
+    }
+  } else {
+#ifdef USE_ZLIB
+    /* make sure we're using the zlib version we were compiled to use */
+    if (zlib_version[0] != ZLIB_VERSION[0]) {
+      printf("zlib error:  incompatible version (expected %s,"
+        " using %s):  skipping zlib check\n\n", ZLIB_VERSION, zlib_version);
+      check_zlib = 0;
+      if (verbose > 1)
+        verbose = 1;
+    } else if (strcmp(zlib_version, ZLIB_VERSION) != 0) {
+      printf("zlib warning:  different version (expected %s,"
+        " using %s)\n\n", ZLIB_VERSION, zlib_version);
+    }
+#endif /* USE_ZLIB */
+
+    /* main loop over files listed on command line */
+    for (i = 1; i < argc; ++i) {
+      /* This is somewhat ugly.  It sets the file pointer to stdin if the
+       * filename is "-", otherwise it tries to open the given filename.
+       */
+      if (!(fp = (strcmp(argv[1],"-") == 0)? stdin : fopen(argv[i],"rb"))) {
+        perror(argv[i]);
+        error = 2;
+      } else {
+        if (search)
+          pngsearch(fp, fp == stdin? "stdin":argv[i], extract);
+        else
+          pngcheck(fp, fp == stdin? "stdin":argv[i], 0, NULL);
+        fclose(fp);
+      }
+      ++num_files;
+      if (error)
+        ++num_errors;
+    }
+  }
+
+  error = (num_errors > 127)? 127 : num_errors;
+  if (!quiet && num_files > 1) {
+    if (num_errors)
+      printf("\nErrors were detected in %d of the %d files tested.\n",
+        num_errors, num_files);
+    else
+      printf("\nNo errors were detected in the %d files tested.\n", num_files);
+  }
+
+  return error;
+}
+
+
+#ifdef USE_ZLIB
+
+#  define CRCCOMPL(c) c
+#  define CRCINIT (0)
+#  define update_crc crc32
+
+#else /* !USE_ZLIB */
+
+   /* use these instead of ~crc and -1, since that doesn't work on machines
+    * that have 64-bit longs */
+#  define CRCCOMPL(c) ((c)^0xffffffff)
+#  define CRCINIT (CRCCOMPL(0))
+
+
 /* make the table for a fast crc */
 void make_crc_table(void)
 {
   int n;
 
-  for (n = 0; n < 256; n++) {
+  for (n = 0; n < 256; ++n) {
     ulg c;
     int k;
 
     c = (ulg)n;
-    for (k = 0; k < 8; k++)
+    for (k = 0; k < 8; ++k)
       c = c & 1 ? 0xedb88320L ^ (c >> 1):c >> 1;
 
     crc_table[n] = c;
   }
   crc_table_computed = 1;
 }
+
 
 /* update a running crc with the bytes buf[0..len-1]--the crc should be
    initialized to all 1's, and the transmitted value is the 1's complement
@@ -351,18 +592,16 @@ ulg update_crc(ulg crc, uch *buf, int len)
   return c;
 }
 
-/* use these instead of ~crc and -1, since that doesn't work on machines that
-   have 64 bit longs */
+#endif /* ?USE_ZLIB */
 
-#define CRCCOMPL(c) ((c)^0xffffffff)
-#define CRCINIT (CRCCOMPL(0))
+
 
 ulg getlong(FILE *fp, char *fname, char *where)
 {
   ulg res=0;
   int i;
 
-  for(i=0;i<4;i++) {
+  for (i=0;i<4;++i) {
     int c;
 
     if ((c=fgetc(fp))==EOF) {
@@ -376,25 +615,29 @@ ulg getlong(FILE *fp, char *fname, char *where)
   return res;
 }
 
+
 /* output a long when copying an embedded PNG out of a file. */
-void putlong(FILE *fpOut, ulg ul) {
+void putlong(FILE *fpOut, ulg ul)
+{
   putc(ul >> 24, fpOut);
   putc(ul >> 16, fpOut);
   putc(ul >> 8, fpOut);
   putc(ul, fpOut);
 }
 
-/* print out size characters in buffer, take care to not print control chars
-   other than whitespace, since this may open ways of attack by so-called
-   ANSI-bombs */
 
-int cr;
-int lf;
-int nul;
-int control;
-int esc;
+/* print out "size" characters in buffer, taking care not to print control
+   chars other than whitespace, since this may open ways of attack by so-
+   called ANSI-bombs */
 
-void init_printbuffer(char *fname)
+/* printbuffer state variables */
+static int cr;
+static int lf;
+static int nul;
+static int control;
+static int esc;
+
+void init_printbuffer(void)
 {
   cr=0;
   lf=0;
@@ -403,7 +646,7 @@ void init_printbuffer(char *fname)
   esc=0;
 }
 
-void printbuffer(char *buffer, int size, int indent)	/* GRR EBCDIC WARNING */
+void printbuffer(uch *buffer, int size, int indent)	/* GRR EBCDIC WARNING */
 {
   if (indent)
     printf("    ");
@@ -463,14 +706,17 @@ void finish_printbuffer(char *fname, char *chunkid)
   }
 }
 
-int keywordlen(char *buffer, int maxsize)
+
+int keywordlen(uch *buffer, int maxsize)
 {
   int i;
 
-  for(i=0;i<maxsize && buffer[i]; i++);
+  for (i = 0;  i < maxsize && buffer[i];  ++i)
+    ;
 
   return i;
 }
+
 
 char *getmonth(int m)
 {
@@ -484,8 +730,8 @@ char *getmonth(int m)
     return month[m];
 }
 
-int ratio(uc, c)         /* GRR 970621:  swiped from UnZip 5.31 list.c */
-    ulg uc, c;
+
+int ratio(ulg uc, ulg c)   /* GRR 19970621:  swiped from UnZip 5.31 list.c */
 {
     ulg denom;
 
@@ -504,36 +750,6 @@ int ratio(uc, c)         /* GRR 970621:  swiped from UnZip 5.31 list.c */
     }                            /* ^^^^^^^^ rounding */
 }
 
-void print_zlibheader(ulg uhead)
-{
-  /* See the code in zlib deflate.c that writes out the header when s->status
-     is INIT_STATE.  In fact this code is based on the zlib specification in
-     RFC 1950, i.e., ftp://ds.internic.net/rfc/rfc1950.txt, with the implicit
-     assumption that the zlib header *is* written (it always should be inside
-     a valid PNG file)  The variable names are taken, verbatim, from the RFC.
-   */
-  unsigned int CM = (uhead & 0xf00) >> 8;
-  unsigned int CINFO = (uhead & 0xf000) >> 12;
-  unsigned int FDICT = (uhead & 0x20) >> 5;
-  unsigned int FLEVEL = (uhead & 0xc0) >> 6;
-
-  if (uhead % 31) {
-    printf("   zlib:  compression header fails checksum\n");
-    set_err(2);
-  } else if (CM == 8) {
-    static char *flevel[4] = {"superfast", "fast", "default", "maximum"};
-
-    if (CINFO > 1)
-      printf("    zlib:  deflated, %dK window, %s compression%s\n",
-        (1 << (CINFO-2)), flevel[FLEVEL], FDICT? ", preset dictionary":"");
-    else
-      printf("    zlib:  deflated, %d-byte window, %s compression%s\n",
-        (1 << (CINFO+8)), flevel[FLEVEL], FDICT? ", preset dictionary":"");
-  } else {
-    printf("    zlib:  non-deflate compression method (%d)\n", CM);
-    set_err(2);
-  }
-}
 
 void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 {
@@ -544,22 +760,23 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   char *and = "";
   int toread;
   int c;
-  int ihdr_read = 0, iend_read = 0;
-  int mhdr_read = 0, mend_read = 0;
-  int dhdr_read = 0, plte_read = 0;
-  int jhdr_read = 0, jsep_read = 0, need_jsep = 0;
-  int idat_read = 0, last_is_idat = 0, jdat_read = 0, last_is_jdat = 0;
-  int have_bkgd = 0, have_chrm = 0, have_gama = 0, have_hist = 0, have_iccp = 0;
-  int have_offs = 0, have_pcal = 0, have_phys = 0, have_sbit = 0, have_scal = 0;
-  int have_srgb = 0, have_time = 0, have_trns = 0;
+  int have_IHDR = 0, have_IEND = 0;
+  int have_MHDR = 0, have_MEND = 0;
+  int have_DHDR = 0, have_PLTE = 0;
+  int have_JHDR = 0, have_JSEP = 0, need_JSEP = 0;
+  int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
+  int have_bKGD = 0, have_cHRM = 0, have_gAMA = 0, have_hIST = 0, have_iCCP = 0;
+  int have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0, have_sCAL = 0;
+  int have_sRGB = 0, have_tIME = 0, have_tRNS = 0;
+  int have_TERM = 0;
+  ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
   ulg crc, filecrc;
-  ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read. */
   ulg layers = 0L, frames = 0L;
   long num_chunks = 0L;
   long w = 0L, h = 0L;
   long mng_width = 0L, mng_height = 0L;
   int vlc = -1, lc = -1;
-  int bitdepth = 0, ityp = 0, jtyp = 0, lace = 0, nplte = 0;
+  int bitdepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
   int did_stat = 0;
   struct stat statbuf;
@@ -575,7 +792,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else {
       stat(fname, &statbuf);   /* know file exists => know stat() successful */
       did_stat = 1;
-      printf(" (%ld bytes)\n", statbuf.st_size);
+      /* typecast long since off_t may be 64-bit (e.g., IRIX): */
+      printf(" (%ld bytes)\n", (long)statbuf.st_size);
     }
   }
 
@@ -595,8 +813,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (!quiet)
         printf("%s  (trying to skip MacBinary header)\n", verbose? "":fname);
 
-      if (fread(buffer, 1, 120, fp) == 120 && fread(magic, 1, 8, fp) == 8) {
-        printf("    cannot read MacBinary header\n");
+      if (fread(buffer, 1, 120, fp) != 120 || fread(magic, 1, 8, fp) != 8) {
+        printf("    cannot read past MacBinary header\n");
         set_err(3);
       } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
         png = 1;
@@ -615,9 +833,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("    this is neither a PNG or JNG image nor MNG stream\n");
         set_err(2);
       }
-    } else if ((check = check_magic(magic, fname, DO_PNG)) == 0)
+    } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
       png = 1;
-    else if (check == 2) {   /* see if it's a MNG or a JNG instead */
+    } else if (check == 1) {   /* bytes 2-4 == "PNG" but others are bad */
+      set_err(2);
+    } else if (check == 2) {   /* not "PNG"; see if it's MNG or JNG instead */
       if ((check = check_magic(magic, fname, DO_MNG)) == 0)
         mng = 1;        /* yup */
       else if (check == 2 && (check = check_magic(magic, fname, DO_JNG)) == 0)
@@ -639,7 +859,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   while ((c = fgetc(fp)) != EOF) {
     ungetc(c, fp);
 
-    if (png && iend_read || mng && mend_read) {
+    if ((png && have_IEND) || (mng && have_MEND)) {
       if (searching) /* Start looking again in the current file. */
         return;
 
@@ -683,9 +903,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     crc = update_crc(CRCINIT, (uch *)chunkid, 4);
 
-    if ((png && !ihdr_read && strcmp(chunkid,"IHDR")!=0) ||
-        (mng && !mhdr_read && strcmp(chunkid,"MHDR")!=0) ||
-        (jng && !jhdr_read && strcmp(chunkid,"JHDR")!=0))
+    if ((png && !have_IHDR && strcmp(chunkid,"IHDR")!=0) ||
+        (mng && !have_MHDR && strcmp(chunkid,"MHDR")!=0) ||
+        (jng && !have_JHDR && strcmp(chunkid,"JHDR")!=0))
     {
       printf("%s  first chunk must be %cHDR\n",
              verbose? ":":fname, png? 'I' : (mng? 'M':'J'));
@@ -713,7 +933,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
      | IHDR | 
      *------*/
     if (strcmp(chunkid, "IHDR") == 0) {
-      if (png && ihdr_read) {
+      if (png && have_IHDR) {
         printf("%s  multiple IHDR not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 13) {
@@ -775,16 +995,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
         if (verbose && no_err(1)) {
           printf("\n    %ld x %ld image, %d-bit %s, %sinterlaced\n", w, h,
-            bitdepth, (ityp > 6)? png_type[1]:png_type[ityp], lace? "":"non-");
+            bitdepth, png_type[ityp], lace? "":"non-");
         }
       }
-      ihdr_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_IHDR = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this file */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
       /* GRR 20000304:  data dump not yet compatible with interlaced images: */
-      if (lace && verbose > 3)
+      if (lace && verbose > 3)  /* (FIXME eventually...or move to pngcrunch) */
         verbose = 2;
 #endif
 
@@ -795,7 +1015,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (png) {
         printf("%s  JHDR not defined in PNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (jng && jhdr_read) {
+      } else if (jng && have_JHDR) {
         printf("%s  multiple JHDR not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 16) {
@@ -847,7 +1067,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             int a;
 
             if (bitdepth == 20) {
-              need_jsep = 1;
+              need_JSEP = 1;
               jbitd = 8;
               and = "and 12-bit ";
             } else
@@ -872,8 +1092,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      jhdr_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_JHDR = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | MHDR | 
@@ -884,7 +1104,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           png? 'P':'J');
         set_err(1);
       } else
-      if (mhdr_read) {
+      if (have_MHDR) {
         printf("%s  multiple MHDR not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 28) {
@@ -894,6 +1114,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (no_err(1)) {
         ulg tps, playtime, profile;
+        int validtrans = 0;
 
         mng_width  = w = LG(buffer);
         mng_height = h = LG(buffer+4);
@@ -925,38 +1146,38 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           } else
             printf("%s play time, ", playtime? "infinite" : "unspecified");
         }
-        if (profile & 1) {
+        if (profile & 0x0001) {
           int bits = 0;
 
           vlc = lc = 1;
           if (verbose)
             printf("valid profile:\n      ");
-          if (profile & 2) {
+          if (profile & 0x0002) {
             if (verbose)
               printf("simple MNG features");
             ++bits;
             vlc = 0;
           }
-          if (profile & 4) {
+          if (profile & 0x0004) {
             if (verbose)
               printf("%scomplex MNG features", bits? ", " : "");
             ++bits;
             vlc = 0;
             lc = 0;
           }
-          if (profile & 8) {
+          if (profile & 0x0008) {
             if (verbose)
               printf("%scritical transparency", bits? ", " : "");
             ++bits;
           }
-          if (profile & 16) {
+          if (profile & 0x0010) {
             if (verbose)
               printf("%s%sJNG", bits? ", " : "", (bits == 3)? "\n      " : "");
             ++bits;
             vlc = 0;
             lc = 0;
           }
-          if (profile & 32) {
+          if (profile & 0x0020) {
             if (verbose)
               printf("%s%sdelta-PNG", bits? ", " : "",
                 (bits == 3)? "\n      " : "");
@@ -964,9 +1185,61 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             vlc = 0;
             lc = 0;
           }
+          if (profile & 0x0040) {
+            if (verbose)
+              printf("%s%svalid transparency info", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+            validtrans = 1;
+          }
+          if (/* validtrans && */ profile & 0x0080) {
+            if (verbose)
+              printf("%s%smay have bkgd transparency", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+          }
+          if (/* validtrans && */ profile & 0x0100) {
+/*
+FIXME: also check bit 3 (0x0008); if not set, this one is meaningless
+ */
+            if (verbose)
+              printf("%s%smay have semi-transparency", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+          }
+          if (/* validtrans && */ profile & 0x0200) {
+            if (verbose)
+              printf("%s%sobject buffers must be stored", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+            vlc = 0;
+            lc = 0;
+          }
+          if (profile & 0xfc00) {
+/*
+FIXME:  error/strong warning
+ */
+            if (verbose)
+              printf("%s%sreserved bits are set", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+            vlc = 0;
+            lc = 0;
+          }
+          if (profile & 0x7fff0000) {
+            if (verbose)
+              printf("%s%sprivate/experimental bits are set", bits? ", " : "",
+                (bits > 0 && (bits % 3) == 0)? "\n      " : "");
+            ++bits;
+            vlc = 0;
+            lc = 0;
+          }
+/*
+FIXME: make sure bit 31 (0x80000000) is 0
+ */
           if (verbose) {
             if (vlc)
-              printf(" (MNG-VLC)");
+              printf("%s (MNG-VLC)", bits? "":"no feature bits specified");
             else if (lc)
               printf(" (MNG-LC)");
             printf("\n");
@@ -978,8 +1251,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               profile? "invalid" : "unspecified");
         }
       }
-      mhdr_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_MHDR = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*================================================*
      * PNG chunks (with the exception of IHDR, above) *
@@ -992,18 +1265,22 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  PLTE not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && plte_read) {
+      } else if (png && have_PLTE) {
         printf("%s  multiple PLTE not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && ityp != 3 && ityp != 2 && ityp != 6) {
+        printf("%s  PLTE not allowed in %s image\n", verbose? ":":fname,
+          png_type[ityp]);
+        set_err(1);
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"PLTE ");
         set_err(1);
-      } else if (png && have_bkgd) {
+      } else if (png && have_bKGD) {
         printf("%s  %smust precede bKGD\n",
                verbose? ":":fname, verbose? "":"PLTE ");
         set_err(1);
-      } else if ((!(mng && plte_read) && sz < 3) || sz > 768 || sz % 3 != 0) {
+      } else if ((!(mng && have_PLTE) && sz < 3) || sz > 768 || sz % 3 != 0) {
         printf("%s  invalid number of %sentries (%g)\n",
                verbose? ":":fname, verbose? "":"PLTE ",(double)sz / 3);
         set_err(2);
@@ -1013,9 +1290,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("\n");
  */
       if (no_err(1)) {
+        if (ityp == 1)   /* for MNG and tRNS */
+          ityp = 3;
         nplte = sz / 3;
         if (verbose || (printpal && !quiet)) {
-          if (printpal && !quiet)
+          if (!verbose && printpal && !quiet)
             printf("  PLTE chunk");
           printf(": %d palette entr%s\n", nplte, nplte == 1? "y":"ies");
         }
@@ -1028,23 +1307,27 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             spc = "   ";
           else
             spc = "    ";
-          for (i = j = 0; i < nplte; i++, j += 3)
+          for (i = j = 0; i < nplte; ++i, j += 3)
             printf("%s%3d:  (%3d,%3d,%3d) = (0x%02x,0x%02x,0x%02x)\n", spc, i,
                    buffer[j], buffer[j + 1], buffer[j + 2],
                    buffer[j], buffer[j + 1], buffer[j + 2]);
         }
       }
-      plte_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_PLTE = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | IDAT | 
      *------*/
     } else if (strcmp(chunkid, "IDAT") == 0) {
       /* GRR:  need to check for consecutive IDATs within MNG segments */
-      if (idat_read && !last_is_idat) {
+      if (have_IDAT && !last_is_IDAT) {
         if (mng) {  /* reset things (GRR SEMI-HACK:  check for segments!) */
-          idat_read = 0;
+          have_IDAT = 0;
+#ifdef USE_ZLIB
+          zlib_error = 0;
+          zlib_windowbits = 15;
+#endif
           zhead = 1;
           if (verbose)
             printf("\n");
@@ -1059,23 +1342,62 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
       /* We just want to check that we have read at least the minimum (10)
        * IDAT bytes possible, but avoid any overflow for short ints.  We
-       * must also take into account that 0 length IDAT chunks are legal.
+       * must also take into account that 0-length IDAT chunks are legal.
        */
-      if (idat_read <= 0)
-        idat_read = (sz > 0)? sz : -1;
-      else if (idat_read < 10)
-        idat_read += (sz > 10)? 10 : sz;
+      if (have_IDAT <= 0)
+        have_IDAT = (sz > 0)? sz : -1;
+      else if (have_IDAT < 10)
+        have_IDAT += (sz > 10)? 10 : sz;
 
       /* Dump the zlib header from the first two bytes. */
-      if (verbose && zhead < 0x10000 && sz > 0) {
+      if (zhead < 0x10000 && sz > 0) {
         zhead = (zhead << 8) + buffer[0];
         if (sz > 1 && zhead < 0x10000)
           zhead = (zhead << 8) + buffer[1];
-        if (zhead >= 0x10000)
-          print_zlibheader(zhead & 0xffff);
-      }
+        if (zhead >= 0x10000) {
+          /* formerly print_zlibheader(zhead & 0xffff); */
+          /* See the code in zlib deflate.c that writes out the header when
+             s->status is INIT_STATE.  In fact this code is based on the zlib
+             specification in RFC 1950 (ftp://ds.internic.net/rfc/rfc1950.txt),
+             with the implicit assumption that the zlib header *is* written (it
+             always should be inside a valid PNG file).  The variable names are
+             taken, verbatim, from the RFC. */
+          unsigned int CINFO = (zhead & 0xf000) >> 12;
+
 #ifdef USE_ZLIB
-      if (verbose > 1 && !zlib_error) {
+          if (check_windowbits)   /* check for libpng 1.2.6 windowBits bug */
+            zlib_windowbits = CINFO + 8;
+#endif
+          if (verbose) {
+            unsigned int CM = (zhead & 0xf00) >> 8;
+            unsigned int FDICT = (zhead & 0x20) >> 5;
+            unsigned int FLEVEL = (zhead & 0xc0) >> 6;
+
+            printf("    zlib: ");
+            if ((zhead & 0xffff) % 31) {
+              printf("compression header fails checksum\n");
+              set_err(2);
+            } else if (CM == 8) {
+              if (CINFO > 1) {
+                printf("deflated, %dK window, %s compression%s\n",
+                  (1 << (CINFO-2)), deflate_type[FLEVEL],
+                  FDICT? ", preset dictionary":"");
+              } else {
+                printf("deflated, %d-byte window, %s compression%s\n",
+                  (1 << (CINFO+8)), deflate_type[FLEVEL],
+                  FDICT? ", preset dictionary":"");
+              }
+            } else {
+              printf("non-deflate compression method (%d)\n", CM);
+              set_err(2);
+            }
+          }
+
+        }
+      }
+
+#ifdef USE_ZLIB
+      if (check_zlib && !zlib_error) {
         static uch *p;   /* always points to next filter byte */
         static int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
         static long cur_width, cur_linebytes;
@@ -1093,21 +1415,22 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           zstrm.zalloc = (alloc_func)Z_NULL;
           zstrm.zfree = (free_func)Z_NULL;
           zstrm.opaque = (voidpf)Z_NULL;
-          if ((err = inflateInit(&zstrm)) != Z_OK) {
-            fprintf(stderr, "    zlib:  oops! can't initialize (error = %d)\n",
-              err);
-            verbose = 1;   /* this is a fatal error for all subsequent PNGs */
+          if ((err = inflateInit2(&zstrm, zlib_windowbits)) != Z_OK) {
+            printf("\n    zlib: oops! can't initialize (error = %d)\n", err);
+            zlib_error = 1;
+            /* actually, fatal error for subsequent PNGs, too; could (should?)
+               return here... */
           }
           cur_y = 0;
-          cur_pass = 1;    /* interlace pass:  1 through 7 */
+          cur_pass = 1;     /* interlace pass:  1 through 7 */
           cur_xoff = cur_yoff = 0;
           cur_xskip = cur_yskip = lace? 8 : 1;
-          cur_width = (w + cur_xskip - 1) / cur_xskip;         /* round up */
+          cur_width = (w - cur_xoff + cur_xskip - 1) / cur_xskip; /* round up */
           cur_linebytes = ((cur_width*bitdepth + 7) >> 3) + 1; /* round, fltr */
           numfilt = 0L;
           first_idat = 0;
           if (lace) {   /* loop through passes to calculate total filters */
-            int pass, yskip, yoff;
+            int pass, yskip=0, yoff=0;
 
             numfilt_total = 0L;
             for (pass = 1;  pass <= 7;  ++pass) {
@@ -1127,63 +1450,70 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             numfilt_total = h;   /* if non-interlaced */
         }
 
-        printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth)%s:"
-          "\n     ", verbose > 3? " and data" : "");
+        if (verbose > 1) {
+          printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, "
+            "4 paeth)%s:\n     ", verbose > 3? " and data" : "");
+        }
         numfilt_this_block = 0L;
 
         while (err != Z_STREAM_END && zstrm.avail_in > 0) {
           /* know zstrm.avail_out > 0:  get some image/filter data */
-          err = inflate(&zstrm, Z_PARTIAL_FLUSH);
+          err = inflate(&zstrm, Z_SYNC_FLUSH);
           if (err != Z_OK && err != Z_STREAM_END) {
-            fflush(stdout);
-            fprintf(stderr, "\n    zlib:  inflate (first loop) error = %d\n",
-              err);
-            fflush(stderr);
-            zlib_error = 1;      /* fatal error only for this PNG */
-            break;               /* kill inner loop */
+            printf("%s  zlib: inflate error = %d (%s)\n",
+              verbose > 1? "\n  " : (verbose == 1? "  ":fname), err,
+              (-err < 1 || -err > 6)? "unknown":zlib_error_type[-err-1]);
+            zlib_error = 1;		/* fatal error only for this PNG */
+            break;			/* kill inner loop */
           }
 
           /* now have uncompressed, filtered image data in outbuf */
           eod = outbuf + BS - zstrm.avail_out;
           while (p < eod) {
-            if (verbose > 3) {			/* GRR 20000304 */
-              printf(" [%1d]", (int)p[0]);
-              fflush(stdout);
-              ++numfilt;
-              for (i = 1;  i < cur_linebytes;  ++i, ++p) {
-                printf(" %d", (int)p[1]);
+
+            if (cur_linebytes) {	/* GRP 20000727:  bugfix */
+              if (verbose > 3) {	/* GRR 20000304 */
+                printf(" [%1d]", (int)p[0]);
                 fflush(stdout);
-              }
-              ++p;
-              printf("\n     ");
-              fflush(stdout);
-              cur_y += cur_yskip;
-            } else {
-              printf(" %1d", (int)p[0]);
-              ++numfilt;
-              if (++numfilt_this_block % 25 == 0)
+                ++numfilt;
+                for (i = 1;  i < cur_linebytes;  ++i, ++p) {
+                  printf(" %d", (int)p[1]);
+                  fflush(stdout);
+                }
+                ++p;
                 printf("\n     ");
-              p += cur_linebytes;
-              cur_y += cur_yskip;
-            }
+                fflush(stdout);
+              } else {
+                if (verbose > 1) {
+                  printf(" %1d", (int)p[0]);
+                  if (++numfilt_this_block % 25 == 0)
+                    printf("\n     ");
+                }
+                ++numfilt;
+                p += cur_linebytes;
+              }
+            } else
+              --numfilt_total;
+            cur_y += cur_yskip;
+
             if (lace) {
-              while (cur_y >= h) {      /* may loop if very short image */
+              while (cur_y >= h) {	/* may loop if very short image */
                 /*
-                          pass  xskip yskip  xoff yoff
-                            1     8     8      0    0
-                            2     8     8      4    0
-                            3     4     8      0    4
-                            4     4     4      2    0
-                            5     2     4      0    2
-                            6     2     2      1    0
-                            7     1     2      0    1
+                    pass  xskip yskip  xoff yoff
+                      1     8     8      0    0
+                      2     8     8      4    0
+                      3     4     8      0    4
+                      4     4     4      2    0
+                      5     2     4      0    2
+                      6     2     2      1    0
+                      7     1     2      0    1
                  */
                 ++cur_pass;
-                if (cur_pass & 1) {   /* beginning an odd pass */
+                if (cur_pass & 1) {	/* beginning an odd pass */
                   cur_yoff = cur_xoff;
                   cur_xoff = 0;
                   cur_xskip >>= 1;
-                } else {              /* beginning an even pass */
+                } else {		/* beginning an even pass */
                   if (cur_pass == 2)
                     cur_xoff = 4;
                   else {
@@ -1196,14 +1526,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                 /* effective width is reduced if even pass: subtract cur_xoff */
                 cur_width = (w - cur_xoff + cur_xskip - 1) / cur_xskip;
                 cur_linebytes = ((cur_width*bitdepth + 7) >> 3) + 1;
+                if (cur_linebytes == 1)	/* GRP 20000727:  added fix */
+                    --cur_linebytes;
               }
             } else if (cur_y >= h) {
-              if (verbose > 3) {		/* GRR 20000304:  bad code */
+              if (verbose > 3) {	/* GRR 20000304:  bad code */
                 printf(" %d bytes remaining in buffer before inflateEnd()",
                   eod-p);
                 printf("\n     ");
                 fflush(stdout);
-                i = inflateEnd(&zstrm);     /* we're all done */
+                i = inflateEnd(&zstrm);	/* we're all done */
                 if (i == Z_OK || i == Z_STREAM_ERROR)
                   printf(" inflateEnd() returns %s\n     ",
                     i == Z_OK? "Z_OK" : "Z_STREAM_ERROR");
@@ -1211,18 +1543,18 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                   printf(" inflateEnd() returns %d\n     ", i);
                 fflush(stdout);
               } else
-                inflateEnd(&zstrm);   /* we're all done */
-              zlib_error = 99;        /* kill outermost loop */
-              err = Z_STREAM_END;     /* kill middle loop */
-              break;                  /* kill innermost loop */
+                inflateEnd(&zstrm);	/* we're all done */
+              zlib_error = -1;		/* kill outermost loop (over chunks) */
+              err = Z_STREAM_END;	/* kill middle loop */
+              break;			/* kill innermost loop */
             }
           }
-          p -= (eod - outbuf);        /* wrap p back into outbuf region */
+          p -= (eod - outbuf);		/* wrap p back into outbuf region */
           zstrm.next_out = outbuf;
           zstrm.avail_out = BS;
 
           /* get more input (waiting until buffer empties is not necessary best
-           * zlib strategy, but simpler than shifting left-over data around) */
+           * zlib strategy, but simpler than shifting leftover data around) */
           if (zstrm.avail_in == 0 && sz > toread) {
             int data_read;
 
@@ -1238,44 +1570,48 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             zstrm.avail_in = toread;
           }
         }
-        printf(" (%ld out of %ld)\n", numfilt, numfilt_total);
+        if (verbose > 1)
+          printf(" (%ld out of %ld)\n", numfilt, numfilt_total);
       }
+      if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
+        set_err(2);
 #endif /* USE_ZLIB */
-      last_is_idat = 1;
-      last_is_jdat = 0;
+      last_is_IDAT = 1;
+      last_is_JDAT = 0;
 
     /*------* 
      | IEND | 
      *------*/
     } else if (strcmp(chunkid, "IEND") == 0) {
-      if (!mng && iend_read) {
+      if (!mng && have_IEND) {
         printf("%s  multiple IEND not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 0) {
         printf("%s  incorrect %slength\n",
           verbose? ":":fname, verbose? "":"IEND ");
         set_err(1);
-      } else if (jng && need_jsep && !jsep_read) {
+      } else if (jng && need_JSEP && !have_JSEP) {
         printf("%s  missing JSEP in 20-bit JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && idat_read < 10) {
+      } else if (png && have_IDAT < 10) {
         printf("%s  not enough IDAT data\n", verbose? ":":fname);
+        set_err(2);
       } else if (verbose) {
         printf("\n");
       }
-      iend_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_IEND = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | bKGD | 
      *------*/
     } else if (strcmp(chunkid, "bKGD") == 0) {
-      if (!mng && have_bkgd) {
+      if (!mng && have_bKGD) {
         printf("%s  multiple bKGD not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-          verbose? ":":fname, verbose? "":"bKGD ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"bKGD ", have_IDAT? 'I':'J');
         set_err(1);
       }
       switch (ityp) {
@@ -1287,9 +1623,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             set_err(2);
           }
           if (verbose && no_err(1)) {
-            printf(": gray = %d\n", SH(buffer));
+            printf("\n    gray = 0x%04x\n", SH(buffer));
           }
           break;
+        case 1: /* MNG top-level chunk (default values):  "as if 16-bit RGBA" */
         case 2:
         case 6:
           if (sz != 6) {
@@ -1298,8 +1635,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             set_err(2);
           }
           if (verbose && no_err(1)) {
-            printf(": red = %d green = %d blue = %d\n", SH(buffer),
-              SH(buffer+2), SH(buffer+4));
+            printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x\n",
+              SH(buffer), SH(buffer+2), SH(buffer+4));
           }
           break;
         case 3:
@@ -1307,29 +1644,33 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("%s  incorrect %slength\n",
               verbose? ":":fname, verbose? "":"bKGD ");
             set_err(2);
+          } else if (buffer[0] >= nplte) {
+            printf("%s  %sindex (%u) falls outside PLTE (%u)\n",
+              verbose? ":":fname, verbose? "":"bKGD ", buffer[0], nplte);
+            set_err(2);
           }
           if (verbose && no_err(1)) {
-            printf(": index = %d\n", buffer[0]);
+            printf("\n    index = %u\n", buffer[0]);
           }
           break;
       }
-      have_bkgd = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_bKGD = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | cHRM | 
      *------*/
     } else if (strcmp(chunkid, "cHRM") == 0) {
-      if (!mng && have_chrm) {
+      if (!mng && have_cHRM) {
         printf("%s  multiple cHRM not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && plte_read) {
+      } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"cHRM ");
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"cHRM ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"cHRM ", have_IDAT? 'I':'J');
         set_err(1);
       } else if (sz != 32) {
         printf("%s  incorrect %slength\n",
@@ -1376,8 +1717,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                  gx, gy, bx, by);
         }
       }
-      have_chrm = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_cHRM = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | fRAc | 
@@ -1386,20 +1727,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose)
         printf("\n    undefined fractal parameters (ancillary, safe to copy)\n"
           "    [contact Tim Wegner, twegner@phoenix.net, for specification]\n");
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | gAMA | 
      *------*/
     } else if (strcmp(chunkid, "gAMA") == 0) {
-      if (!mng && have_gama) {
+      if (!mng && have_gAMA) {
         printf("%s  multiple gAMA not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"gAMA ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"gAMA ", have_IDAT? 'I':'J');
         set_err(1);
-      } else if (!mng && plte_read) {
+      } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"gAMA ");
         set_err(1);
@@ -1411,8 +1752,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose && no_err(1)) {
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
-      have_gama = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_gAMA = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | gIFg | 
@@ -1427,12 +1768,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        float dtime = .01 * SH(buffer+2);
+        double dtime = .01 * SH(buffer+2);
 
-        printf("\n    disposal method = %d, user input flag = %d, display time = %f seconds\n",
+        printf("\n    disposal method = %d, user input flag = %d, display time = %lf seconds\n",
           buffer[0], buffer[1], dtime);
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | gIFt | 
@@ -1459,7 +1800,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("    %ld bytes of text data\n", sz-24);
         /* GRR:  print text according to grid size/cell size? */
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | gIFx | 
@@ -1479,7 +1820,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           8, buffer, buffer[8], buffer[9], buffer[10]);
         printf("    %ld bytes of application data\n", sz-11);
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | hIST | 
@@ -1488,14 +1829,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  hIST not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && have_hist) {
+      } else if (png && have_hIST) {
         printf("%s  multiple hIST not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!plte_read) {
+      } else if (!have_PLTE) {
         printf("%s  %smust follow PLTE\n",
                verbose? ":":fname, verbose? "":"hIST ");
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"hIST ");
         set_err(1);
@@ -1505,7 +1846,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(2);
       }
       if ((verbose || (printpal && !quiet)) && no_err(1)) {
-        if (printpal && !quiet)
+        if (!verbose && printpal && !quiet)
           printf("  hIST chunk");
         printf(": %ld histogram entr%s\n", sz / 2, sz/2 == 1? "y":"ies");
       }
@@ -1521,27 +1862,27 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         for (i = j = 0;  j < sz;  ++i, j += 2)
           printf("%s%3d:  %5u\n", spc, i, SH(buffer+j));
       }
-      have_hist = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_hIST = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | iCCP | 
      *------*/
     } else if (strcmp(chunkid, "iCCP") == 0) {
-      if (!mng && have_iccp) {
+      if (!mng && have_iCCP) {
         printf("%s  multiple iCCP not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && have_srgb) {
+      } else if (!mng && have_sRGB) {
         printf("%s  %snot allowed with sRGB\n",
                verbose? ":":fname, verbose? "":"iCCP ");
         set_err(1);
-      } else if (!mng && plte_read) {
+      } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"iCCP ");
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"iCCP ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"iCCP ", have_IDAT? 'I':'J');
         set_err(1);
       }
       if (no_err(1)) {
@@ -1574,7 +1915,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           set_err(1);
         } else if (verbose && no_err(1)) {
           printf("\n    profile name = ");
-          init_printbuffer(fname);
+          init_printbuffer();
           printbuffer(buffer, name_len, 0);
           finish_printbuffer(fname, chunkid);
           printf("%scompression method = %d (%s)%scompressed profile = "
@@ -1583,8 +1924,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             sz-name_len-2);
         }
       }
-      have_iccp = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_iCCP = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
      | iTXt |
@@ -1615,7 +1956,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (no_err(1)) {
         int prev_space = 0;
 
-        for(i = 0; i < key_len; i++) {
+        for (i = 0; i < key_len; ++i) {
           if (buffer[i] == ' ') {
             if (prev_space) {
               printf("%s  %s keyword has consecutive spaces\n",
@@ -1631,7 +1972,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
       }
       if (no_err(1)) {
-        for(i = 0; i < key_len; i++) {
+        for (i = 0; i < key_len; ++i) {
           if ((uch)buffer[i]<32 ||
              ((uch)buffer[i]>126 && (uch)buffer[i]<161)) {
             printf("%s  %s keyword has control characters\n",
@@ -1644,7 +1985,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (no_err(1)) {
         int compressed = 0, tag_len = 0;
 
-        init_printbuffer(fname);
+        init_printbuffer();
         if (verbose) {
           printf(", keyword: ");
         }
@@ -1692,18 +2033,18 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
         finish_printbuffer(fname, chunkid);   /* print CR/LF & NULLs info */
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | oFFs | 
      *------*/
     } else if (strcmp(chunkid, "oFFs") == 0) {
-      if (!mng && have_offs) {
+      if (!mng && have_oFFs) {
         printf("%s  multiple oFFs not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"oFFs ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"oFFs ", have_IDAT? 'I':'J');
         set_err(1);
       } else if (sz != 9) {
         printf("%s  incorrect %slength\n",
@@ -1715,8 +2056,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                buffer[8]==0 ? "pixels":
                buffer[8]==1 ? "micrometers":"unknown unit");
       }
-      have_offs = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_oFFs = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | pCAL | 
@@ -1725,10 +2066,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  pCAL not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && have_pcal) {
+      } else if (png && have_pCAL) {
         printf("%s  multiple pCAL not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":":fname, verbose? "":"pCAL ");
         set_err(1);
@@ -1759,7 +2100,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } else {
           int prev_space = 0;
 
-          for(i = 0; i < name_len; i++) {
+          for (i = 0; i < name_len; ++i) {
             if (buffer[i] == ' ') {
               if (prev_space) {
                 printf("%s  %s calibration name has consecutive spaces\n",
@@ -1775,7 +2116,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
         if (no_err(1)) {
-          for(i = 0; i < name_len; i++) {
+          for (i = 0; i < name_len; ++i) {
             if ((uch)buffer[i]<32 ||
                ((uch)buffer[i]>126 && (uch)buffer[i]<161)) {
               printf("%s  %s calibration name has control characters\n",
@@ -1801,19 +2142,19 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               verbose? ":":fname, num_params, verbose? "":chunkid, eqn_num);
             set_err(1);
           } else if (verbose) {
-            long remainder;
+            long remainder = 0L;
             uch *pbuf;
 
-            printf(", equation type %d\n", eqn_num);
+            printf(": equation type %d\n", eqn_num);
             printf("    %s\n", eqn_type[eqn_num]);
             printf("    calibration name = ");
-            init_printbuffer(fname);
+            init_printbuffer();
             printbuffer(buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             if (toread != sz) {
               printf(
-                "\n    pngcheck INTERNAL LOGIC ERROR:  toread (%ld) != sz (%ld)"
-                , toread, sz);
+                "\n    pngcheck INTERNAL LOGIC ERROR:  toread (%d) != sz (%ld)",
+                toread, sz);
             } else
               remainder = toread - name_len - 11;
             pbuf = buffer + name_len + 11;
@@ -1823,7 +2164,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               int unit_len = keywordlen(pbuf, remainder);
 
               printf("\n    physical_value unit name = ");
-              init_printbuffer(fname);
+              init_printbuffer();
               printbuffer(pbuf, unit_len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
@@ -1851,7 +2192,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               --remainder;
               len = keywordlen(pbuf, remainder);
               printf("    p%d = ", i);
-              init_printbuffer(fname);
+              init_printbuffer();
               printbuffer(pbuf, len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
@@ -1861,23 +2202,23 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      have_pcal = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_pCAL = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | pHYs | 
      *------*/
     } else if (strcmp(chunkid, "pHYs") == 0) {
-      if (!mng && have_phys) {
-        printf("%s  multiple pHYS not allowed\n", verbose? ":":fname);
+      if (!mng && have_pHYs) {
+        printf("%s  multiple pHYs not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"pHYS ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"pHYs ", have_IDAT? 'I':'J');
         set_err(1);
       } else if (sz != 9) {
         printf("%s  incorrect %slength\n",
-               verbose? ":":fname, verbose? "":"pHYS ");
+               verbose? ":":fname, verbose? "":"pHYs ");
         set_err(2);
       }
       if (verbose && no_err(1)) {
@@ -1892,8 +2233,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           set_err(1);
         printf("\n");
       }
-      have_phys = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_pHYs = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | sBIT | 
@@ -1904,14 +2245,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  sBIT not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && have_sbit) {
+      } else if (png && have_sBIT) {
         printf("%s  multiple sBIT not allowed\n", verbose? ":" : fname);
         set_err(1);
-      } else if (plte_read) {
+      } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
           verbose? ":" : fname, verbose? "" : "sBIT ");
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":" : fname, verbose? "" : "sBIT ");
         set_err(1);
@@ -1920,108 +2261,111 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         case 0:
           if (sz != 1) {
             printf("%s  incorrect %slength\n",
-                   verbose? ":" : fname, verbose? "" : "sBIT ");
+              verbose? ":" : fname, verbose? "" : "sBIT ");
             set_err(2);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
             printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
               verbose? ":" : fname, buffer[0], verbose? "" : "sBIT ", maxbits);
             set_err(1);
           } else if (verbose && no_err(1)) {
-            printf(": gray = %d\n", buffer[0]);
+            printf("\n    gray = %u = 0x%02x\n", buffer[0], buffer[0]);
           }
           break;
         case 2:
         case 3:
           if (sz != 3) {
             printf("%s  incorrect %slength\n",
-                   verbose? ":":fname, verbose? "":"sBIT ");
+              verbose? ":":fname, verbose? "":"sBIT ");
             set_err(2);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
             printf("%s  %d %sred bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
             printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (buffer[2] == 0 || buffer[2] > maxbits) {
             printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (verbose && no_err(1)) {
-            printf(": red = %d green = %d blue = %d\n",
-                   buffer[0], buffer[1], buffer[2]);
+            printf("\n    red = %u = 0x%02x, green = %u = 0x%02x, "
+              "blue = %u = 0x%02x\n", buffer[0], buffer[0],
+              buffer[1], buffer[1], buffer[2], buffer[2]);
           }
           break;
         case 4:
           if (sz != 2) {
             printf("%s  incorrect %slength\n",
-                   verbose? ":":fname, verbose? "":"sBIT ");
+              verbose? ":":fname, verbose? "":"sBIT ");
             set_err(2);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
             printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
             set_err(2);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
-            printf("%s  %d %salpha bits(tm) not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
+            printf("%s  %d %salpha bits not valid for %dbit/sample image\n",
+              verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
             set_err(2);
           } else if (verbose && no_err(1)) {
-            printf(": gray = %d alpha = %d\n", buffer[0], buffer[1]);
+            printf("\n    gray = %u = 0x%02x, alpha = %u = 0x%02x\n",
+              buffer[0], buffer[0], buffer[1], buffer[1]);
           }
           break;
         case 6:
           if (sz != 4) {
             printf("%s  incorrect %slength\n",
-                   verbose? ":":fname, verbose? "":"sBIT ");
+              verbose? ":":fname, verbose? "":"sBIT ");
             set_err(2);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
             printf("%s  %d %sred bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
             printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (buffer[2] == 0 || buffer[2] > maxbits) {
             printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
+              verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (buffer[3] == 0 || buffer[3] > maxbits) {
-            printf("%s  %d %salpha bits(tm) not valid for %dbit/sample image\n",
-                   verbose? ":":fname, buffer[3], verbose? "":"sBIT ", maxbits);
+            printf("%s  %d %salpha bits not valid for %dbit/sample image\n",
+              verbose? ":":fname, buffer[3], verbose? "":"sBIT ", maxbits);
             set_err(1);
           } else if (verbose && no_err(1)) {
-            printf(": red = %d green = %d blue = %d alpha = %d\n",
-                   buffer[0], buffer[1], buffer[2], buffer[3]);
+            printf("\n    red = %u = 0x%02x, green = %u = 0x%02x, "
+              "blue = %u = 0x%02x, alpha = %u = 0x%02x\n", buffer[0], buffer[0],
+              buffer[1], buffer[1], buffer[2], buffer[2], buffer[3], buffer[3]);
           }
           break;
       }
-      have_sbit = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_sBIT = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | sCAL | 
      *------*/
     } else if (strcmp(chunkid, "sCAL") == 0) {
-      if (!mng && have_scal) {
+      if (!mng && have_sCAL) {
         printf("%s  multiple sCAL not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"sCAL ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"sCAL ", have_IDAT? 'I':'J');
         set_err(1);
       }
       if (verbose && no_err(1)) {
         buffer[sz] = '\0';
-        buffer[strlen(buffer+1)+1] = 'x';
+        buffer[strlen((char *)(buffer+1))+1] = 'x';
 
         printf(": image size %s %s\n", buffer+1,
                buffer[0] == 1 ? "meters":
                buffer[0] == 2 ? "radians":"unknown unit");
       }
-      have_scal = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_sCAL = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | sPLT | 
@@ -2030,7 +2374,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  sPLT not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":":fname, verbose? "":"sPLT ");
         set_err(1);
@@ -2074,12 +2418,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             set_err(2);
           }
           if ((verbose || (printpal && !quiet)) && no_err(1)) {
-            if (printpal && !quiet)
+            if (!verbose && printpal && !quiet)
               printf("  sPLT chunk");
             printf(": %ld palette/histogram entr%s\n", nsplt,
               nsplt == 1? "y":"ies");
             printf("    sample depth = %u bits, palette name = ", bps);
-            init_printbuffer(fname);
+            init_printbuffer();
             printbuffer(buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             printf("\n");
@@ -2117,26 +2461,26 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | sRGB | 
      *------*/
     } else if (strcmp(chunkid, "sRGB") == 0) {
-      if (!mng && have_srgb) {
+      if (!mng && have_sRGB) {
         printf("%s  multiple sRGB not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (!mng && have_iccp) {
+      } else if (!mng && have_iCCP) {
         printf("%s  %snot allowed with iCCP\n",
                verbose? ":":fname, verbose? "":"sRGB ");
         set_err(1);
-      } else if (!mng && plte_read) {
+      } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"sRGB ");
         set_err(1);
-      } else if (!mng && (idat_read || jdat_read)) {
-        printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"sRGB ");
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"sRGB ", have_IDAT? 'I':'J');
         set_err(1);
       } else if (buffer[0] > 3) {
         printf("%s  %sinvalid rendering intent\n",
@@ -2146,8 +2490,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose && no_err(1)) {
         printf("\n    rendering intent = %s\n", rendering_intent[buffer[0]]);
       }
-      have_srgb = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_sRGB = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------*  *------* 
      | tEXt |  | zTXt | 
@@ -2178,7 +2522,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (no_err(1)) {
         int prev_space = 0;
 
-        for(i = 0; i < key_len; i++) {
+        for (i = 0; i < key_len; ++i) {
           if (buffer[i] == ' ') {
             if (prev_space) {
               printf("%s  %s keyword has consecutive spaces\n",
@@ -2194,7 +2538,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
       }
       if (no_err(1)) {
-        for(i = 0; i < key_len; i++) {
+        for (i = 0; i < key_len; ++i) {
           if ((uch)buffer[i]<32 ||
              ((uch)buffer[i]>=127 && (uch)buffer[i]<161)) {
             printf("%s  %s keyword has control characters\n",
@@ -2205,7 +2549,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
       }
       if (no_err(1)) {
-        init_printbuffer(fname);
+        init_printbuffer();
         if (verbose) {
           printf(", keyword: ");
         }
@@ -2231,13 +2575,13 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
         finish_printbuffer(fname, chunkid);
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | tIME | 
      *------*/
     } else if (strcmp(chunkid, "tIME") == 0) {
-      if (!mng && have_time) {
+      if (!mng && have_tIME) {
         printf("%s  multiple tIME not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 7) {
@@ -2250,8 +2594,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf(": %2d %s %4d %02d:%02d:%02d GMT\n", buffer[3],
           getmonth(buffer[2]), SH(buffer), buffer[4], buffer[5], buffer[6]);
       }
-      have_time = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_tIME = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | tRNS | 
@@ -2260,14 +2604,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (jng) {
         printf("%s  tRNS not defined in JNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (png && have_trns) {
+      } else if (png && have_tRNS) {
         printf("%s  multiple tRNS not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (ityp == 3 && !plte_read) {
+      } else if (ityp == 3 && !have_PLTE) {
         printf("%s  %smust follow PLTE\n",
           verbose? ":":fname, verbose? "":"tRNS ");
         set_err(1);
-      } else if (png && idat_read) {
+      } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"tRNS ");
         set_err(1);
@@ -2276,20 +2620,20 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         case 0:
           if (sz != 2) {
             printf("%s  incorrect %slength for %s image\n",
-                   verbose? ":":fname, verbose? "":"tRNS ",png_type[ityp]);
+                   verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
             set_err(2);
           } else if (verbose && no_err(1)) {
-            printf(": gray = %d\n", SH(buffer));
+            printf("\n    gray = 0x%04x\n", SH(buffer));
           }
           break;
         case 2:
           if (sz != 6) {
             printf("%s  incorrect %slength for %s image\n",
-                   verbose? ":":fname, verbose? "":"tRNS ",png_type[ityp]);
+                   verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
             set_err(2);
           } else if (verbose && no_err(1)) {
-            printf(": red = %d green = %d blue = %d\n", SH(buffer),
-                   SH(buffer+2), SH(buffer+4));
+            printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x\n",
+                   SH(buffer), SH(buffer+2), SH(buffer+4));
           }
           break;
         case 3:
@@ -2297,9 +2641,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("%s  incorrect %slength for %s image\n",
                    verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
             set_err(2);
-
           } else if ((verbose || (printpal && !quiet)) && no_err(1)) {
-            if (printpal && !quiet)
+            if (!verbose && printpal && !quiet)
               printf("  tRNS chunk");
             printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
           }
@@ -2322,8 +2665,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           set_err(1);
           break;
       }
-      have_trns = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_tRNS = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | mkBF | 
@@ -2332,7 +2675,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | mkBS | 
@@ -2341,7 +2684,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | mkBT | 
@@ -2350,7 +2693,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | prVW | 
@@ -2359,7 +2702,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose)
         printf("\n    Macromedia Fireworks preview chunk"
           " (private, ancillary, unsafe to copy)\n");
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*================================================*
      * JNG chunks (with the exception of JHDR, above) *
@@ -2372,10 +2715,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (png) {
         printf("%s  JDAT not defined in PNG\n", verbose? ":":fname);
         set_err(1);
-      } else if (jdat_read && !(last_is_jdat || last_is_idat)) {
+      } else if (have_JDAT && !(last_is_JDAT || last_is_IDAT)) {
         /* GRR:  need to check for consecutive IDATs within MNG segments */
         if (mng) {  /* reset things (GRR SEMI-HACK:  check for segments!) */
-          jdat_read = 0;
+          have_JDAT = 0;
           if (verbose)
             printf("\n");
         } else {
@@ -2388,9 +2731,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         }
       } else if (verbose)
         printf("\n");
-      jdat_read = 1;
-      last_is_idat = 0;
-      last_is_jdat = 1;   /* also true if last was JSEP (see below) */
+      have_JDAT = 1;
+      last_is_IDAT = 0;
+      last_is_JDAT = 1;   /* also true if last was JSEP (see below) */
 
     /*------* 
      | JSEP | 
@@ -2403,10 +2746,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  JSEP allowed only if 8-bit and 12-bit JDATs present\n",
           verbose? ":":fname);
         set_err(1);
-      } else if (jng && jsep_read) {
+      } else if (jng && have_JSEP) {
         printf("%s  multiple JSEP not allowed\n", verbose? ":":fname);
         set_err(1);
-      } else if (jng && !(last_is_jdat || last_is_idat)) {
+      } else if (jng && !(last_is_JDAT || last_is_IDAT)) {
         printf("%s  JSEP must appear between JDAT or IDAT chunks\n",
           verbose? ":":fname);
         set_err(1);
@@ -2417,9 +2760,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (verbose) {
         printf("\n");
       }
-      jsep_read = 1;
-      last_is_idat = 0;
-      last_is_jdat = 1;   /* effectively... (GRR HACK) */
+      have_JSEP = 1;
+      last_is_IDAT = 0;
+      last_is_JDAT = 1;   /* effectively... (GRR HACK) */
 
     /*===============================================================*
      * MNG chunks (with the exception of MHDR and JNG chunks, above) *
@@ -2465,8 +2808,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      dhdr_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_DHDR = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | FRAM | 
@@ -2576,7 +2919,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
  */
         }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | SAVE | 
@@ -2619,36 +2962,49 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                   (offsize == 8 && first4 == 0L && LG(p+4) == 0L))
                 printf("unknown\n");
               else if (offsize == 4)
-                printf("0x%04lx\n", first4);
+                printf("0x%08lx\n", first4);
               else
-                printf("0x%04lx%04lx\n", first4, LG(p+4));  /* big-endian */
+                printf("0x%08lx%08lx\n", first4, LG(p+4));  /* big-endian */
               p += offsize;
               if (type == 0) {
-                printf("    nominal start time = 0x%04lx", LG(p));
+                printf("    nominal start time = 0x%08lx", LG(p));
                 if (offsize == 8)
-                  printf("%04lx", LG(p+4));
+                  printf("%08lx", LG(p+4));
                 p += offsize;
-                printf(" , nominal frame number = %lu\n", LG(p));
+                printf(", nominal layer number = %lu,\n", LG(p));
+                p += 4;
+                printf("    nominal frame number = %lu\n", LG(p));
                 p += 4;
               }
             } else
               printf("\n");
             bytes_left = sz - (p-buffer);
+            // name must match that in corresponding SEEK/FRAM/eXPI chunk, or
+            // be omitted if unnamed segment (not checked!)
             if (bytes_left) {
+              int have_name = 0;
+              if (*p) {
+                have_name = 1;
+                printf("    name = ");
+              }
               do {
                 if (*p)
-                  putchar(*p);		/* GRR EBCDIC WARNING */
+                  putchar(*p);          /* GRR EBCDIC WARNING */
                 else {
-                  ++p;
+                  ++p;  // skip over separator byte (but omitted for final one)
                   break;
                 }
               } while (++p < buffer + sz);
+              if (have_name)
+                printf("\n");
               bytes_left = sz - (p-buffer);
             }
           } /* end while (bytes_left > 0) */
         }
+      } else if (verbose) {
+        printf("\n");
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | SEEK | 
@@ -2658,13 +3014,16 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  SEEK not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
         set_err(1);
-      } else if (sz > 0 && verbose) {
-        printf("\n    ");
-        init_printbuffer(fname);
-        printbuffer(buffer, sz, 0);
-        finish_printbuffer(fname, chunkid);
+      } else if (verbose) {
+        printf("\n");
+        if (sz > 0) {
+          init_printbuffer();
+          printbuffer(buffer, sz, 1);
+          finish_printbuffer(fname, chunkid);
+          printf("\n");
+        }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | nEED | 
@@ -2694,7 +3053,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } while (++p < buffer + sz);
         printf("\n");
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | DEFI | 
@@ -2735,7 +3094,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             LG(buffer+12), LG(buffer+16), LG(buffer+20), LG(buffer+24));
         }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | BACK | 
@@ -2745,17 +3104,22 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  BACK not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
         set_err(1);
-      } else if (sz != 6 && sz != 7) {
+      } else if (sz < 6 || sz == 8 || sz > 10) {
         printf("%s  incorrect %slength\n",
           verbose? ":":fname, verbose? "":"BACK ");
         set_err(2);
       }
       if (verbose && no_err(1)) {
-        printf("\n    red = %u, green = %u, blue = %u (%s)\n",
-          SH(buffer), SH(buffer+2), SH(buffer+4), (sz > 6 && buffer[6])?
+        printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x (%s)\n",
+          SH(buffer), SH(buffer+2), SH(buffer+4), (sz > 6 && (buffer[6] & 1))?
           "mandatory":"advisory");
+        if (sz >= 9) {
+          printf("    background image ID = %u (%s, %stile)\n",
+            SH(buffer+7), (buffer[6] & 1)? "mandatory":"advisory",
+            (sz > 9 && (buffer[9] & 1))? "":"do not ");
+        }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | MOVE | 
@@ -2781,7 +3145,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("    new position:  x = %ld, y = %ld\n",
             LG(buffer+5), LG(buffer+9));
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | CLON | 
@@ -2827,7 +3191,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         else
           printf("    absolute position:  x = %ld, y = %ld\n", x, y);
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | SHOW | 
@@ -2859,7 +3223,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("    %s\n",
           (smode < sizeof(show_mode)/sizeof(char *))? show_mode[smode] : inv);
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | CLIP | 
@@ -2881,7 +3245,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("      left = %ld, right = %ld, top = %ld, bottom = %ld\n",
           LG(buffer+5), LG(buffer+9), LG(buffer+13), LG(buffer+17));
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | LOOP | 
@@ -2917,7 +3281,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("\n");
         }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | ENDL | 
@@ -2934,7 +3298,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1))
         printf(":  nest level = %u\n", (unsigned)(buffer[0]));
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | PROM | 
@@ -2963,7 +3327,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             ctype = "RGBA";
             break;
           default:
-            ctype = "INVALID";
+            ctype = inv;
             set_err(1);
             break;
         }
@@ -2974,7 +3338,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           buffer[2]? "zero fill" : "left bit replication");
           /* GRR:  not checking for valid buffer[2] values */
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | fPRI | 
@@ -2992,7 +3356,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (verbose && no_err(1))
         printf(":  %spriority = %u\n", buffer[0]? "delta " : "",
           (unsigned)(buffer[1]));
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | eXPI | 
@@ -3009,9 +3373,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
-          sz-2, buffer+2);	/* GRR EBCDIC WARNING */
+          (int)(sz-2), buffer+2);	/* GRR EBCDIC WARNING */
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | BASI | 
@@ -3045,7 +3409,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           case 4:
             if (ityp == 2 || ityp == 4 || ityp == 6) {  /* RGB or GA or RGBA */
               printf("%s  invalid %sbit depth (%d) for %s image\n",
-                verbose? ":":fname, verbose? "":"BASI ", bitdepth, png_type[ityp]);
+                verbose? ":":fname, verbose? "":"BASI ", bitdepth,
+                png_type[ityp]);
               set_err(1);
             }
             break;
@@ -3054,7 +3419,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           case 16:
             if (ityp == 3) { /* palette */
               printf("%s  invalid %sbit depth (%d) for %s image\n",
-                verbose? ":":fname, verbose? "":"BASI ", bitdepth, png_type[ityp]);
+                verbose? ":":fname, verbose? "":"BASI ", bitdepth,
+                png_type[ityp]);
               set_err(1);
             }
             break;
@@ -3095,11 +3461,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
           if (verbose && no_err(1)) {
             if (ityp == 0)
-              printf("    gray = %u", red);
+              printf("    gray = 0x%04x", red);
             else
-              printf("    red = %u green = %u blue = %u", red, green, blue);
+              printf("    red = 0x%04x, green = 0x%04x, blue = 0x%04x",
+                red, green, blue);
             if (alpha >= 0) {
-              printf(", alpha = %ld", alpha);
+              printf(", alpha = 0x%04lx", alpha);
               if (viewable >= 0)
                 printf(", %sviewable", viewable? "" : "not ");
             }
@@ -3107,7 +3474,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | IPNG |    (empty stand-in for IHDR)
@@ -3124,7 +3491,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (verbose) {
         printf("\n");
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | PPLT | 
@@ -3200,7 +3567,103 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             npplt, (dtype & 1)? "delta" : "replacement", npplt== 1? "y":"ies",
             nblks, nblks== 1? "":"s");
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
+
+#if 0
+    /*------* 
+     | PAST | 
+     *------*/
+    } else if (strcmp(chunkid, "PAST") == 0) {
+      if (png || jng) {
+        printf("%s  PAST not defined in %cNG\n", verbose? ":":fname,
+          png? 'P':'J');
+        set_err(1);
+      } else if (sz < 41 || ((sz-11) % 30) != 0) {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"PAST ");
+        set_err(2);
+      }
+      if (verbose && no_err(1)) {
+        ush dest_id = SH(buffer);
+        uch target_dtype = buffer[2];
+        long x = LG(buffer+3);
+        long y = LG(buffer+7);
+
+        printf("\n    destination ID = %u, x = %ld, y = %ld%s\n", dest_id,
+          x, y, target_dtype == 1? "(delta from previous PAST with same ID)" :
+          (target_dtype == 2? "(delta from previous PAST)" : ""));
+GRR WORKING HERE
+FIXME
+
+
+        if (sz > 2) {
+          if (buffer[2] == 1)
+            noshow = do_not_show[1];
+          else if (buffer[2] > 1)
+            noshow = inv;
+        }
+        if (sz > 3)
+          concrete = buffer[3];
+        if (sz > 4) {
+          x = LG(buffer+4);
+          y = LG(buffer+8);
+        }
+        printf("\n    object ID = %u, %s, %s, x = %ld, y = %ld\n", SH(buffer),
+          noshow, concrete? "concrete":"abstract", x, y);
+        if (sz > 12) {
+          printf(
+            "    clipping:  left = %ld, right = %ld, top = %ld, bottom = %ld\n",
+            LG(buffer+12), LG(buffer+16), LG(buffer+20), LG(buffer+24));
+        }
+      }
+      last_is_IDAT = last_is_JDAT = 0;
+#endif /* 0 */
+
+    /*------* 
+     | TERM | 
+     *------*/
+    } else if (strcmp(chunkid, "TERM") == 0) {
+      if (png || jng) {
+        printf("%s  TERM not defined in %cNG\n", verbose? ":":fname,
+          png? 'P':'J');
+        set_err(1);
+      } else if (have_TERM) {
+        printf("%s  multiple TERM not allowed\n", verbose? ":":fname);
+        set_err(1);
+      } else if ((sz != 1 && sz != 10) ||
+                 (sz == 1 && buffer[0] == 3) ||
+                 (sz == 10 && buffer[0] != 3))
+      {
+        printf("%s  incorrect %slength\n",
+          verbose? ":":fname, verbose? "":"TERM ");
+        set_err(2);
+      } else if (buffer[0] > 3) {
+        printf("%s  %sinvalid termination action\n",
+               verbose? ":":fname, verbose? "":"TERM ");
+        set_err(1);
+      } else if (buffer[0] == 3 && buffer[1] > 2) {
+        printf("%s  %sinvalid termination action-after-iterations\n",
+               verbose? ":":fname, verbose? "":"TERM ");
+        set_err(1);
+      }
+      if (verbose && no_err(1)) {
+        printf("\n    action = %s\n", termination_action[buffer[0] /* & 3 */]);
+        if (sz >= 10) {
+          ulg val = LG(buffer+2);
+
+          printf("    action after iterations = %s\n",
+            termination_action[buffer[1]]);
+          printf("    inter-iteration delay = %lu tick%s, max iterations = ",
+            val, (val == 1)? "":"s");
+          val = LG(buffer+6);
+          if (val == 0x7fffffff)
+            printf("infinite\n");
+          else
+            printf("%lu\n", val);
+        }
+      }
+      have_TERM = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*------* 
      | MEND | 
@@ -3210,7 +3673,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         printf("%s  MEND not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
         set_err(1);
-      } else if (mend_read) {
+      } else if (have_MEND) {
         printf("%s  multiple MEND not allowed\n", verbose? ":":fname);
         set_err(1);
       } else if (sz != 0) {
@@ -3220,8 +3683,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (verbose) {
         printf("\n");
       }
-      mend_read = 1;
-      last_is_idat = last_is_jdat = 0;
+      have_MEND = 1;
+      last_is_IDAT = last_is_JDAT = 0;
 
     /*===============*
      * unknown chunk *
@@ -3241,7 +3704,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
                chunkid[2] & 0x20 ? "reserved-bit-set, ":"",
                chunkid[3] & 0x20 ? "":"un");
       }
-      last_is_idat = last_is_jdat = 0;
+      last_is_IDAT = last_is_JDAT = 0;
     }
 
     /*=======================================================================*/
@@ -3292,7 +3755,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
   /*----------------------- END OF IMMENSE WHILE-LOOP -----------------------*/
 
-  if ((png || jng) && !iend_read || mng && !mend_read) {
+  if (((png || jng) && !have_IEND) || (mng && !have_MEND)) {
     printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
       mng? " M":"n I");
     set_err(1);
@@ -3308,14 +3771,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   if (error == 0) {
     if (mng) {
       if (verbose) {  /* already printed MHDR/IHDR/JHDR info */
-        printf("No errors detected in %s (%ld chunks).\n", fname, num_chunks);
+        printf("%s in %s (%ld chunks).\n", error? "ERRORS DETECTED" :
+          "No errors detected", fname, num_chunks);
       } else if (!quiet) {
-/*
-        printf("No errors detected in %s (%ldx%ld", fname,
-          mng_width, mng_height);
- */
-        printf("OK: %s (%ldx%ld", fname,
-          mng_width, mng_height);
+        printf("%s: %s (%ldx%ld, %ld chunks", error? "err" : "OK", fname,
+          mng_width, mng_height, num_chunks);
         if (vlc == 1)
           printf(", VLC");
         else if (lc == 1)
@@ -3350,17 +3810,18 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
 
       if (verbose) {  /* already printed JHDR info */
-        printf("No errors detected in %s (%s%d.%d%% compression).\n", fname,
-          sgn, cfactor/10, cfactor%10);
+        printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
+          error? "ERRORS DETECTED" : "No errors detected", fname, 
+          num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
         if (jtyp < 2)
-          printf("OK: %s (%ldx%ld, %d-bit %s%s%s, %s%d.%d%%).\n",
-            fname, w, h, jbitd, and, jng_type[jtyp], lace? ", progressive":"",
-            sgn, cfactor/10, cfactor%10);
-        else
-          printf("OK: %s (%ldx%ld, %d-bit %s%s + %d-bit alpha%s, %s%d.%d%%).\n",
-            fname, w, h, jbitd, and, jng_type[jtyp-2], alphadepth,
+          printf("%s: %s (%ldx%ld, %d-bit %s%s%s, %s%d.%d%%).\n",
+            error? "err" : "OK", fname, w, h, jbitd, and, jng_type[jtyp],
             lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
+        else
+          printf("%s: %s (%ldx%ld, %d-bit %s%s + %d-bit alpha%s, %s%d.%d%%).\n",
+            error? "err" : "OK", fname, w, h, jbitd, and, jng_type[jtyp-2],
+            alphadepth, lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
       }
 
     } else {
@@ -3379,25 +3840,26 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
 
       if (verbose) {  /* already printed IHDR/JHDR info */
-        printf("No errors detected in %s (%s%d.%d%% compression).\n", fname,
-          sgn, cfactor/10, cfactor%10);
+        printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
+          error? "ERRORS DETECTED" : "No errors detected", fname, 
+          num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
 /*
         printf("No errors detected in %s\n  (%ldx%ld, %d-bit %s%s, "
           "%sinterlaced, %s%d.%d%%).\n",
           fname, w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
-          (ityp == 3 && have_trns)? "+trns" : "", lace? "" : "non-",
+          (ityp == 3 && have_tRNS)? "+trns" : "", lace? "" : "non-",
           sgn, cfactor/10, cfactor%10);
  */
-        printf("OK: %s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
-          fname, w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
-          (ityp == 3 && have_trns)? "+trns" : "", lace? "" : "non-",
-          sgn, cfactor/10, cfactor%10);
+        printf("%s: %s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
+          error? "err" : "OK", fname, w, h, bitdepth, (ityp > 6)? png_type[1] :
+          png_type[ityp], (ityp == 3 && have_tRNS)? "+trns" : "",
+          lace? "" : "non-", sgn, cfactor/10, cfactor%10);
       }
     }
 
   }
-}
+} /* end function pngcheck() */
 
 void pnginfile(FILE *fp, char *fname, int ipng, int extracting)
 {
@@ -3475,139 +3937,6 @@ void pngsearch(FILE *fp, char *fname, int extracting)
   } while (ch != EOF);
 }
 
-int main(int argc, char *argv[])
-{
-  FILE *fp;
-  int i = 1;
-
-#ifdef __EMX__
-  _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
-#endif
-
-  while(argc > 1 && argv[1][0] == '-') {
-    switch(argv[1][i]) {
-      case '\0':
-        argc--;
-        argv++;
-        i = 1;
-        break;
-      case '7':
-        printtext=1;
-        sevenbit=1;
-        i++;
-        break;
-      case 'f':
-        force=1;
-        i++;
-        break;
-      case 'h':
-        goto usage;
-        break;
-      case 'p':
-        printpal=1;
-        i++;
-        break;
-      case 'q':
-        verbose=0;
-        quiet=1;
-        i++;
-        break;
-      case 's':
-        search=1;
-        i++;
-        break;
-      case 't':
-        printtext=1;
-        i++;
-        break;
-      case 'v':
-        ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
-        quiet=0;
-        i++;
-        break;
-      case 'x':
-        search=extract=1;
-        i++;
-        break;
-      default:
-        fprintf(stderr, "unknown option %c\n", argv[1][i]);
-        set_err(1);
-        goto usage;
-    }
-  }
-
-  if (argc == 1) {
-    if (isatty(0)) { /* if stdin not redirected, give the user help */
-usage:
-      fprintf(stderr, "PNGcheck, version %s\n", VERSION);
-      fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
-#ifdef USE_ZLIB
-      fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
-        ZLIB_VERSION, zlib_version);
-#endif
-      fprintf(stderr, "\nTest PNG image files for corruption, and print size/type/compression info.\n\n");
-      fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.png [file.png [...]]\n");
-      fprintf(stderr, "   or:  pngcheck [-vqt7f] file.mng [file.mng [...]]\n");
-      fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
-      fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n\n");
-      fprintf(stderr, "Options:\n");
-      fprintf(stderr, "   -v  test verbosely (print most chunk data)\n");
-#ifdef USE_ZLIB
-      fprintf(stderr, "   -vv test very verbosely (decode & print line filters)\n");
-#endif
-      fprintf(stderr, "   -q  test quietly (only output errors)\n");
-      fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
-      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n");
-      fprintf(stderr, "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n");
-      fprintf(stderr, "   -f  force continuation even after major errors\n");
-      fprintf(stderr, "   -s  search for PNGs within another file\n");
-      fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
-      fprintf(stderr, "\nNote:  MNG support is incomplete.  Based on MNG Draft 64.\n");
-    } else {
-      if (search)
-        pngsearch(stdin, "stdin", extract);
-      else
-        pngcheck(stdin, "stdin", 0, NULL);
-    }
-  } else {
-#ifdef USE_ZLIB
-    if (verbose > 1) {
-      /* make sure we're using the zlib version we were compiled to use */
-      if (zlib_version[0] != ZLIB_VERSION[0]) {
-        fflush(stdout);
-        fprintf(stderr, "zlib error:  incompatible version (expected %s,"
-          " using %s):  ignoring -vv\n\n", ZLIB_VERSION, zlib_version);
-        fflush(stderr);
-        verbose = 1;
-      } else if (strcmp(zlib_version, ZLIB_VERSION) != 0) {
-        fprintf(stderr, "zlib warning:  different version (expected %s,"
-          " using %s)\n\n", ZLIB_VERSION, zlib_version);
-        fflush(stderr);
-      }
-    }
-#endif /* USE_ZLIB */
-    for(i = 1; i < argc; i++) {
-      /* This is somewhat ugly.  It sets the file pointer to stdin if the
-       * filename is "-", otherwise it tries to open the given filename.
-       */
-      if ((fp = strcmp(argv[1],"-") == 0 ? stdin:fopen(argv[i],"rb")) == NULL) {
-        perror(argv[i]);
-        error = 2;
-      } else {
-        if (search)
-          pngsearch(fp, fp == stdin? "stdin":argv[i], extract);
-        else
-          pngcheck(fp, fp == stdin? "stdin":argv[i], 0, NULL);
-        fclose(fp);
-      }
-    }
-  }
-
-  /* This only returns the error on the last file.  Works OK if you are only
-   * checking the status of a single file. */
-  return error;
-}
-
 /*  PNG_subs
  *
  *  Utility routines for PNG encoders and decoders
@@ -3633,7 +3962,7 @@ int check_magic(uch *magic, char *fname, int which)
   uch *good_magic = (which == 0)? good_PNG_magic :
                     ((which == 1)? good_MNG_magic : good_JNG_magic);
 
-  for(i = 1; i < 3; i++)
+  for (i = 1; i < 3; ++i)
   {
     if (magic[i] != good_magic[i]) {
       return 2;
@@ -3691,8 +4020,8 @@ int check_magic(uch *magic, char *fname, int which)
 /* GRR:  not EBCDIC-safe! */
 int check_chunk_name(char *chunk_name, char *fname)
 {
-  if (!isalpha(chunk_name[0]) || !isalpha(chunk_name[1]) ||
-      !isalpha(chunk_name[2]) || !isalpha(chunk_name[3]))
+  if (!isalpha((int)chunk_name[0]) || !isalpha((int)chunk_name[1]) ||
+      !isalpha((int)chunk_name[2]) || !isalpha((int)chunk_name[3]))
   {
     printf(
       "%s%s  Chunk name %02x %02x %02x %02x doesn't conform to naming rules.\n",

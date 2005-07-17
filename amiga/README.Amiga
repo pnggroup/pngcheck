@@ -1,0 +1,84 @@
+[This is the original Amiga README for pngcheck 1.99.3, lightly edited to
+ remove version-specific and/or redundant info.]
+
+
+Amiga port of pngcheck compiled by Simon N Goodwin, July 2003
+-------------------------------------------------------------
+
+PNG is a Portable Network Graphics files format designed to
+address the flaws of GIF. It has better compression, support
+for images with more than 256 colours, and no licence fees.
+
+This utility checks the integrity of a PNG file and optionally
+extracts information from it such as the colour format, palette
+contents, and embedded text identification strings.
+
+It was compiled with SAS C for all Amigas at the request of the
+maintainer Greg Roelofs, whose readme for the source follows. I
+volunteered for this after spotting that the link to Aminet on the
+pngcheck home page was broken, and sending the correction to Greg.
+He pointed out that pngcheck has since been updated (the latest
+source is about three times the size of that for the old Aminet 
+release) and asked me to compile the latest one for Amiga users.
+
+Simon Goodwin, ami@studio.co.uk
+
+
+
+Limitations of the Amiga port
+-----------------------------
+
+The optional ZLIB capability is not implemented on the Amiga version.
+
+Wildcards are not supported (as they are implemented by the shell on
+Unix/Linux, but not in AmigaDOS) but can be simulated with the Amiga
+Shell LIST .. LFORMAT facility, e.g:
+
+    list cbig:Graphix/#?.png lformat="pngcheck %P%N" >ram:temp
+    type ram:temp
+
+pngcheck cbig:Graphix/ZX80A.PNG
+pngcheck cbig:Graphix/ZX80A16.PNG
+pngcheck cbig:Graphix/ZX80A32.PNG
+pngcheck cbig:Graphix/ZX80A8.PNG
+pngcheck cbig:Graphix/ZX80grey.PNG
+
+    execute ram:temp
+
+OK: cbig:Graphix/ZX80A.PNG (656x480, 8-bit colormap, non-interlaced, 41.5%).
+OK: cbig:Graphix/ZX80A16.PNG (656x480, 4-bit colormap, non-interlaced, 75.3%).
+OK: cbig:Graphix/ZX80A32.PNG (656x480, 8-bit colormap, non-interlaced, 81.1%).
+OK: cbig:Graphix/ZX80A8.PNG (656x480, 4-bit colormap, non-interlaced, 72.5%).
+OK: cbig:Graphix/ZX80grey.PNG (656x480, 8-bit colormap, non-interlaced, 41.3%).
+
+A Amiga shell script, pngcheck_all, is included to simplify this for you:
+
+    pngcheck_all cbig:Graphix/ZX80A#?.png
+
+OK: cbig:Graphix/ZX80A.PNG (656x480, 8-bit colormap, non-interlaced, 41.5%).
+OK: cbig:Graphix/ZX80A16.PNG (656x480, 4-bit colormap, non-interlaced, 75.3%).
+OK: cbig:Graphix/ZX80A32.PNG (656x480, 8-bit colormap, non-interlaced, 81.1%).
+OK: cbig:Graphix/ZX80A8.PNG (656x480, 4-bit colormap, non-interlaced, 72.5%).
+
+Note: optional parameters (-t, -v etc) are not yet supported by this script.
+
+
+
+Compilation notes
+-----------------
+
+The source was compiled without alteration using this AmigaDOS command:
+
+    sc data=far code=far opt lib lib:scm.lib pngcheck.c
+
+If you have the supplied scoptions file in the current directory with
+the source you can simplify this to:
+
+    sc pngcheck.c
+
+The compiled version uses generic 68000 code. This makes it 516 bytes
+longer and marginally slower on some CPUs than a 32 bit optimised
+version, but means it is suitable for any Amiga. The 68020 optimised
+version is available on request from Simon Goodwin, ami@studio.co.uk
+If you have a suitable compiler (SAS was used for 1.99, and 1.97 was
+compiled with GCC) you can easily build your own.
