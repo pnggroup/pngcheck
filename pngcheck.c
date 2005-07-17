@@ -1585,7 +1585,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         } else if (verbose && no_err(1)) {
           printf("\n    profile name = ");
           init_printbuffer(fname);
-          printbuffer((char *)buffer, name_len, 0);
+          printbuffer(buffer, name_len, 0);
           finish_printbuffer(fname, chunkid);
           printf("%scompression method = %d (%s)%scompressed profile = "
             "%ld bytes\n", (name_len > 24)? "\n    ":", ", meth,
@@ -1602,7 +1602,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else if (strcmp(chunkid, "iTXt") == 0) {
       int key_len;
 
-      key_len = keywordlen((char *)buffer, toread);
+      key_len = keywordlen(buffer, toread);
       if (key_len == 0) {
         printf("%s  zero length %s%skeyword\n",
                verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
@@ -1659,7 +1659,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer((char *)buffer, key_len, 0);
+          printbuffer(buffer, key_len, 0);
         }
         if (verbose)
           printf("\n");
@@ -1676,11 +1676,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           set_err(1);
         }
         if (no_err(1)) {
-          tag_len = keywordlen((char *)buffer+key_len+3, toread-key_len-3);
+          tag_len = keywordlen(buffer+key_len+3, toread-key_len-3);
           if (verbose) {
             if (tag_len > 0) {
               printf("    %scompressed, language tag = ", compressed? "":"un");
-              printbuffer((char *)buffer+key_len+3, tag_len, 0);
+              printbuffer(buffer+key_len+3, tag_len, 0);
             } else {
               printf("    %scompressed, no language tag",
                 compressed? "":"un");
@@ -1744,7 +1744,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         set_err(1);
       }
       if (no_err(1)) {
-        int name_len = keywordlen((char *)buffer, toread);
+        int name_len = keywordlen(buffer, toread);
 
         if (name_len == 0) {
           printf("%s  zero length %s%scalibration name\n",
@@ -1818,7 +1818,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             printf("    %s\n", eqn_type[eqn_num]);
             printf("    calibration name = ");
             init_printbuffer(fname);
-            printbuffer((char *)buffer, name_len, 0);
+            printbuffer(buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             if (toread != sz) {
               printf(
@@ -1830,11 +1830,11 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
             if (*pbuf == 0)
               printf("\n    no physical_value unit name\n");
             else {
-              int unit_len = keywordlen((char *)pbuf, remainder);
+              int unit_len = keywordlen(pbuf, remainder);
 
               printf("\n    physical_value unit name = ");
               init_printbuffer(fname);
-              printbuffer((char *)pbuf, unit_len, 0);
+              printbuffer(pbuf, unit_len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
               pbuf += unit_len;
@@ -1859,10 +1859,10 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               }
               ++pbuf;
               --remainder;
-              len = keywordlen((char *)pbuf, remainder);
+              len = keywordlen(pbuf, remainder);
               printf("    p%d = ", i);
               init_printbuffer(fname);
-              printbuffer((char *)pbuf, len, 0);
+              printbuffer(pbuf, len, 0);
               finish_printbuffer(fname, chunkid);
               printf("\n");
               pbuf += len;
@@ -2024,7 +2024,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (verbose && no_err(1)) {
         buffer[sz] = '\0';
-        buffer[strlen((char *)buffer+1)+1] = 'x';
+        buffer[strlen(buffer+1)+1] = 'x';
 
         printf(": image size %s %s\n", buffer+1,
                buffer[0] == 1 ? "meters":
@@ -2090,7 +2090,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               nsplt == 1? "y":"ies");
             printf("    sample depth = %u bits, palette name = ", bps);
             init_printbuffer(fname);
-            printbuffer((char *)buffer, name_len, 0);
+            printbuffer(buffer, name_len, 0);
             finish_printbuffer(fname, chunkid);
             printf("\n");
           }
@@ -2165,7 +2165,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else if (strcmp(chunkid, "tEXt") == 0 || strcmp(chunkid, "zTXt") == 0) {
       int key_len;
 
-      key_len = keywordlen((char *)buffer, toread);
+      key_len = keywordlen(buffer, toread);
       if (key_len == 0) {
         printf("%s  zero length %s%skeyword\n",
                verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
@@ -2220,12 +2220,12 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer((char *)buffer, key_len, 0);
+          printbuffer(buffer, key_len, 0);
         }
         if (printtext) {
           printf(verbose? "\n" : ":\n");
           if (strcmp(chunkid, "tEXt") == 0)
-            printbuffer((char *)buffer + key_len + 1, toread - key_len - 1, 1);
+            printbuffer(buffer + key_len + 1, toread - key_len - 1, 1);
           else
             printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
 
@@ -2671,7 +2671,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       } else if (sz > 0 && verbose) {
         printf("\n    ");
         init_printbuffer(fname);
-        printbuffer((char *)buffer, sz, 0);
+        printbuffer(buffer, sz, 0);
         finish_printbuffer(fname, chunkid);
       }
       last_is_idat = last_is_jdat = 0;
