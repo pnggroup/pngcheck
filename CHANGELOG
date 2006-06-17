@@ -154,3 +154,22 @@
  *               windowBits test; fixed faulty zlib "error" detection
  * 20050717 GRR: released version 2.0.0
  *               ----------------------
+ * 20050723 GRR: added checks for duplicate SAVE and SEEK without SAVE;
+ *               finished PAST and added DISC support
+ * 20050724 GRR: updated pHYs with aspect ratio; added pHYg, DROP, DBYK, ORDR,
+ *               and MAGN support; added check_keyword() function; fixed zlib-
+ *               initialization bug in MNG delta-PNGs
+ * 20050725 GRR: added error-checks for unknown public chunks and chunks with
+ *               reserved bit set
+ * 20050727 GRR: fixed -f bug (failure to read CRC bytes)
+ * 20050801 GRR: added png-fix-IDAT-windowsize utility (GNU GPL)
+ * 20050814 GRR: added pngsplit utility (GNU GPL) -- still beta!
+ * 20060617 GRR: added checks for too-big chunk length, missing PLTE in type-3
+ *               (palette) image, missing IDAT in PNG image, missing JDAT in
+ *               JNG image, and private/critical chunks (warning only) (thanks
+ *               to Chris Nokleberg for "brokensuite" test files); added
+ *               CRITICAL, RESERVED, etc., macros; changed slightly confusing
+ *               CRC error message ("actual/should be" -> "computed/expected");
+ *               added sTER support
+ * 20060617 GRR: released version 2.1.0
+ *               ----------------------

@@ -1,42 +1,40 @@
-pngcheck version 2.0.0 of 17 July 2005
+pngcheck version 2.1.0 of 17 June 2006
 
-I believe this is the fifth or sixth major release since version 1.98,
+I believe this is the sixth or seventh major release since version 1.98,
 which is when I took over maintenance of pngcheck from Alexander Lehmann
 and Andreas Dilger.  Enhancements since 1.98 include:  zlib capability
 (to test the compressed stream and, optionally, to print out the image's
-row filters); support for all known PNG chunks; support for JNG images
-conforming to Draft 70 or later (or maybe the 1.0 spec?); partial support
-for MNG streams conforming to the 1.0 specification; extended support for
-printing palettes (includes transparency info and histograms now); info
-on the compression factor of the image (expressed as a percentage, where
-0% is no compression and 100% would be total compression--note that this
-can be negative since it counts PNG's chunk overhead against the compression
-factor); and support for MSVC compilation under Win32.  It also contains
-many fixes, including ones from Tom Lane, Glenn Randers-Pehrson, Tom Zerucha,
-Paul Matzke, Darren Salt, John Bowler, and others.
+row filters); support for all known PNG, MNG and JNG chunks; extended
+support for printing palettes (includes transparency info and histograms
+now); better error-checking; info on the compression factor of the image
+(expressed as a percentage, where 0% is no compression and 100% would be
+total compression--note that this can be negative since it counts PNG's
+chunk overhead against the compression factor); png-fix-IDAT-windowsize
+and pngsplit utilities; and support for Win32 (using MSVC), RISC OS, and
+Amiga compilation.  It also contains many fixes, including ones from Tom
+Lane, Glenn Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John
+Bowler, and others.  Thanks also to Tim Pritlove, Bob Friesenhahn, the
+GraalOnline folks, Chris Nokleberg, and others for test images.
 
-The README for 1.99.3 said this:
+Note that while MNG support is now complete in the sense of covering all
+registered chunk types, there are still numerous error conditions that
+pngcheck won't detect, plus a few non-error conditions that it will flag
+erroneously.  Some of those can and will be fixed (particularly the latter
+class), but many of them involve complex interactions between different
+chunk types and would require virtually a full MNG decoder engine, something
+that is unlikely ever to happen in pngcheck.  In other words, consider
+pngcheck a handy debugging tool but not a full validator.  Use it in con-
+junction with the MNG specification and a libmng-based viewer for best
+results.  (PNG support, on the other hand, is pretty solid.)  Also use
+zlib 1.2.x for best results--older versions failed to detect a number of
+invalid deflate/zlib conditions, including out-of-range LZ77 distance codes.
 
-   Improved ("finished") support for MNG is coming relatively soon, at
-   which point the version number will finally reach 2.0, but I won't
-   make any promises as to when.  Support for EBCDIC-based systems will
-   show up someday, too.  DOS/Win32 wildcards should already be supported,
-   at least in the distributed binaries.
-
-Then five years passed...  (I blame the kids.)  Good thing there were no
-promises, eh?  Anyway, here's version 2.0.  MNG support is better but
-still incomplete, contrary to the claim above, and there are still no
-promises as to when it will be finished (though it will happen eventually
-...probably).  No, the version got bumped because (1) zlib checking is now
-turned on regardless of verbosity level, which makes pngcheck slower but
-far more useful as an integrity-tester, and (2) who takes bugfix/patchlevel
-version-increments seriously?  (OK, there's the Linux kernel, but that's
-another matter entirely...)
-
-And as for finishing MNG support, note that sample MNGs with not-yet-supported
-chunks in them tend to be a good motivator.  (Thank GraalOnline's emoticons
-for TERM support and Bob Friesenhahn's test stream for fixed SAVE support,
-for example.)
+I still hope to add support for EBCDIC-based systems (and perhaps UTF-16
+and UTF-32-based ones, if there are any for which "char" defaults to more
+than 8 bits) someday, and the zlib support should be extended to include
+zTXt, iTXt, iCCP, etc.  The code could also do a better job with chunks
+whose data exceed the buffer size; and in general, immense if-else blocks
+(e.g., > 3000 lines) are fairly nasty and should be rewritten.  Someday...
 
 As always, see http://www.libpng.org/pub/png/apps/pngcheck.html for updates.
 

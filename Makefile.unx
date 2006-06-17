@@ -1,6 +1,6 @@
 # gcc/gmake makefile for pngcheck.
 # Greg Roelofs
-# Last modified:  18 November 1999
+# Last modified:  17 June 2006
 #
 # Invoke via:
 #
@@ -29,7 +29,7 @@ LIBS = $(ZLIB)
 CC = gcc
 LD = gcc
 RM = rm
-CFLAGS = -O3 -Wall $(INCS) -DUSE_ZLIB
+CFLAGS = -O -Wall $(INCS) -DUSE_ZLIB
 # [note that -Wall is a gcc-specific compilation flag ("all warnings on")]
 O = .o
 E =
@@ -37,10 +37,13 @@ E =
 LDFLAGS =
 
 PROG = pngcheck
+PROG2 = pngsplit
+PROG3 = png-fix-IDAT-windowsize
 
-OBJS  = $(PROG)$(O)
+#OBJS  = $(PROG)$(O)
+OBJS =
 
-EXES = $(PROG)$(E)
+EXES = $(PROG)$(E) $(PROG2)$(E) $(PROG3)$(E)
 
 
 # implicit make rules -------------------------------------------------------
@@ -56,8 +59,14 @@ all:  $(EXES)
 $(PROG)$(E): $(PROG).c
 	$(CC) $(CFLAGS) -o $@ $(PROG).c $(LIBS)
 
+$(PROG2)$(E): gpl/$(PROG2).c
+	$(CC) $(CFLAGS) -o $@ gpl/$(PROG2).c $(LIBS)
+
+$(PROG3)$(E): gpl/$(PROG3).c
+	$(CC) $(CFLAGS) -o $@ gpl/$(PROG3).c $(LIBS)
+
 
 # maintenance ---------------------------------------------------------------
 
 clean:
-	$(RM) -f $(PROG)$(O) $(PROG)$(E)
+	$(RM) -f $(EXES) $(OBJS)
