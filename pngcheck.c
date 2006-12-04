@@ -9,9 +9,10 @@
  * readable form.
  *
  *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of June 2006)
+ *               (as of December 2006)
  *
- * ChangeLog:  see CHANGELOG file
+ * Maintainer:  Greg Roelofs <newt@pobox.com>
+ * ChangeLog:   see CHANGELOG file
  */
 
 /*============================================================================
@@ -32,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "2.1.0 of 17 June 2006"
+#define VERSION "2.2.0 of 3 December 2006"
 
 /*
  * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -48,7 +49,7 @@
  *   iCCP iTXt oFFs pCAL pHYs sBIT sCAL sPLT
  *   sRGB tEXt zTXt tIME tRNS
  *
- *   mkBF mkBS mkBT prVW			// known private PNG chunks
+ *   cmOD cpIp mkBF mkBS mkBT prVW		// known private PNG chunks
  *
  *   JDAT JSEP  				// critical JNG chunks
  *
@@ -63,6 +64,7 @@
  *
  *
  * GRR to do:
+ *   - normalize error levels (mainly usage of kMinorError vs. kMajorError)
  *   - fix tEXt chunk:  small buffers or lots of text => truncation
  *       (see pngcheck-1.99.4-test.c.dif)
  *   - fix iCCP, sPLT chunks:  small buffers or large chunks => truncation?
@@ -77,7 +79,6 @@
  *   - DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   - EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
- *   - bump up all error levels by one and add warnings as "1"
  *
  *
  * GRR NOTE:  The MNG "top level" concept is not explicitly defined anywhere
@@ -163,27 +164,38 @@ typedef unsigned char  uch;
 typedef unsigned short ush;
 typedef unsigned long  ulg;
 
+/* printbuf state variables */
+typedef struct printbuf_state {
+  int cr;
+  int lf;
+  int nul;
+  int control;
+  int esc;
+} printbuf_state;
+
 /* int  main (int argc, char *argv[]); */
+void usage (FILE *fpMsg);
 #ifndef USE_ZLIB
 void make_crc_table (void);
 ulg  update_crc (ulg crc, uch *buf, int len);
 #endif
 ulg  getlong (FILE *fp, char *fname, char *where);
 void putlong (FILE *fpOut, ulg ul);
-void init_printbuffer (void);
-void printbuffer (uch *buffer, int size, int indent);
-void finish_printbuffer (char *fname, char *chunkid);
+void init_printbuf_state (printbuf_state *prbuf);
+void print_buffer (printbuf_state *prbuf, uch *buffer, int size, int indent);
+void report_printbuf (printbuf_state *prbuf, char *fname, char *chunkid);
 int  keywordlen (uch *buffer, int maxsize);
 char *getmonth (int m);
 int  ratio (ulg uc, ulg c);
 ulg  gcf (ulg a, ulg b);
-void pngcheck (FILE *fp, char *_fname, int searching, FILE *fpOut);
-void pnginfile (FILE *fp, char *fname, int ipng, int extracting);
+int  pngcheck (FILE *fp, char *_fname, int searching, FILE *fpOut);
+int  pnginfile (FILE *fp, char *fname, int ipng, int extracting);
 void pngsearch (FILE *fp, char *fname, int extracting);
 int  check_magic (uch *magic, char *fname, int which);
 int  check_chunk_name (char *chunk_name, char *fname);
 int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
                     char *keyword_name, char *chunkid, char *fname);
+int  check_ascii_float (char *buffer, int len, char *chunkid, char *fname);
 
 #define BS 32000 /* size of read block for CRC calculation (and zlib) */
 
@@ -196,6 +208,8 @@ int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
 #define DO_MNG  1
 #define DO_JNG  2
 
+#define isASCIIalpha(x)     (ascii_alpha_table[x] & 0x1)
+
 #define ANCILLARY(chunkID)  ((chunkID)[0] & 0x20)
 #define PRIVATE(chunkID)    ((chunkID)[1] & 0x20)
 #define RESERVED(chunkID)   ((chunkID)[2] & 0x20)
@@ -203,9 +217,18 @@ int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
 #define CRITICAL(chunkID)   (!ANCILLARY(chunkID))
 #define PUBLIC(chunkID)     (!PRIVATE(chunkID))
 
-#define set_err(x) error = error < (x) ? (x) : error
-#define is_err(x)  ((error > (x) || (!force && error == (x))) ? 1 : 0)
-#define no_err(x)  ((error < (x) || (force && error == (x))) ? 1 : 0)
+#define set_err(x)  global_error = ((global_error < (x))? (x) : global_error)
+#define is_err(x)   (global_error > (x) || (!force && global_error == (x)))
+#define no_err(x)   (global_error < (x) || (force && global_error == (x)))
+
+enum {
+  kOK = 0,
+  kWarning,           /* could be an error in some circumstances but not all */
+  kCommandLineError,  /* pilot error */
+  kMinorError,        /* minor spec errors (e.g., out-of-range values) */
+  kMajorError,        /* file corruption, invalid chunk length/layout, etc. */
+  kCriticalError      /* unexpected EOF or other file(system) error */
+};
 
 /* Command-line flag variables */
 int verbose = 0;	/* print chunk info */
@@ -222,13 +245,21 @@ int png = 0;		/* it's a PNG */
 int mng = 0;		/* it's a MNG instead of a PNG (won't work in pipe) */
 int jng = 0;		/* it's a JNG */
 
-int error = 0; /* the current error status (single file only) */
+int global_error = kOK; /* the current error status */
 uch buffer[BS];
 
 /* what the PNG, MNG and JNG magic numbers should be */
 static uch good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 static uch good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
 static uch good_JNG_magic[8] = {139, 74, 78, 71, 13, 10, 26, 10};
+
+/* GRR 20061203:  for "isalpha()" that works even on EBCDIC machines */
+static uch ascii_alpha_table[256] = {
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0
+};
 
 #ifdef USE_ZLIB
    int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
@@ -252,7 +283,7 @@ static char *png_type[] = {			/* IHDR, tRNS, BASI, summary */
   "grayscale",
   "INVALID",   /* can't use inv as initializer */
   "RGB",
-  "colormap",
+  "palette",   /* was "colormap" */
   "grayscale+alpha",
   "INVALID",
   "RGB+alpha"
@@ -442,8 +473,10 @@ int main(int argc, char *argv[])
 {
   FILE *fp;
   int i = 1;
+  int err = kOK;
   int num_files = 0;
   int num_errors = 0;
+  int num_warnings = 0;
 
 #ifdef __EMX__
   _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
@@ -466,8 +499,8 @@ int main(int argc, char *argv[])
         ++i;
         break;
       case 'h':
-        goto usage;
-        break;
+        usage(stdout);
+        return err;
       case 'p':
         printpal = 1;
         ++i;
@@ -499,49 +532,32 @@ int main(int argc, char *argv[])
         ++i;
         break;
       default:
-        fprintf(stderr, "unknown option %c\n", argv[1][i]);
-        set_err(1);
-        goto usage;
+        fprintf(stderr, "error: unknown option %c\n\n", argv[1][i]);
+        usage(stderr);
+        return kCommandLineError;
     }
   }
 
   if (argc == 1) {
     if (isatty(0)) { /* if stdin not redirected, give the user help */
-usage:
-      fprintf(stderr, "PNGcheck, version %s\n", VERSION);
-      fprintf(stderr, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
-#ifdef USE_ZLIB
-      fprintf(stderr, "   Compiled with zlib %s; using zlib %s.\n",
-        ZLIB_VERSION, zlib_version);
-#endif
-      fprintf(stderr, "\nTest PNG, JNG or MNG image files for corruption, and print size/type info.\n\n");
-      fprintf(stderr, "Usage:  pngcheck [-vqt7f] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n");
-      fprintf(stderr, "   or:  ... | pngcheck [-sx][vqt7f]\n");
-      fprintf(stderr, "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n\n");
-      fprintf(stderr, "Options:\n");
-      fprintf(stderr, "   -v  test verbosely (print most chunk data)\n");
-#ifdef USE_ZLIB
-      fprintf(stderr, "   -vv test very verbosely (decode & print line filters)\n");
-#endif
-      fprintf(stderr, "   -q  test quietly (only output errors)\n");
-#ifdef USE_ZLIB
-      fprintf(stderr, "   -w  suppress windowBits test (more-stringent compression check)\n");
-#endif
-      fprintf(stderr, "   -t  print contents of tEXt chunks (can be used with -q)\n");
-      fprintf(stderr, "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n");
-      fprintf(stderr, "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n");
-      fprintf(stderr, "   -f  force continuation even after major errors\n");
-      fprintf(stderr, "   -s  search for PNGs within another file\n");
-      fprintf(stderr, "   -x  search for PNGs and extract them when found\n");
-      fprintf(stderr, "\nNote:  MNG support is more informational than conformance-oriented.\n");
+      usage(stdout);
     } else {
+      char *fname = "stdin";
+
       if (search)
-        pngsearch(stdin, "stdin", extract);
+        pngsearch(stdin, fname, extract);  /* currently returns void */
       else
-        pngcheck(stdin, "stdin", 0, NULL);
+        err = pngcheck(stdin, fname, 0, NULL);
       ++num_files;
-      if (error)
+      if (err == kWarning)
+        ++num_warnings;
+      else if (err > kWarning) {
         ++num_errors;
+        if (verbose)
+          printf("ERRORS DETECTED in %s\n", fname);
+        else
+          printf("ERROR: %s\n", fname);
+      }
     }
   } else {
 #ifdef USE_ZLIB
@@ -560,35 +576,98 @@ usage:
 
     /* main loop over files listed on command line */
     for (i = 1; i < argc; ++i) {
-      /* This is somewhat ugly.  It sets the file pointer to stdin if the
-       * filename is "-", otherwise it tries to open the given filename.
-       */
-      if (!(fp = (strcmp(argv[1],"-") == 0)? stdin : fopen(argv[i],"rb"))) {
-        perror(argv[i]);
-        error = 2;
-      } else {
-        if (search)
-          pngsearch(fp, fp == stdin? "stdin":argv[i], extract);
-        else
-          pngcheck(fp, fp == stdin? "stdin":argv[i], 0, NULL);
-        fclose(fp);
+      char *fname = argv[i];
+
+      err = kOK;
+      if (strcmp(fname, "-") == 0) {
+        fname = "stdin";
+        fp = stdin;
+      } else if ((fp = fopen(fname, "rb")) == NULL) {
+        perror(fname);
+        err = kCriticalError;
       }
+
+      if (err == kOK) {
+        if (search)
+          pngsearch(fp, fname, extract);
+        else
+          err = pngcheck(fp, fname, 0, NULL);
+        if (fp != stdin)
+          fclose(fp);
+      }
+
       ++num_files;
-      if (error)
+      if (err == kWarning)
+        ++num_warnings;
+      else if (err > kWarning) {
         ++num_errors;
+        if (verbose)
+          printf("ERRORS DETECTED in %s\n", fname);
+        else
+          printf("ERROR: %s\n", fname);
+      }
     }
   }
 
-  error = (num_errors > 127)? 127 : num_errors;
+  if (num_errors > 0)
+    err = (num_errors > 127)? 127 : (num_errors < 2)? 2 : num_errors;
+  else if (num_warnings > 0)
+    err = 1;
   if (!quiet && num_files > 1) {
-    if (num_errors)
-      printf("\nErrors were detected in %d of the %d files tested.\n",
-        num_errors, num_files);
-    else
-      printf("\nNo errors were detected in the %d files tested.\n", num_files);
+      printf("\n");
+      if (num_errors > 0)
+        printf("Errors were detected in %d of the %d files tested.\n",
+          num_errors, num_files);
+      if (num_warnings > 0)
+        printf("Warnings were detected in %d of the %d files tested.\n",
+          num_warnings, num_files);
+      if (num_errors + num_warnings < num_files)
+        printf("No errors were detected in %d of the %d files tested.\n",
+          num_files - (num_errors + num_warnings), num_files);
   }
 
-  return error;
+  return err;
+}
+
+
+
+/* GRR 20061203 */
+void usage(FILE *fpMsg)
+{
+  fprintf(fpMsg, "PNGcheck, version %s,\n", VERSION);
+  fprintf(fpMsg, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
+#ifdef USE_ZLIB
+  fprintf(fpMsg, "   Compiled with zlib %s; using zlib %s.\n",
+    ZLIB_VERSION, zlib_version);
+#endif
+
+  fprintf(fpMsg, "\n"
+    "Test PNG, JNG or MNG image files for corruption, and print size/type info."
+    "\n\n"
+    "Usage:  pngcheck [-vqt7f] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
+    "   or:  ... | pngcheck [-sx][vqt7f]\n"
+    "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n"
+    "\n"
+    "Options:\n"
+    "   -v  test verbosely (print most chunk data)\n"
+#ifdef USE_ZLIB
+    "   -vv test very verbosely (decode & print line filters)\n"
+#endif
+    "   -q  test quietly (output only errors)\n"
+#ifdef USE_ZLIB
+    "   -w  suppress windowBits test (more-stringent compression check)\n"
+#endif
+    "   -t  print contents of tEXt chunks (can be used with -q)\n"
+    "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n"
+    "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n"
+    "   -f  force continuation even after major errors\n"
+    "   -s  search for PNGs within another file\n"
+    "   -x  search for PNGs and extract them when found\n"
+    "\n"
+    "Note:  MNG support is more informational than conformance-oriented.\n"
+  );
+
+  fflush(fpMsg);
 }
 
 
@@ -660,7 +739,7 @@ ulg getlong(FILE *fp, char *fname, char *where)
 
     if ((c = fgetc(fp)) == EOF) {
       printf("%s  EOF while reading %s\n", verbose? ":":fname, where);
-      set_err(3);
+      set_err(kCriticalError);
       return 0;
     }
     res <<= 8;
@@ -687,25 +766,19 @@ void putlong(FILE *fpOut, ulg ul)
    chars other than whitespace, since this may open ways of attack by so-
    called ANSI-bombs */
 
-/* printbuffer state variables */
-static int cr;
-static int lf;
-static int nul;
-static int control;
-static int esc;
-
-void init_printbuffer(void)
+void init_printbuf_state(printbuf_state *prbuf)
 {
-  cr=0;
-  lf=0;
-  nul=0;
-  control=0;
-  esc=0;
+  prbuf->cr = 0;
+  prbuf->lf = 0;
+  prbuf->nul = 0;
+  prbuf->control = 0;
+  prbuf->esc = 0;
 }
 
 
 
-void printbuffer(uch *buf, int size, int indent)	/* GRR EBCDIC WARNING */
+/* GRR EBCDIC WARNING */
+void print_buffer(printbuf_state *prbuf, uch *buf, int size, int indent)
 {
   if (indent)
     printf("    ");
@@ -726,44 +799,44 @@ void printbuffer(uch *buf, int size, int indent)	/* GRR EBCDIC WARNING */
 
     if (c < 32 || (c >= 127 && c < 160)) {
       if (c == '\n') {
-        lf = 1;
+        prbuf->lf = 1;
         if (indent && size > 0)
           printf("    ");
       } else if (c == '\r')
-        cr = 1;
+        prbuf->cr = 1;
       else if (c == '\0')
-        nul = 1;
+        prbuf->nul = 1;
       else
-        control = 1;
+        prbuf->control = 1;
       if (c == 27)
-        esc = 1;
+        prbuf->esc = 1;
     }
   }
 }
 
 
 
-void finish_printbuffer(char *fname, char *chunkid)
+void report_printbuf(printbuf_state *prbuf, char *fname, char *chunkid)
 {
-  if (cr) {
-    if (lf) {
+  if (prbuf->cr) {
+    if (prbuf->lf) {
       printf("%s  %s chunk contains both CR and LF as line terminators\n",
              verbose? "":fname, chunkid);
-      set_err(1);
+      set_err(kMinorError);
     } else {
       printf("%s  %s chunk contains only CR as line terminator\n",
              verbose? "":fname, chunkid);
-      set_err(1);
+      set_err(kMinorError);
     }
   }
-  if (nul) {
+  if (prbuf->nul) {
     printf("%s  %s chunk contains null bytes\n", verbose? "":fname, chunkid);
-    set_err(1);
+    set_err(kMinorError);
   }
-  if (control) {
+  if (prbuf->control) {
     printf("%s  %s chunk contains one or more control characters%s\n",
-           verbose? "":fname, chunkid, esc? " including Escape":"");
-    set_err(1);
+           verbose? "":fname, chunkid, prbuf->esc? " including Escape":"");
+    set_err(kMinorError);
   }
 }
 
@@ -835,7 +908,7 @@ ulg gcf(ulg a, ulg b)
 
 
 
-void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
+int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 {
   int i, j;
   long sz;  /* FIXME:  should be ulg (not using negative values as flags...) */
@@ -861,13 +934,14 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   long w = 0L, h = 0L;
   long mng_width = 0L, mng_height = 0L;
   int vlc = -1, lc = -1;
-  int bitdepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
+  int bitdepth = 0, sampledepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
   int did_stat = 0;
+  printbuf_state prbuf_state;
   struct stat statbuf;
   static int first_file = 1;
 
-  error = 0;
+  global_error = kOK;
 
   if (verbose || printtext || printpal) {
     printf("%sFile: %s", first_file? "":"\n", fname);
@@ -890,8 +964,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     if (fread(magic, 1, 8, fp)!=8) {
       printf("%s  cannot read PNG or MNG signature\n", verbose? "":fname);
-      set_err(3);
-      return;
+      set_err(kCriticalError);
+      return global_error;
     }
 
     if (magic[0]==0 && magic[1]>0 && magic[1]<=64 && magic[2]!=0) {
@@ -900,7 +974,7 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
       if (fread(buffer, 1, 120, fp) != 120 || fread(magic, 1, 8, fp) != 8) {
         printf("    cannot read past MacBinary header\n");
-        set_err(3);
+        set_err(kCriticalError);
       } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
         png = 1;
         if (!quiet)
@@ -915,28 +989,28 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
           printf("    this JNG seems to be contained in a MacBinary file\n");
       } else {
         if (check == 2)
-          printf("    this is neither a PNG or JNG image nor MNG stream\n");
-        set_err(2);
+          printf("    this is neither a PNG nor JNG image nor a MNG stream\n");
+        set_err(kCriticalError);
       }
     } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
       png = 1;
     } else if (check == 1) {   /* bytes 2-4 == "PNG" but others are bad */
-      set_err(2);
+      set_err(kCriticalError);
     } else if (check == 2) {   /* not "PNG"; see if it's MNG or JNG instead */
       if ((check = check_magic(magic, fname, DO_MNG)) == 0)
         mng = 1;        /* yup */
       else if (check == 2 && (check = check_magic(magic, fname, DO_JNG)) == 0)
         jng = 1;        /* yup */
       else {
-        set_err(2);
+        set_err(kCriticalError);
         if (check == 2)
           printf("%s  this is neither a PNG or JNG image nor a MNG stream\n",
             verbose? "":fname);
       }
     }
 
-    if (is_err(1))
-      return;
+    if (is_err(kMinorError))
+      return global_error;
   }
 
   /*-------------------- BEGINNING OF IMMENSE WHILE-LOOP --------------------*/
@@ -945,34 +1019,34 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     ungetc(c, fp);
 
     if (((png || jng) && have_IEND) || (mng && have_MEND)) {
-      if (searching) /* Start looking again in the current file. */
-        return;
+      if (searching) /* start looking again in the next file */
+        return global_error;
 
       if (!quiet)
         printf("%s  additional data after %cEND chunk\n", verbose? "":fname,
           mng? 'M':'I');
 
-      set_err(1);
+      set_err(kMinorError);
       if (!force)
-        return;
+        return global_error;
     }
 
     sz = getlong(fp, fname, "chunk length");
 
-    if (is_err(2))  /* FIXME:  return only if !force? */
-      return;
+    if (is_err(kMajorError))  /* FIXME:  return only if !force? */
+      return global_error;
 
     if (sz < 0 || sz > 0x7fffffff) {   /* FIXME:  convert to ulg, lose "< 0" */
       printf("%s  invalid chunk length (too large)\n", verbose? ":":fname);
-      set_err(2);
+      set_err(kMajorError);
       /* if (!force) */  /* code not yet vetted for negative sz */
-        return;
+        return global_error;
     }
 
     if (fread(chunkid, 1, 4, fp) != 4) {
       printf("%s  EOF while reading chunk type\n", verbose? ":":fname);
-      set_err(3);
-      return;
+      set_err(kCriticalError);
+      return global_error;
     }
 
     /* GRR:  add 4-character EBCDIC conversion here (chunkid) */
@@ -981,17 +1055,17 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     ++num_chunks;
 
     if (check_chunk_name(chunkid, fname) != 0) {
-      set_err(2);
+      set_err(kMajorError);
       if (!force)
-        return;
+        return global_error;
     }
 
     if (verbose)
       printf("  chunk %s at offset 0x%05lx, length %ld", chunkid,
              ftell(fp)-4, sz);
 
-    if (is_err(2))
-      return;
+    if (is_err(kMajorError))
+      return global_error;
 
     crc = update_crc(CRCINIT, (uch *)chunkid, 4);
 
@@ -1001,9 +1075,9 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     {
       printf("%s  first chunk must be %cHDR\n",
              verbose? ":":fname, png? 'I' : (mng? 'M':'J'));
-      set_err(1);
+      set_err(kMinorError);
       if (!force)
-        return;
+        return global_error;
     }
 
     toread = (sz > BS)? BS:sz;
@@ -1011,8 +1085,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     if (fread(buffer, 1, (size_t)toread, fp) != (size_t)toread) {
       printf("%s  EOF while reading %s%sdata\n",
              verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
-      set_err(3);
-      return;
+      set_err(kCriticalError);
+      return global_error;
     }
 
     crc = update_crc(crc, (uch *)buffer, toread);
@@ -1027,65 +1101,100 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     if (strcmp(chunkid, "IHDR") == 0) {
       if (png && have_IHDR) {
         printf("%s  multiple IHDR not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 13) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"IHDR ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
+        int compr, filt;
+
         w = LG(buffer);
         h = LG(buffer+4);
-        if (w == 0 || h == 0) {
+        if (w <= 0 || h <= 0 || w > 2147483647 || h > 2147483647) {
           printf("%s  invalid %simage dimensions (%ldx%ld)\n",
             verbose? ":":fname, verbose? "":"IHDR ", w, h);
-          set_err(1);
+          set_err(kMinorError);
         }
-        bitdepth = (uch)buffer[8];
+        bitdepth = sampledepth = (uch)buffer[8];
         ityp = (uch)buffer[9];
-        if (ityp > sizeof(png_type)/sizeof(char*)) {
+        if (ityp == 1 || ityp == 5 || ityp > sizeof(png_type)/sizeof(char*)) {
+          printf("%s  invalid %simage type (%d)\n",
+            verbose? ":":fname, verbose? "":"IHDR ", ityp);
           ityp = 1; /* avoid out of range array index */
+          set_err(kMinorError);
         }
-        switch (bitdepth) {
+        switch (sampledepth) {
           case 1:
           case 2:
           case 4:
-            if (ityp == 2 || ityp == 4 || ityp == 6) {/* RGB or GA or RGBA */
-              printf("%s  invalid %sbit depth (%d) for %s image\n",
-                verbose? ":":fname, verbose? "":"IHDR ", bitdepth,
+            if (ityp == 2 || ityp == 4 || ityp == 6) { /* RGB or GA or RGBA */
+              printf("%s  invalid %ssample depth (%d) for %s image\n",
+                verbose? ":":fname, verbose? "":"IHDR ", sampledepth,
                 png_type[ityp]);
-              set_err(1);
+              set_err(kMinorError);
             }
             break;
           case 8:
             break;
           case 16:
             if (ityp == 3) { /* palette */
-              printf("%s  invalid %sbit depth (%d) for %s image\n",
-                verbose? ":":fname, verbose? "":"IHDR ", bitdepth,
+              printf("%s  invalid %ssample depth (%d) for %s image\n",
+                verbose? ":":fname, verbose? "":"IHDR ", sampledepth,
                 png_type[ityp]);
-              set_err(1);
+              set_err(kMinorError);
             }
             break;
           default:
-            printf("%s  invalid %sbit depth (%d)\n",
-              verbose? ":":fname, verbose? "":"IHDR ", bitdepth);
-            set_err(1);
+            printf("%s  invalid %ssample depth (%d)\n",
+              verbose? ":":fname, verbose? "":"IHDR ", sampledepth);
+            set_err(kMinorError);
             break;
+        }
+        compr = (uch)buffer[10];
+        if (compr > 127) {
+          printf("%s  private (invalid?) %scompression method (%d) "
+            "(warning)\n", verbose? ":":fname, verbose? "":"IHDR ", compr);
+          set_err(kWarning);
+        } else if (compr > 0) {
+          printf("%s  invalid %scompression method (%d)\n",
+            verbose? ":":fname, verbose? "":"IHDR ", compr);
+          set_err(kMinorError);
+        }
+        filt = (uch)buffer[11];
+        if (filt > 127) {
+          printf("%s  private (invalid?) %sfilter method (%d) "
+            "(warning)\n", verbose? ":":fname, verbose? "":"IHDR ", filt);
+          set_err(kWarning);
+        } else if (filt > 0 && !(mng && (ityp == 2 || ityp == 6) && filt == 64))
+        {
+          printf("%s  invalid %sfilter method (%d)\n",
+            verbose? ":":fname, verbose? "":"IHDR ", filt);
+          set_err(kMinorError);
         }
         lace = (uch)buffer[12];
+        if (lace > 127) {
+          printf("%s  private (invalid?) %sinterlace method (%d) "
+            "(warning)\n", verbose? ":":fname, verbose? "":"IHDR ", lace);
+          set_err(kWarning);
+        } else if (lace > 1) {
+          printf("%s  invalid %sinterlace method (%d)\n",
+            verbose? ":":fname, verbose? "":"IHDR ", lace);
+          set_err(kMinorError);
+        }
         switch (ityp) {
           case 2:
-            bitdepth *= 3;   /* RGB */
+            bitdepth = sampledepth * 3;   /* RGB */
             break;
           case 4:
-            bitdepth *= 2;   /* gray+alpha */
+            bitdepth = sampledepth * 2;   /* gray+alpha */
             break;
           case 6:
-            bitdepth *= 4;   /* RGBA */
+            bitdepth = sampledepth * 4;   /* RGBA */
             break;
         }
-        if (verbose && no_err(1)) {
+        if (verbose && no_err(kMinorError)) {
           printf("\n    %ld x %ld image, %d-bit %s, %sinterlaced\n", w, h,
             bitdepth, png_type[ityp], lace? "":"non-");
         }
@@ -1108,55 +1217,55 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     } else if (strcmp(chunkid, "JHDR") == 0) {
       if (png) {
         printf("%s  JHDR not defined in PNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && have_JHDR) {
         printf("%s  multiple JHDR not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 16) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"JHDR ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         w = LG(buffer);
         h = LG(buffer+4);
         if (w == 0 || h == 0) {
           printf("%s  invalid %simage dimensions (%ldx%ld)\n",
             verbose? ":":fname, verbose? "":"JHDR ", w, h);
-          set_err(1);
+          set_err(kMinorError);
         }
         jtyp = (uch)buffer[8];
         if (jtyp != 8 && jtyp != 10 && jtyp != 12 && jtyp != 14) {
           printf("%s  invalid %scolor type\n",
             verbose? ":":fname, verbose? "":"JHDR ");
-          set_err(1);
+          set_err(kMinorError);
         } else {
           jtyp = (jtyp >> 1) - 4;   /* now 0,1,2,3:  index into jng_type[] */
           bitdepth = (uch)buffer[9];
           if (bitdepth != 8 && bitdepth != 12 && bitdepth != 20) {
             printf("%s  invalid %sbit depth (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", bitdepth);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[10] != 8) {
             printf("%s  invalid %sJPEG compression method (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", buffer[10]);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[13] != 0) {
             printf("%s  invalid %salpha-channel compression method (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", buffer[13]);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[14] != 0) {
             printf("%s  invalid %salpha-channel filter method (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", buffer[14]);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[15] != 0) {
             printf("%s  invalid %salpha-channel interlace method (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", buffer[15]);
-            set_err(1);
+            set_err(kMinorError);
           } else if ((lace = (uch)buffer[11]) != 0 && lace != 8) {
             printf("%s  invalid %sJPEG interlace method (%d)\n",
               verbose? ":":fname, verbose? "":"JHDR ", lace);
-            set_err(1);
+            set_err(kMinorError);
           } else {
             int a;
 
@@ -1173,8 +1282,8 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               printf("%s  invalid %salpha-channel bit depth (%d) for %s image\n"
                 , verbose? ":":fname, verbose? "":"JHDR ", alphadepth,
                 jng_type[jtyp]);
-              set_err(1);
-            } else if (verbose && no_err(1)) {
+              set_err(kMinorError);
+            } else if (verbose && no_err(kMinorError)) {
               if (jtyp < 2)
                 printf("\n    %ld x %ld image, %d-bit %s%s%s\n",
                   w, h, jbitd, and, jng_type[jtyp], lace? ", progressive":"");
@@ -1198,17 +1307,17 @@ void pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       if (png || jng) {
         printf("%s  MHDR not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else
       if (have_MHDR) {
         printf("%s  multiple MHDR not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 28) {
         printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"MHDR ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         ulg tps, playtime, profile;
         int validtrans = 0;
 
@@ -1360,35 +1469,43 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "PLTE") == 0) {
       if (jng) {
         printf("%s  PLTE not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_PLTE) {
         printf("%s  multiple PLTE not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && ityp != 3 && ityp != 2 && ityp != 6) {
         printf("%s  PLTE not allowed in %s image\n", verbose? ":":fname,
           png_type[ityp]);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"PLTE ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_bKGD) {
         printf("%s  %smust precede bKGD\n",
                verbose? ":":fname, verbose? "":"PLTE ");
-        set_err(1);
+        set_err(kMinorError);
       } else if ((!(mng && have_PLTE) && sz < 3) || sz > 768 || sz % 3 != 0) {
         printf("%s  invalid number of %sentries (%g)\n",
-               verbose? ":":fname, verbose? "":"PLTE ",(double)sz / 3);
-        set_err(2);
+               verbose? ":":fname, verbose? "":"PLTE ", (double)sz / 3);
+        set_err(kMinorError); /* was kMajorError, but should be able to cont. */
+      } else {
+        nplte = sz / 3;
+        if (!(mng && have_PLTE) && ((bitdepth == 1 && nplte > 2) ||
+            (bitdepth == 2 && nplte > 4) || (bitdepth == 4 && nplte > 16)))
+        {
+          printf("%s  invalid number of %sentries (%d) for %d-bit image\n",
+                 verbose? ":":fname, verbose? "":"PLTE ", nplte, bitdepth);
+          set_err(kMinorError);
+        }
       }
 /*
       else if (printpal && !verbose)
         printf("\n");
  */
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         if (ityp == 1)   /* for MNG and tRNS */
           ityp = 3;
-        nplte = sz / 3;
         if (verbose || (printpal && !quiet)) {
           if (!verbose && printpal && !quiet)
             printf("  PLTE chunk");
@@ -1429,17 +1546,17 @@ FIXME: make sure bit 31 (0x80000000) is 0
             printf("\n");
         } else {
           printf("%s  IDAT chunks must be consecutive\n", verbose? ":":fname);
-          set_err(2);
+          set_err(kMajorError);
         }
       } else if (png && ityp == 3 && !have_PLTE) {
         printf("%s  must follow PLTE in %s image\n",
                verbose? ":":fname, png_type[ityp]);
-        set_err(2);
+        set_err(kMajorError);
       } else if (verbose)
         printf("\n");
 
-      if (!no_err(1) && !force)
-        return;
+      if (!no_err(kMinorError) && !force)
+        return global_error;
 
       /* We just want to check that we have read at least the minimum (10)
        * IDAT bytes possible, but avoid any overflow for short ints.  We
@@ -1477,7 +1594,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             printf("    zlib: ");
             if ((zhead & 0xffff) % 31) {
               printf("compression header fails checksum\n");
-              set_err(2);
+              set_err(kMajorError);
             } else if (CM == 8) {
               if (CINFO > 1) {
                 printf("deflated, %dK window, %s compression%s\n",
@@ -1490,7 +1607,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               }
             } else {
               printf("non-deflate compression method (%d)\n", CM);
-              set_err(2);
+              set_err(kMajorError);
             }
           }
 
@@ -1574,8 +1691,23 @@ FIXME: make sure bit 31 (0x80000000) is 0
           while (p < eod) {
 
             if (cur_linebytes) {	/* GRP 20000727:  bugfix */
+              int filttype = p[0];
+              if (filttype > 127) {
+                if (numfilt_this_block == 0) {
+                  /* warn only on first one per block; don't break */
+                  printf("%s  private (invalid?) %srow-filter type (%d) "
+                    "(warning)\n", verbose? "\n":fname, verbose? "":"IDAT ",
+                    filttype);
+                  set_err(kWarning);
+                }
+              } else if (filttype > 4) {
+                printf("%s  invalid %srow-filter type (%d)\n",
+                  verbose? "  ":fname, verbose? "":"IDAT ", filttype);
+                set_err(kMinorError);
+                break;
+              }
               if (verbose > 3) {	/* GRR 20000304 */
-                printf(" [%1d]", (int)p[0]);
+                printf(" [%1d]", filttype);
                 fflush(stdout);
                 ++numfilt;
                 for (i = 1;  i < cur_linebytes;  ++i, ++p) {
@@ -1587,7 +1719,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 fflush(stdout);
               } else {
                 if (verbose > 1) {
-                  printf(" %1d", (int)p[0]);
+                  printf(" %1d", filttype);
                   if (++numfilt_this_block % 25 == 0)
                     printf("\n     ");
                 }
@@ -1664,19 +1796,19 @@ FIXME: make sure bit 31 (0x80000000) is 0
             toread = (sz > BS)? BS:sz;
             if ((data_read = fread(buffer, 1, toread, fp)) != toread) {
               printf("\nEOF while reading %s data\n", chunkid);
-              set_err(3);
-              return;
+              set_err(kCriticalError);
+              return global_error;
             }
             crc = update_crc(crc, buffer, toread);
             zstrm.next_in = buffer;
             zstrm.avail_in = toread;
           }
         }
-        if (verbose > 1)
+        if (verbose > 1 && no_err(kMinorError))
           printf(" (%ld out of %ld)\n", numfilt, numfilt_total);
       }
       if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
-        set_err(2);
+        set_err(kMajorError);
 #endif /* USE_ZLIB */
       last_is_IDAT = 1;
       last_is_JDAT = 0;
@@ -1687,29 +1819,29 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "IEND") == 0) {
       if (!mng && have_IEND) {
         printf("%s  multiple IEND not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 0) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"IEND ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && need_JSEP && !have_JSEP) {
         printf("%s  missing JSEP in 20-bit JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && have_JDAT <= 0) {
         printf("%s  no JDAT chunks\n", verbose? ":":fname);
-        set_err(2);
+        set_err(kMajorError);
 /*
  *    FIXME:  what's minimum valid JPEG/JFIF length?
  *    } else if (jng && have_JDAT < 10) {
  *      printf("%s  not enough JDAT data\n", verbose? ":":fname);
- *      set_err(2);
+ *      set_err(kMajorError);
  */
       } else if (png && have_IDAT <= 0) {
         printf("%s  no IDAT chunks\n", verbose? ":":fname);
-        set_err(2);
+        set_err(kMajorError);
       } else if (png && have_IDAT < 10) {
         printf("%s  not enough IDAT data\n", verbose? ":":fname);
-        set_err(2);
+        set_err(kMajorError);
       } else if (verbose) {
         printf("\n");
       }
@@ -1722,11 +1854,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "bKGD") == 0) {
       if (!mng && have_bKGD) {
         printf("%s  multiple bKGD not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"bKGD ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       }
       switch (ityp) {
         case 0:
@@ -1734,9 +1866,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 2) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"bKGD ");
-            set_err(2);
+            set_err(kMajorError);
           }
-          if (verbose && no_err(1)) {
+          if (verbose && no_err(kMinorError)) {
             printf("\n    gray = 0x%04x\n", SH(buffer));
           }
           break;
@@ -1746,9 +1878,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 6) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"bKGD ");
-            set_err(2);
+            set_err(kMajorError);
           }
-          if (verbose && no_err(1)) {
+          if (verbose && no_err(kMinorError)) {
             printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x\n",
               SH(buffer), SH(buffer+2), SH(buffer+4));
           }
@@ -1757,13 +1889,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 1) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"bKGD ");
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[0] >= nplte) {
             printf("%s  %sindex (%u) falls outside PLTE (%u)\n",
               verbose? ":":fname, verbose? "":"bKGD ", buffer[0], nplte);
-            set_err(2);
+            set_err(kMajorError);
           }
-          if (verbose && no_err(1)) {
+          if (verbose && no_err(kMinorError)) {
             printf("\n    index = %u\n", buffer[0]);
           }
           break;
@@ -1777,21 +1909,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "cHRM") == 0) {
       if (!mng && have_cHRM) {
         printf("%s  multiple cHRM not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"cHRM ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"cHRM ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 32) {
         printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"cHRM ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         double wx, wy, rx, ry, gx, gy, bx, by;
 
         wx = (double)LG(buffer)/100000;
@@ -1806,25 +1938,25 @@ FIXME: make sure bit 31 (0x80000000) is 0
         if (wx < 0 || wx > 0.8 || wy < 0 || wy > 0.8 || wx + wy > 1.0) {
           printf("%s  invalid %swhite point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", wx, wy);
-          set_err(1);
+          set_err(kMinorError);
         } else if (rx < 0 || rx > 0.8 || ry < 0 || ry > 0.8 || rx + ry > 1.0) {
           printf("%s  invalid %sred point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", rx, ry);
-          set_err(1);
+          set_err(kMinorError);
         } else if (gx < 0 || gx > 0.8 || gy < 0 || gy > 0.8 || gx + gy > 1.0) {
           printf("%s  invalid %sgreen point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", gx, gy);
-          set_err(1);
+          set_err(kMinorError);
         } else if (bx < 0 || bx > 0.8 || by < 0 || by > 0.8 || bx + by > 1.0) {
           printf("%s  invalid %sblue point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", bx, by);
-          set_err(1);
+          set_err(kMinorError);
         }
         else if (verbose) {
           printf("\n");
         }
 
-        if (verbose && no_err(1)) {
+        if (verbose && no_err(kMinorError)) {
           printf("    White x = %0g y = %0g,  Red x = %0g y = %0g\n",
                  wx, wy, rx, ry);
           printf("    Green x = %0g y = %0g,  Blue x = %0g y = %0g\n",
@@ -1849,21 +1981,25 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "gAMA") == 0) {
       if (!mng && have_gAMA) {
         printf("%s  multiple gAMA not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"gAMA ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"gAMA ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 4) {
         printf("%s  invalid %slength\n",
-                     verbose? ":":fname, verbose? "":"gAMA ");
-        set_err(2);
+               verbose? ":":fname, verbose? "":"gAMA ");
+        set_err(kMajorError);
+      } else if (LG(buffer) == 0) {
+        printf("%s  invalid %svalue (0.0000)\n",
+               verbose? ":":fname, verbose? "":"gAMA ");
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
       have_gAMA = 1;
@@ -1875,13 +2011,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "gIFg") == 0) {
       if (jng) {
         printf("%s  gIFg not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 4) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"gIFg ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         double dtime = .01 * SH(buffer+2);
 
         printf("\n    disposal method = %d, user input flag = %d, display time = %lf seconds\n",
@@ -1895,16 +2031,16 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "gIFt") == 0) {
       printf("%s  %sDEPRECATED CHUNK\n",
         verbose? ":":fname, verbose? "":"gIFt ");
-      set_err(1);
+      set_err(kMinorError);
       if (jng) {
         printf("%s  gIFt not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 24) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"gIFt ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("    %ldx%ld-pixel text grid at (%ld,%ld) pixels from upper "
           "left\n", LG(buffer+8), LG(buffer+12), LG(buffer), LG(buffer+4));
         printf("    character cell = %dx%d pixels\n", buffer[16], buffer[17]);
@@ -1922,13 +2058,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "gIFx") == 0) {
       if (jng) {
         printf("%s  gIFx not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 11) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"gIFx ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf(
           "\n    application ID = %.*s, authentication code = 0x%02x%02x%02x\n",
           8, buffer, buffer[8], buffer[9], buffer[10]);
@@ -1942,29 +2078,29 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "hIST") == 0) {
       if (jng) {
         printf("%s  hIST not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_hIST) {
         printf("%s  multiple hIST not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!have_PLTE) {
         printf("%s  %smust follow PLTE\n",
                verbose? ":":fname, verbose? "":"hIST ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"hIST ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != nplte * 2) {
         printf("%s  invalid number of %sentries (%g)\n",
                verbose? ":":fname, verbose? "":"hIST ", (double)sz / 2);
-        set_err(2);
+        set_err(kMajorError);
       }
-      if ((verbose || (printpal && !quiet)) && no_err(1)) {
+      if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
         if (!verbose && printpal && !quiet)
           printf("  hIST chunk");
         printf(": %ld histogram entr%s\n", sz / 2, sz/2 == 1? "y":"ies");
       }
-      if (printpal && no_err(1)) {
+      if (printpal && no_err(kMinorError)) {
         char *spc;
 
         if (sz < 10)
@@ -1987,48 +2123,51 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
       if (!mng && have_iCCP) {
         printf("%s  multiple iCCP not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_sRGB) {
         printf("%s  %snot allowed with sRGB\n",
                verbose? ":":fname, verbose? "":"iCCP ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"iCCP ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"iCCP ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (check_keyword(buffer, toread, &name_len, "profile name",
                                chunkid, fname)) {
-        set_err(1);
+        set_err(kMinorError);
       } else {
         int remainder = toread - name_len - 3;
-        uch meth = buffer[name_len+1];
+        uch compr = buffer[name_len+1];
 
         if (remainder < 0) {
           printf("%s  invalid %slength\n",  /* or input buffer too small */
             verbose? ":":fname, verbose? "":"iCCP ");
-          set_err(2);
+          set_err(kMajorError);
         } else if (buffer[name_len] != 0) {
           printf("%s  missing NULL after %sprofile name\n",
             verbose? ":":fname, verbose? "":"iCCP ");
-          set_err(2);
-        } else if (meth > 0 && meth < 128) {
+          set_err(kMajorError);
+        } else if (compr > 0 && compr < 128) {
           printf("%s  invalid %scompression method (%d)\n",
-            verbose? ":":fname, verbose? "":"iCCP ", meth);
-          set_err(1);
+            verbose? ":":fname, verbose? "":"iCCP ", compr);
+          set_err(kMinorError);
+        } else if (compr >= 128) {
+          set_err(kWarning);
         }
-        if (verbose && no_err(1)) {
+        if (verbose && no_err(kMinorError)) {
           printf("\n    profile name = ");
-          init_printbuffer();
-          printbuffer(buffer, name_len, 0);
-          finish_printbuffer(fname, chunkid);
+          init_printbuf_state(&prbuf_state);
+          print_buffer(&prbuf_state, buffer, name_len, 0);
+          report_printbuf(&prbuf_state, fname, chunkid);
           printf("%scompression method = %d (%s)%scompressed profile = "
-            "%ld bytes\n", (name_len > 24)? "\n    ":", ", meth,
-            (meth == 0)? "deflate":"private", (name_len > 24)? ", ":"\n    ",
-            sz-name_len-2);  /* FIXME: should use remainder instead? */
+            "%ld bytes\n", (name_len > 24)? "\n    ":", ", compr,
+            (compr == 0)? "deflate":"private: warning",
+            (name_len > 24)? ", ":"\n    ", sz-name_len-2);
+                                      /* FIXME: should use remainder instead? */
         }
       }
       have_iCCP = 1;
@@ -2041,16 +2180,16 @@ FIXME: make sure bit 31 (0x80000000) is 0
       int keylen;
 
       if (check_keyword(buffer, toread, &keylen, "keyword", chunkid, fname))
-        set_err(1);
+        set_err(kMinorError);
       else {
-        int compressed = 0, taglen = 0;
+        int compressed = 0, compr = 0, taglen = 0;
 
-        init_printbuffer();
+        init_printbuf_state(&prbuf_state);
         if (verbose) {
           printf(", keyword: ");
         }
         if (verbose || printtext) {
-          printbuffer(buffer, keylen, 0);
+          print_buffer(&prbuf_state, buffer, keylen, 0);
         }
         if (verbose)
           printf("\n");
@@ -2061,18 +2200,22 @@ FIXME: make sure bit 31 (0x80000000) is 0
         if (compressed < 0 || compressed > 1) {
           printf("%s  invalid %scompression flag (%d)\n",
             verbose? ":":fname, verbose? "":"iTXt ", compressed);
-          set_err(1);
-        } else if (buffer[keylen+2] != 0) {
+          set_err(kMinorError);
+        } else if ((compr = (uch)buffer[keylen+2]) > 127) {
+          printf("%s  private (invalid?) %scompression method (%d) "
+            "(warning)\n", verbose? ":":fname, verbose? "":"iTXt ", compr);
+          set_err(kWarning);
+        } else if (compr > 0) {
           printf("%s  invalid %scompression method (%d)\n",
-            verbose? ":":fname, verbose? "":"iTXt ", buffer[keylen+2]);
-          set_err(1);
+            verbose? ":":fname, verbose? "":"iTXt ", compr);
+          set_err(kMinorError);
         }
-        if (no_err(1)) {
+        if (no_err(kMinorError)) {
           taglen = keywordlen(buffer+keylen+3, toread-keylen-3);
           if (verbose) {
             if (taglen > 0) {
               printf("    %scompressed, language tag = ", compressed? "":"un");
-              printbuffer(buffer+keylen+3, taglen, 0);
+              print_buffer(&prbuf_state, buffer+keylen+3, taglen, 0);
             } else {
               printf("    %scompressed, no language tag",
                 compressed? "":"un");
@@ -2092,7 +2235,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 sz - (keylen+3+taglen));
           }
         }
-        finish_printbuffer(fname, chunkid);   /* print CR/LF & NULLs info */
+        report_printbuf(&prbuf_state, fname, chunkid);   /* print CR/LF & NULLs info */
       }
       last_is_IDAT = last_is_JDAT = 0;
 
@@ -2102,20 +2245,23 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "oFFs") == 0) {
       if (!mng && have_oFFs) {
         printf("%s  multiple oFFs not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"oFFs ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 9) {
         printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"oFFs ");
-        set_err(2);
+        set_err(kMinorError);
+      } else if (buffer[8] > 1) {
+        printf("%s  invalid %sunit specifier (%u)\n",
+          verbose? ":":fname, verbose? "":"oFFs ", buffer[8]);
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf(": %ldx%ld %s offset\n", LG(buffer), LG(buffer+4),
-               buffer[8]==0 ? "pixels":
-               buffer[8]==1 ? "micrometers":"unknown unit");
+               (buffer[8] == 0)? "pixels":"micrometers");
       }
       have_oFFs = 1;
       last_is_IDAT = last_is_JDAT = 0;
@@ -2126,25 +2272,25 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "pCAL") == 0) {
       if (jng) {
         printf("%s  pCAL not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_pCAL) {
         printf("%s  multiple pCAL not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":":fname, verbose? "":"pCAL ");
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         int name_len;
 
         if (check_keyword(buffer, toread, &name_len, "calibration name",
                           chunkid, fname))
-          set_err(1);
+          set_err(kMinorError);
         else if (sz < name_len + 15) {
           printf("%s  invalid %slength\n",
             verbose? ":":fname, verbose? "":"pCAL ");
-          set_err(2);
+          set_err(kMajorError);
         } else {
           long x0 = LG(buffer+name_len+1);	/* already checked sz */
           long x1 = LG(buffer+name_len+5);
@@ -2154,12 +2300,12 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (eqn_num < 0 || eqn_num > 3) {
             printf("%s  invalid %s equation type (%d)\n",
               verbose? ":":fname, verbose? "":chunkid, eqn_num);
-            set_err(1);
+            set_err(kMinorError);
           } else if (num_params != eqn_params[eqn_num]) {
             printf(
               "%s  invalid number of parameters (%d) for %s equation type %d\n",
               verbose? ":":fname, num_params, verbose? "":chunkid, eqn_num);
-            set_err(1);
+            set_err(kMinorError);
           } else if (verbose) {
             int remainder = 0;
             uch *pbuf;
@@ -2167,9 +2313,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
             printf(": equation type %d\n", eqn_num);
             printf("    %s\n", eqn_type[eqn_num]);
             printf("    calibration name = ");
-            init_printbuffer();
-            printbuffer(buffer, name_len, 0);
-            finish_printbuffer(fname, chunkid);
+            init_printbuf_state(&prbuf_state);
+            print_buffer(&prbuf_state, buffer, name_len, 0);
+            report_printbuf(&prbuf_state, fname, chunkid);
             if (toread != sz) {
               printf(
                 "\n    pngcheck INTERNAL LOGIC ERROR:  toread (%d) != sz (%ld)",
@@ -2183,9 +2329,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
               int unit_len = keywordlen(pbuf, remainder);
 
               printf("\n    physical_value unit name = ");
-              init_printbuffer();
-              printbuffer(pbuf, unit_len, 0);
-              finish_printbuffer(fname, chunkid);
+              init_printbuf_state(&prbuf_state);
+              print_buffer(&prbuf_state, pbuf, unit_len, 0);
+              report_printbuf(&prbuf_state, fname, chunkid);
               printf("\n");
               pbuf += unit_len;
               remainder -= unit_len;
@@ -2198,22 +2344,22 @@ FIXME: make sure bit 31 (0x80000000) is 0
               if (remainder < 2) {
                 printf("%s  invalid %slength\n",
                   verbose? ":":fname, verbose? "":"pCAL ");
-                set_err(2);
+                set_err(kMajorError);
                 break;
               }
               if (*pbuf != 0) {
                 printf("%s  %smissing NULL separator\n",
                   verbose? ":":fname, verbose? "":"pCAL ");
-                set_err(1);
+                set_err(kMinorError);
                 break;
               }
               ++pbuf;
               --remainder;
               len = keywordlen(pbuf, remainder);
               printf("    p%d = ", i);
-              init_printbuffer();
-              printbuffer(pbuf, len, 0);
-              finish_printbuffer(fname, chunkid);
+              init_printbuf_state(&prbuf_state);
+              print_buffer(&prbuf_state, pbuf, len, 0);
+              report_printbuf(&prbuf_state, fname, chunkid);
               printf("\n");
               pbuf += len;
               remainder -= len;
@@ -2230,21 +2376,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "pHYs") == 0) {
       if (!mng && have_pHYs) {
         printf("%s  multiple pHYs not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"pHYs ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 9) {
         printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"pHYs ");
-        set_err(2);
+        set_err(kMajorError);
       } else if (buffer[8] > 1) {
         printf("%s  invalid %sunit specifier (%u)\n",
           verbose? ":":fname, verbose? "":"pHYs ", buffer[8]);
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         ulg xres = LG(buffer);
         ulg yres = LG(buffer+4);
         unsigned units = buffer[8];
@@ -2266,34 +2412,34 @@ FIXME: make sure bit 31 (0x80000000) is 0
      | sBIT |
      *------*/
     } else if (strcmp(chunkid, "sBIT") == 0) {
-      int maxbits = (ityp == 3)? 8 : bitdepth;
+      int maxbits = (ityp == 3)? 8 : sampledepth;
 
       if (jng) {
         printf("%s  sBIT not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_sBIT) {
         printf("%s  multiple sBIT not allowed\n", verbose? ":" : fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
           verbose? ":" : fname, verbose? "" : "sBIT ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":" : fname, verbose? "" : "sBIT ");
-        set_err(1);
+        set_err(kMinorError);
       }
       switch (ityp) {
         case 0:
           if (sz != 1) {
             printf("%s  invalid %slength\n",
               verbose? ":" : fname, verbose? "" : "sBIT ");
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
-            printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sgrey bits invalid for %d-bit/sample image\n",
               verbose? ":" : fname, buffer[0], verbose? "" : "sBIT ", maxbits);
-            set_err(1);
-          } else if (verbose && no_err(1)) {
+            set_err(kMinorError);
+          } else if (verbose && no_err(kMinorError)) {
             printf("\n    gray = %u = 0x%02x\n", buffer[0], buffer[0]);
           }
           break;
@@ -2302,20 +2448,20 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 3) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"sBIT ");
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
-            printf("%s  %d %sred bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sred bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
-            printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sgreen bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[2] == 0 || buffer[2] > maxbits) {
-            printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sblue bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
-            set_err(1);
-          } else if (verbose && no_err(1)) {
+            set_err(kMinorError);
+          } else if (verbose && no_err(kMinorError)) {
             printf("\n    red = %u = 0x%02x, green = %u = 0x%02x, "
               "blue = %u = 0x%02x\n", buffer[0], buffer[0],
               buffer[1], buffer[1], buffer[2], buffer[2]);
@@ -2325,16 +2471,16 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 2) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"sBIT ");
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
-            printf("%s  %d %sgrey bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sgrey bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
-            printf("%s  %d %salpha bits not valid for %dbit/sample image\n",
+            printf("%s  %d %salpha bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
-            set_err(2);
-          } else if (verbose && no_err(1)) {
+            set_err(kMajorError);
+          } else if (verbose && no_err(kMinorError)) {
             printf("\n    gray = %u = 0x%02x, alpha = %u = 0x%02x\n",
               buffer[0], buffer[0], buffer[1], buffer[1]);
           }
@@ -2343,24 +2489,24 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (sz != 4) {
             printf("%s  invalid %slength\n",
               verbose? ":":fname, verbose? "":"sBIT ");
-            set_err(2);
+            set_err(kMajorError);
           } else if (buffer[0] == 0 || buffer[0] > maxbits) {
-            printf("%s  %d %sred bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sred bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[0], verbose? "":"sBIT ", maxbits);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[1] == 0 || buffer[1] > maxbits) {
-            printf("%s  %d %sgreen bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sgreen bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[1], verbose? "":"sBIT ", maxbits);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[2] == 0 || buffer[2] > maxbits) {
-            printf("%s  %d %sblue bits not valid for %dbit/sample image\n",
+            printf("%s  %d %sblue bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[2], verbose? "":"sBIT ", maxbits);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buffer[3] == 0 || buffer[3] > maxbits) {
-            printf("%s  %d %salpha bits not valid for %dbit/sample image\n",
+            printf("%s  %d %salpha bits invalid for %d-bit/sample image\n",
               verbose? ":":fname, buffer[3], verbose? "":"sBIT ", maxbits);
-            set_err(1);
-          } else if (verbose && no_err(1)) {
+            set_err(kMinorError);
+          } else if (verbose && no_err(kMinorError)) {
             printf("\n    red = %u = 0x%02x, green = %u = 0x%02x, "
               "blue = %u = 0x%02x, alpha = %u = 0x%02x\n", buffer[0], buffer[0],
               buffer[1], buffer[1], buffer[2], buffer[2], buffer[3], buffer[3]);
@@ -2374,21 +2520,71 @@ FIXME: make sure bit 31 (0x80000000) is 0
      | sCAL |
      *------*/
     } else if (strcmp(chunkid, "sCAL") == 0) {
+      int unittype = buffer[0];
+      char *pPixwidth = buffer+1, *pPixheight=NULL;
+
       if (!mng && have_sCAL) {
         printf("%s  multiple sCAL not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"sCAL ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
+      } else if (sz < 4) {
+        printf("%s  invalid %slength\n",
+               verbose? ":":fname, verbose? "":"sCAL ");
+        set_err(kMinorError);
+      } else if (unittype < 1 || unittype > 2) {
+        printf("%s  invalid %sunit specifier (%d)\n",
+               verbose? ":":fname, verbose? "":"sCAL ", unittype);
+        set_err(kMinorError);
+      } else {
+        uch *qq;
+        for (qq = pPixwidth;  qq < buffer+sz;  ++qq) {
+          if (*qq == 0)
+            break;
+        }
+        if (qq == buffer+sz) {
+          printf("%s  missing %snull separator\n",
+                 verbose? ":":fname, verbose? "":"sCAL ");
+          set_err(kMinorError);
+        } else {
+          pPixheight = qq + 1;
+          if (pPixheight == (char *)buffer+sz || *pPixheight == 0) {
+            printf("%s  missing %spixel height\n",
+                   verbose? ":":fname, verbose? "":"sCAL ");
+            set_err(kMinorError);
+          }
+        }
+        if (no_err(kMinorError)) {
+          for (qq = pPixheight;  qq < buffer+sz;  ++qq) {
+            if (*qq == 0)
+              break;
+          }
+          if (qq != buffer+sz) {
+            printf("%s  extra %snull separator (warning)\n",
+                   verbose? ":":fname, verbose? "":"sCAL ");
+            set_err(kWarning);
+          }
+          if (*pPixwidth == '-' || *pPixheight == '-') {
+            printf("%s  invalid negative %svalue(s)\n",
+                   verbose? ":":fname, verbose? "":"sCAL ");
+            set_err(kMinorError);
+          } else if (check_ascii_float(pPixwidth, pPixheight-pPixwidth-1,
+                                       chunkid, fname) ||
+                     check_ascii_float(pPixheight, (char *)buffer+sz-pPixheight,
+                                       chunkid, fname))
+          {
+            set_err(kMinorError);
+          }
+        }
       }
-      if (verbose && no_err(1)) {
-        buffer[sz] = '\0';   /* FIXME:  sz MUST be positive here! */
-        buffer[strlen((char *)(buffer+1))+1] = 'x';
-
-        printf(": image size %s %s\n", buffer+1,
-               buffer[0] == 1 ? "meters":
-               buffer[0] == 2 ? "radians":"unknown unit");
+      if (verbose && no_err(kMinorError)) {
+        if (sz >= BS)
+          sz = BS-1;
+        buffer[sz] = '\0';
+        printf(": image size %s x %s %s\n", pPixwidth, pPixheight,
+               (unittype == 1)? "meters":"radians");
       }
       have_sCAL = 1;
       last_is_IDAT = last_is_JDAT = 0;
@@ -2401,14 +2597,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
       if (jng) {
         printf("%s  sPLT not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
           verbose? ":":fname, verbose? "":"sPLT ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (check_keyword(buffer, toread, &name_len, "palette name",
                                chunkid, fname)) {
-        set_err(1);
+        set_err(kMinorError);
       } else {
         uch bps = buffer[name_len+1];
         int remainder = toread - name_len - 2;
@@ -2419,32 +2615,32 @@ FIXME: make sure bit 31 (0x80000000) is 0
         if (remainder < 0) {
           printf("%s  invalid %slength\n",  /* or input buffer too small */
             verbose? ":":fname, verbose? "":"sPLT ");
-          set_err(2);
+          set_err(kMajorError);
         } else if (buffer[name_len] != 0) {
           printf("%s  missing NULL after %spalette name\n",
             verbose? ":":fname, verbose? "":"sPLT ");
-          set_err(1);
+          set_err(kMinorError);
         } else if (bps != 8 && bps != 16) {
           printf("%s  invalid %ssample depth (%u bits)\n",
             verbose? ":":fname, verbose? "":"sPLT ", bps);
-          set_err(1);
+          set_err(kMinorError);
         } else if (remainder % entry_sz != 0) {
           printf("%s  invalid number of %sentries (%g)\n",
             verbose? ":":fname, verbose? "":"sPLT ",
             (double)remainder / entry_sz);
-          set_err(2);
+          set_err(kMajorError);
         } else if (verbose || (printpal && !quiet)) {
           if (!verbose && printpal && !quiet)
             printf("  sPLT chunk");
           printf(": %d palette/histogram entr%s\n", nsplt,
             nsplt == 1? "y":"ies");
           printf("    sample depth = %u bits, palette name = ", bps);
-          init_printbuffer();
-          printbuffer(buffer, name_len, 0);
-          finish_printbuffer(fname, chunkid);
+          init_printbuf_state(&prbuf_state);
+          print_buffer(&prbuf_state, buffer, name_len, 0);
+          report_printbuf(&prbuf_state, fname, chunkid);
           printf("\n");
         }
-        if (printpal && no_err(1)) {
+        if (printpal && no_err(kMinorError)) {
           char *spc;
           int i, j = name_len+2;
 
@@ -2484,25 +2680,29 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "sRGB") == 0) {
       if (!mng && have_sRGB) {
         printf("%s  multiple sRGB not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_iCCP) {
         printf("%s  %snot allowed with iCCP\n",
                verbose? ":":fname, verbose? "":"sRGB ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && have_PLTE) {
         printf("%s  %smust precede PLTE\n",
                verbose? ":":fname, verbose? "":"sRGB ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"sRGB ", have_IDAT? 'I':'J');
-        set_err(1);
+        set_err(kMinorError);
+      } else if (sz != 1) {
+        printf("%s  invalid %slength\n",
+               verbose? ":":fname, verbose? "":"sRGB ");
+        set_err(kMinorError);
       } else if (buffer[0] > 3) {
         printf("%s  %sinvalid rendering intent\n",
                verbose? ":":fname, verbose? "":"sRGB ");
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    rendering intent = %s\n", rendering_intent[buffer[0]]);
       }
       have_sRGB = 1;
@@ -2514,17 +2714,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "sTER") == 0) {
       if (!mng && have_sTER) {
         printf("%s  multiple sTER not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (!mng && (have_IDAT || have_JDAT)) {
         printf("%s  %smust precede %cDAT\n",
                verbose? ":":fname, verbose? "":"sTER ", have_IDAT? 'I':'J');
-        set_err(1);
-      } else if (buffer[0] > 1) {
-        printf("%s  %sinvalid layout mode\n",
+        set_err(kMinorError);
+      } else if (sz != 1) {
+        printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"sTER ");
-        set_err(1);
+        set_err(kMinorError);
+      } else if (buffer[0] > 1) {
+        printf("%s  invalid %slayout mode\n",
+               verbose? ":":fname, verbose? "":"sTER ");
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    stereo subimage layout = %s\n",
                buffer[0]? "divergent (parallel)":"cross-eyed");
       }
@@ -2535,24 +2739,43 @@ FIXME: make sure bit 31 (0x80000000) is 0
      | tEXt |  | zTXt |
      *------*  *------*/
     } else if (strcmp(chunkid, "tEXt") == 0 || strcmp(chunkid, "zTXt") == 0) {
+      int ztxt = (chunkid[0] == 'z');
       int keylen;
 
       if (check_keyword(buffer, toread, &keylen, "keyword", chunkid, fname))
-        set_err(1);
-      else {
-        init_printbuffer();
-        if (verbose) {
-          printf(", keyword: ");
+        set_err(kMinorError);
+      else if (ztxt) {
+        int compr = (uch)buffer[keylen+1];
+        if (compr > 127) {
+          printf("%s  private (possibly invalid) %scompression method (%d) "
+            "(warning)\n", verbose? ":":fname, verbose? "":"zTXt ", compr);
+          set_err(kWarning);
+        } else if (compr > 0) {
+          printf("%s  invalid %scompression method (%d)\n",
+            verbose? ":":fname, verbose? "":"zTXt ", compr);
+          set_err(kMinorError);
         }
+/*
+FIXME: add support for checking zlib header bytes of zTXt (and iTXt, iCCP, etc.)
+ */
+      }
+      if (no_err(kMinorError)) {
+        init_printbuf_state(&prbuf_state);
         if (verbose || printtext) {
-          printbuffer(buffer, keylen, 0);
+          if (verbose)
+            printf(", keyword: ");
+          print_buffer(&prbuf_state, buffer, keylen, 0);
         }
         if (printtext) {
           printf(verbose? "\n" : ":\n");
           if (strcmp(chunkid, "tEXt") == 0)
-            printbuffer(buffer + keylen + 1, toread - keylen - 1, 1);
-          else
+            print_buffer(&prbuf_state, buffer + keylen + 1, toread - keylen - 1, 1);
+          else {
             printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
+/*
+FIXME: add support for decompressing/printing zTXt
+ */
+          }
 
           /* For the sake of simplifying this program, we will not print
            * the contents of a tEXt chunk whose size is larger than the
@@ -2564,7 +2787,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         } else if (verbose) {
           printf("\n");
         }
-        finish_printbuffer(fname, chunkid);
+        report_printbuf(&prbuf_state, fname, chunkid);
       }
       last_is_IDAT = last_is_JDAT = 0;
 
@@ -2574,16 +2797,53 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "tIME") == 0) {
       if (!mng && have_tIME) {
         printf("%s  multiple tIME not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 7) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"tIME ");
-        set_err(2);
-      }
-      /* Print the date in RFC 1123 format, rather than stored order */
-      if (verbose && no_err(1)) {
-        printf(": %2d %s %4d %02d:%02d:%02d GMT\n", buffer[3],
-          getmonth(buffer[2]), SH(buffer), buffer[4], buffer[5], buffer[6]);
+        set_err(kMinorError);
+      } else {
+        int yr = SH(buffer);
+        int mo = buffer[2];
+        int dy = buffer[3];
+        int hh = buffer[4];
+        int mm = buffer[5];
+        int ss = buffer[6];
+
+        if (yr < 1995) {
+          /* conversion to PNG format counts as modification... */
+          /* FIXME:  also test for future dates? (may allow current year + 1) */
+          printf("%s  invalid %syear (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", yr);
+          set_err(kMinorError);
+        } else if (mo < 1 || mo > 12) {
+          printf("%s  invalid %smonth (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", mo);
+          set_err(kMinorError);
+        } else if (dy < 1 || dy > 31) {
+          /* FIXME:  also validate day given specified month? */
+          printf("%s  invalid %sday (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", dy);
+          set_err(kMinorError);
+        } else if (hh < 0 || hh > 23) {
+          printf("%s  invalid %shour (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", hh);
+          set_err(kMinorError);
+        } else if (mm < 0 || mm > 59) {
+          printf("%s  invalid %sminute (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", mm);
+          set_err(kMinorError);
+        } else if (ss < 0 || ss > 60) {
+          printf("%s  invalid %ssecond (%d)\n",
+            verbose? ":":fname, verbose? "":"tIME ", ss);
+          set_err(kMinorError);
+        }
+        /* print the date in RFC 1123 format, rather than stored order */
+        /* FIXME:  change to ISO-whatever format, i.e., yyyy-mm-dd hh:mm:ss? */
+        if (verbose && no_err(kMinorError)) {
+          printf(": %2d %s %4d %02d:%02d:%02d GMT\n", dy, getmonth(mo), yr,
+            hh, mm, ss);
+        }
       }
       have_tIME = 1;
       last_is_IDAT = last_is_JDAT = 0;
@@ -2594,27 +2854,27 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "tRNS") == 0) {
       if (jng) {
         printf("%s  tRNS not defined in JNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_tRNS) {
         printf("%s  multiple tRNS not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (ityp == 3 && !have_PLTE) {
         printf("%s  %smust follow PLTE\n",
           verbose? ":":fname, verbose? "":"tRNS ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
                verbose? ":":fname, verbose? "":"tRNS ");
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         switch (ityp) {
           case 0:
             if (sz != 2) {
               printf("%s  invalid %slength for %s image\n",
                      verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
-              set_err(2);
-            } else if (verbose && no_err(1)) {
+              set_err(kMajorError);
+            } else if (verbose && no_err(kMinorError)) {
               printf("\n    gray = 0x%04x\n", SH(buffer));
             }
             break;
@@ -2622,8 +2882,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
             if (sz != 6) {
               printf("%s  invalid %slength for %s image\n",
                      verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
-              set_err(2);
-            } else if (verbose && no_err(1)) {
+              set_err(kMajorError);
+            } else if (verbose && no_err(kMinorError)) {
               printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x\n",
                      SH(buffer), SH(buffer+2), SH(buffer+4));
             }
@@ -2632,13 +2892,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
             if (sz > nplte) {
               printf("%s  invalid %slength for %s image\n",
                      verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
-              set_err(2);
-            } else if ((verbose || (printpal && !quiet)) && no_err(1)) {
+              set_err(kMajorError);
+            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
               if (!verbose && printpal && !quiet)
                 printf("  tRNS chunk");
               printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
             }
-            if (printpal && no_err(1)) {
+            if (printpal && no_err(kMinorError)) {
               char *spc;
 
               if (sz < 10)
@@ -2654,11 +2914,32 @@ FIXME: make sure bit 31 (0x80000000) is 0
           default:
             printf("%s  %snot allowed in %s image\n",
                    verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
-            set_err(1);
+            set_err(kMinorError);
             break;
         }
       }
       have_tRNS = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*===========================================*/
+    /* identifiable private chunks; guts unknown */
+
+    /*------*
+     | cmOD |
+     *------*/
+    } else if (strcmp(chunkid, "cmOD") == 0) {
+      if (verbose)
+        printf("\n    "
+          "Microsoft Picture It private, ancillary, unsafe-to-copy chunk\n");
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+     | cpIp |
+     *------*/
+    } else if (strcmp(chunkid, "cpIp") == 0) {
+      if (verbose)
+        printf("\n    "
+          "Microsoft Picture It private, ancillary, safe-to-copy chunk\n");
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2707,7 +2988,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "JDAT") == 0) {
       if (png) {
         printf("%s  JDAT not defined in PNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (have_JDAT && !(last_is_JDAT || last_is_IDAT)) {
         /* GRR:  need to check for consecutive IDATs within MNG segments */
         if (mng) {  /* reset things (FIXME:  SEMI-HACK--check for segments!) */
@@ -2718,9 +2999,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
           printf(
             "%s  JDAT chunks must be consecutive or interleaved with IDATs\n",
             verbose? ":":fname);
-          set_err(2);
+          set_err(kMajorError);
           if (!force)
-            return;
+            return global_error;
         }
       } else if (verbose)
         printf("\n");
@@ -2734,22 +3015,22 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "JSEP") == 0) {
       if (png) {
         printf("%s  JSEP not defined in PNG\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && bitdepth != 20) {
         printf("%s  JSEP allowed only if 8-bit and 12-bit JDATs present\n",
           verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && have_JSEP) {
         printf("%s  multiple JSEP not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (jng && !(last_is_JDAT || last_is_IDAT)) {
         printf("%s  JSEP must appear between JDAT or IDAT chunks\n",
           verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 0) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"JSEP ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (verbose) {
         printf("\n");
       }
@@ -2768,13 +3049,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  DHDR not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 4 && sz != 12 && sz != 20) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"DHDR ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         uch dtype = buffer[3];
 
         printf("\n    object ID = %u, image type = %s, delta type = %s\n",
@@ -2785,7 +3066,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (dtype == 5) {
             printf("%s  invalid %slength for delta type %d\n",
               verbose? ":":fname, verbose? "":"DHDR ", dtype);
-            set_err(1);
+            set_err(kMinorError);
           } else {
             printf("    block width = %lu, block height = %lu\n", LG(buffer+4),
               LG(buffer+8));
@@ -2793,7 +3074,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               if (dtype == 0 || dtype == 5) {
                 printf("%s  invalid %slength for delta type %d\n",
                   verbose? ":":fname, verbose? "":"DHDR ", dtype);
-                set_err(1);
+                set_err(kMinorError);
               } else
                 printf("    x offset = %lu, y offset = %lu\n", LG(buffer+12),
                   LG(buffer+16));
@@ -2818,7 +3099,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  FRAM not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz == 0 && verbose) {
         printf(":  empty\n");
       } else if (verbose) {
@@ -2849,10 +3130,10 @@ FIXME: make sure bit 31 (0x80000000) is 0
           bytes_left = sz - (p-buffer);   /* FIXME:  is sz big enough? */
           if (bytes_left == 0 && found_null) {
             printf("    invalid trailing NULL byte\n");
-            set_err(1);
+            set_err(kMinorError);
           } else if (bytes_left < 4) {
             printf("    invalid length\n");
-            set_err(2);
+            set_err(kMajorError);
           } else {
             uch cid = *p++;	/* change_interframe_delay */
             uch ctt = *p++;	/* change_timeout_and_termination */
@@ -2861,7 +3142,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
             if (cid > 2 || ctt > 8 || cscb > 2 || csil > 2) {
               printf("    invalid change flags\n");
-              set_err(1);
+              set_err(kMinorError);
             } else {
               bytes_left -= 4;
               printf("    %s\n", change_interframe_delay[cid]);
@@ -2928,17 +3209,17 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  SAVE not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (have_SAVE) {
         printf("%s  multiple SAVE not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz > 0 && verbose) {
         uch offsize = buffer[0];
 
         if (offsize != 4 && offsize != 8) {
           printf("%s  invalid %soffset size (%u bytes)\n",
             verbose? ":":fname, verbose? "":"SAVE ", (unsigned)offsize);
-          set_err(1);
+          set_err(kMinorError);
         } else if (sz > 1) {
           uch *p = buffer+1;
           int bytes_left = sz-1;
@@ -2951,7 +3232,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 (type == 1 && bytes_left < 1+offsize)) {
               printf("%s  invalid %slength\n",
                 verbose? ":":fname, verbose? "":"SAVE ");
-              set_err(1);
+              set_err(kMinorError);
               break;
             }
             printf("    entry type = %s", (type <
@@ -3017,17 +3298,17 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  SEEK not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (!have_SAVE) {
         printf("%s  %snot allowed without preceding SAVE chunk\n",
           verbose? ":":fname, verbose? "":"SEEK ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (verbose) {
         printf("\n");
         if (sz > 0) {
-          init_printbuffer();
-          printbuffer(buffer, sz, 1);
-          finish_printbuffer(fname, chunkid);
+          init_printbuf_state(&prbuf_state);
+          print_buffer(&prbuf_state, buffer, sz, 1);
+          report_printbuf(&prbuf_state, fname, chunkid);
           printf("\n");
         }
       }
@@ -3040,7 +3321,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  nEED not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz > 0 && verbose) {
         uch *p = buffer;
         uch *lastbreak = buffer;
@@ -3070,13 +3351,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  DEFI not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 2 && sz != 3 && sz != 4 && sz != 12 && sz != 28) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"DEFI ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         char *noshow = do_not_show[0];
         uch concrete = 0;
         long x = 0L;
@@ -3111,13 +3392,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  BACK not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 6 || sz == 8 || sz > 10) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"BACK ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x (%s)\n",
           SH(buffer), SH(buffer+2), SH(buffer+4), (sz > 6 && (buffer[6] & 1))?
           "mandatory":"advisory");
@@ -3136,13 +3417,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  MOVE not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 13) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"MOVE ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    first object ID = %u, last object ID = %u\n",
           SH(buffer), SH(buffer+2));
         if (buffer[4])
@@ -3162,13 +3443,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  CLON not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 4 && sz != 5 && sz != 6 && sz != 7 && sz != 16) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"CLON ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         uch ct = 0;	/* full clone */
         uch dns = 2;	/* same as parent's */
         uch cf = 0;	/* same as parent's */
@@ -3208,13 +3489,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  SHOW not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 0 && sz != 2 && sz != 4 && sz != 5) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"SHOW ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         ush first = 0;
         ush last = 65535;
         uch smode = 2;
@@ -3240,13 +3521,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  CLIP not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 21) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"CLIP ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf(
           "\n    first object = %u, last object = %u; %s clip boundaries:\n",
           SH(buffer), SH(buffer+2), buffer[4]? "relative change in":"absolute");
@@ -3262,13 +3543,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  LOOP not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 5 || (sz > 6 && ((sz-6) % 4) != 0)) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"LOOP ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf(":  nest level = %u\n    count = %lu, termination = %s\n",
           (unsigned)(buffer[0]), LG(buffer+1), sz == 5?
           termination_condition[0] : termination_condition[buffer[5] & 0x3]);
@@ -3298,13 +3579,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  ENDL not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 1) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"ENDL ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1))
+      if (verbose && no_err(kMinorError))
         printf(":  nest level = %u\n", (unsigned)(buffer[0]));
       last_is_IDAT = last_is_JDAT = 0;
 
@@ -3315,13 +3596,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  PROM not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 3) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"PROM ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         char *ctype;
 
         switch (buffer[0]) {
@@ -3336,7 +3617,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             break;
           default:
             ctype = inv;
-            set_err(1);
+            set_err(kMinorError);
             break;
         }
         printf("\n    new color type = %s, new bit depth = %u\n",
@@ -3355,13 +3636,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  fPRI not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 2) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"fPRI ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1))
+      if (verbose && no_err(kMinorError))
         printf(":  %spriority = %u\n", buffer[0]? "delta " : "",
           (unsigned)(buffer[1]));
       last_is_IDAT = last_is_JDAT = 0;
@@ -3373,13 +3654,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  eXPI not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz <= 2) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"eXPI ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
           (int)(sz-2), buffer+2);	/* GRR EBCDIC WARNING */
       }
@@ -3392,19 +3673,19 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  BASI not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 13 && sz != 19 && sz != 22) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"BASI ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         w = LG(buffer);
         h = LG(buffer+4);
         if (w == 0 || h == 0) {
           printf("%s  invalid %simage dimensions (%ldx%ld)\n",
             verbose? ":":fname, verbose? "":"BASI ", w, h);
-          set_err(1);
+          set_err(kMinorError);
         }
         bitdepth = (uch)buffer[8];
         ityp = (uch)buffer[9];
@@ -3419,7 +3700,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               printf("%s  invalid %sbit depth (%d) for %s image\n",
                 verbose? ":":fname, verbose? "":"BASI ", bitdepth,
                 png_type[ityp]);
-              set_err(1);
+              set_err(kMinorError);
             }
             break;
           case 8:
@@ -3429,13 +3710,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
               printf("%s  invalid %sbit depth (%d) for %s image\n",
                 verbose? ":":fname, verbose? "":"BASI ", bitdepth,
                 png_type[ityp]);
-              set_err(1);
+              set_err(kMinorError);
             }
             break;
           default:
             printf("%s  invalid %sbit depth (%d)\n",
               verbose? ":":fname, verbose? "":"BASI ", bitdepth);
-            set_err(1);
+            set_err(kMinorError);
             break;
         }
         lace = (uch)buffer[12];
@@ -3450,7 +3731,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             bitdepth *= 4;   /* RGBA */
             break;
         }
-        if (verbose && no_err(1)) {
+        if (verbose && no_err(kMinorError)) {
           printf("\n    %ld x %ld image, %d-bit %s, %sinterlaced\n", w, h,
             bitdepth, (ityp > 6)? png_type[1]:png_type[ityp], lace? "":"non-");
         }
@@ -3467,7 +3748,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             if (sz > 21)
                 viewable = buffer[21];
           }
-          if (verbose && no_err(1)) {
+          if (verbose && no_err(kMinorError)) {
             if (ityp == 0)
               printf("    gray = 0x%04x", red);
             else
@@ -3491,11 +3772,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  IPNG not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 0) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"IPNG ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (verbose) {
         printf("\n");
       }
@@ -3508,11 +3789,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  PPLT not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 4) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"PPLT ");
-        set_err(1);
+        set_err(kMinorError);
       } else {
         char *plus;
         uch dtype = buffer[0];
@@ -3568,9 +3849,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
           printf("%s  invalid %slength (too %s bytes)\n",
             verbose? ":" : fname, verbose? "" : "PPLT ",
             (bytes_left < 0)? "few" : "many");
-          set_err(1);
+          set_err(kMinorError);
         }
-        if (verbose && no_err(1))
+        if (verbose && no_err(kMinorError))
           printf("    %d %s palette entr%s in %d block%s\n",
             npplt, (dtype & 1)? "delta" : "replacement", npplt== 1? "y":"ies",
             nblks, nblks== 1? "":"s");
@@ -3584,17 +3865,17 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  PAST not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 41 || ((sz-11) % 30) != 0) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"PAST ");
-        set_err(2);
+        set_err(kMajorError);
       } else if (buffer[2] > 2) {
         printf("%s  invalid %starget delta type (%u)\n",
           verbose? ":":fname, verbose? "":"PAST ", buffer[2]);
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         ush dest_id = SH(buffer);
         uch target_dtype = buffer[2];
         long x = LG(buffer+3);
@@ -3624,25 +3905,25 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (src_id == 0) {
             printf("%s  invalid %ssource ID\n",
               verbose? ":":fname, verbose? "":"PAST ");
-            set_err(1);
+            set_err(kMinorError);
           } else if (comp_mode > 2) {
             printf("%s  invalid %scomposition mode (%u)\n",
               verbose? ":":fname, verbose? "":"PAST ", comp_mode);
-            set_err(1);
+            set_err(kMinorError);
           } else if (orient > 8 || (orient & 1)) {
             printf("%s  invalid %sorientation (%u)\n",
               verbose? ":":fname, verbose? "":"PAST ", orient);
-            set_err(1);
+            set_err(kMinorError);
           } else if (offset_origin > 1) {
             printf("%s  invalid %soffset origin (%u)\n",
               verbose? ":":fname, verbose? "":"PAST ", offset_origin);
-            set_err(1);
+            set_err(kMinorError);
           } else if (bdry_origin > 1) {
             printf("%s  invalid %sboundary origin (%u)\n",
               verbose? ":":fname, verbose? "":"PAST ", bdry_origin);
-            set_err(1);
+            set_err(kMinorError);
           }
-          if (!no_err(1))
+          if (!no_err(kMinorError))
             break;
 
           if (verbose) {
@@ -3669,27 +3950,27 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  TERM not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (have_TERM) {
         printf("%s  multiple TERM not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if ((sz != 1 && sz != 10) ||
                  (sz == 1 && buffer[0] == 3) ||
                  (sz == 10 && buffer[0] != 3))
       {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"TERM ");
-        set_err(2);
+        set_err(kMajorError);
       } else if (buffer[0] > 3) {
         printf("%s  %sinvalid termination action\n",
                verbose? ":":fname, verbose? "":"TERM ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (buffer[0] == 3 && buffer[1] > 2) {
         printf("%s  %sinvalid termination action-after-iterations\n",
                verbose? ":":fname, verbose? "":"TERM ");
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         printf("\n    action = %s\n", termination_action[buffer[0] /* & 3 */]);
         if (sz >= 10) {
           ulg val = LG(buffer+2);
@@ -3715,13 +3996,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  DISC not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz & 1) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"DISC ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         if (sz == 0) {
           printf("\n    discard all nonzero objects%s\n",
             have_SAVE? " except those before SAVE":"");
@@ -3746,21 +4027,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  pHYg not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (!top_level) {
         printf("%s  %smust appear at MNG top level\n",
           verbose? ":":fname, verbose? "":"pHYg ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 9 && sz != 0) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"pHYg ");
-        set_err(2);
+        set_err(kMajorError);
       } else if (sz && buffer[8] > 1) {
         printf("%s  invalid %sunit specifier (%u)\n",
           verbose? ":":fname, verbose? "":"pHYg ", buffer[8]);
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (verbose && no_err(1)) {
+      if (verbose && no_err(kMinorError)) {
         if (sz == 0)
           printf("\n    %s\n",
             have_pHYg? "nullifies previous pHYg values":"(no effect)");
@@ -3790,13 +4071,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  DROP not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz & 0x3) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"DROP ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         uch *buf = buffer;
         int bytes_left = sz;
         int num_names = 0;
@@ -3805,7 +4086,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (check_chunk_name(buf, fname) != 0) {
             printf("%s  invalid chunk name to be dropped\n",
               verbose? ":":fname);
-            set_err(1);
+            set_err(kMinorError);
             break;
           }
           if (verbose)
@@ -3831,21 +4112,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  DBYK not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz < 6) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"DBYK ");
-        set_err(2);
+        set_err(kMajorError);
       } else if (buffer[4] > 1) {
         printf("%s  invalid %spolarity (%u)\n",
           verbose? ":":fname, verbose? "":"DBYK ", buffer[4]);
-        set_err(1);
+        set_err(kMinorError);
       } else if (check_chunk_name(buffer, fname) != 0) {
         printf("%s  invalid chunk name to be dropped\n",
           verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         uch *buf = buffer + 5;
         int bytes_left = sz - 5;
         int first = 1;
@@ -3861,14 +4142,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
           if (check_keyword(buf, bytes_left, &keylen, "keyword", chunkid,
                             fname))
-            set_err(1);
+            set_err(kMinorError);
           else if (keylen < bytes_left && buf[keylen] != 0) {
             /* realistically, this can never happen (due to keywordlen())... */
             printf("%s  unterminated %skeyword\n",
               verbose? ":":fname, verbose? "":"DBYK ");
-            set_err(1);
+            set_err(kMinorError);
           }
-          if (!no_err(1))
+          if (!no_err(kMinorError))
             break;
           if (verbose) {
             /* account for trailing comma (along with space and two quotes)
@@ -3899,13 +4180,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  ORDR not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz % 5) {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"ORDR ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         uch *buf = buffer;
         int bytes_left = sz;
 
@@ -3915,17 +4196,17 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (check_chunk_name(buf, fname) != 0) {
             printf("%s  %slisted chunk name is invalid\n",
               verbose? ":":fname, verbose? "":"ORDR: ");
-            set_err(1);
+            set_err(kMinorError);
           } else if (!(buf[0] & 0x20)) {
             printf("%s  %scritical chunk (%.*s) not allowed\n",
               verbose? ":":fname, verbose? "":"ORDR: ", 4, buf);
-            set_err(1);
+            set_err(kMinorError);
           } else if (buf[4] > 4) {
             printf("%s  invalid %sordering value\n",
               verbose? ":":fname, verbose? "":"ORDR ");
-            set_err(1);
+            set_err(kMinorError);
           }
-          if (!no_err(1))
+          if (!no_err(kMinorError))
             break;
           if (verbose)
             printf("    %.*s: %s\n", 4, buf, order_type[buf[4]]);
@@ -3942,16 +4223,16 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  MAGN not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if ((sz <= 4 && (sz & 1)) ||
                  (sz >= 5 && sz <= 17 && !(sz & 1)) ||
                  sz > 18)
       {
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"MAGN ");
-        set_err(2);
+        set_err(kMajorError);
       }
-      if (no_err(1)) {
+      if (no_err(kMinorError)) {
         if (sz == 0) {
           if (verbose)
             printf("\n    %s\n",
@@ -3993,9 +4274,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (xmeth > 5 || ymeth > 5) {
             printf("%s  invalid %smagnification method(s)\n",
               verbose? ":":fname, verbose? "":"MAGN ");
-            set_err(1);
+            set_err(kMinorError);
           }
-          if (verbose && no_err(1)) {
+          if (verbose && no_err(kMinorError)) {
             printf("\n    magnified object ID");
             if (first == last)
               printf(" = %u\n", first);
@@ -4023,14 +4304,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (png || jng) {
         printf("%s  MEND not defined in %cNG\n", verbose? ":":fname,
           png? 'P':'J');
-        set_err(1);
+        set_err(kMinorError);
       } else if (have_MEND) {
         printf("%s  multiple MEND not allowed\n", verbose? ":":fname);
-        set_err(1);
+        set_err(kMinorError);
       } else if (sz != 0) {
         printf("%s  invalid %slength\n",
                verbose? ":":fname, verbose? "":"MEND ");
-        set_err(1);
+        set_err(kMinorError);
       } else if (verbose) {
         printf("\n");
       }
@@ -4046,19 +4327,20 @@ FIXME: make sure bit 31 (0x80000000) is 0
         /* a critical, safe-to-copy chunk is an error */
         printf("%s  illegal critical, safe-to-copy chunk%s%s\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
-        set_err(1);
+        set_err(kMajorError);
       } else if (RESERVED(chunkid)) {
         /* a chunk with the reserved bit set is an error (or spec updated) */
         printf("%s  illegal reserved-bit-set chunk%s%s\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
-        set_err(1);
+        set_err(kMajorError);
       } else if (PUBLIC(chunkid)) {
         /* GRR 20050725:  all registered (public) PNG/MNG/JNG chunks are now
          *  known to pngcheck, so any unknown public ones are invalid (or have
          *  been proposed and approved since the last release of pngcheck) */
-        printf("%s  illegal unknown, public chunk%s%s\n",
-               verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
-        set_err(1);
+        printf("%s  illegal (unless recently approved) unknown, public "
+               "chunk%s%s\n", verbose? ":":fname, verbose? "":" ",
+               verbose? "":chunkid);
+        set_err(kMajorError);
       } else if (/* !PUBLIC(chunkid) && */ CRITICAL(chunkid) &&
                  !suppress_warnings)
       {
@@ -4067,7 +4349,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
          *  spec) */
         printf("%s  private, critical chunk%s%s (warning)\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
-        /* set_err(1);  not an error if used only internally */
+        set_err(kWarning);  /* not an error if used only internally */
       } else if (verbose) {
         printf("\n    unknown %s, %s, %s%ssafe-to-copy chunk\n",
                PRIVATE(chunkid)   ? "private":"public",
@@ -4080,7 +4362,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
     /*=======================================================================*/
 
-    if (no_err(1)) {
+    if (no_err(kMinorError)) {
       if (fpOut != NULL) {
         putlong(fpOut, sz);
         (void)fwrite(chunkid, 1, 4, fpOut);
@@ -4099,8 +4381,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
         if (data_read != toread) {
           printf("%s  EOF while reading %s%sdata\n",
                  verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
-          set_err(3);
-          return;
+          set_err(kCriticalError);
+          return global_error;
         }
 
         crc = update_crc(crc, (uch *)buffer, toread);
@@ -4108,37 +4390,41 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
       filecrc = getlong(fp, fname, "CRC value");
 
-      if (is_err(2))
-        return;
+      if (is_err(kMajorError))
+        return global_error;
 
       if (filecrc != CRCCOMPL(crc)) {
         printf("%s  CRC error in chunk %s (computed %08lx, expected %08lx)\n",
                verbose? "":fname, chunkid, CRCCOMPL(crc), filecrc);
-        set_err(1);
+        set_err(kMinorError);
       }
 
-      if (no_err(1) && fpOut != NULL)
+      if (no_err(kMinorError) && fpOut != NULL)
         putlong(fpOut, CRCCOMPL(crc));
 
     } else if (force) {
-      /* force may result in set_err(2) or more upstream, and failing to read
-       * CRC bytes here guarantees immediate downstream error when attempting
-       * to read length bytes and chunk type/name bytes */
+      /* force may result in set_err(kMajorError) or more upstream, and failing
+       * to read CRC bytes here guarantees immediate downstream error when
+       * attempting to read length bytes and chunk type/name bytes */
       filecrc = getlong(fp, fname, "CRC value");
     }
 
-    if (error > 0 && !force)
-      return;
+    if (global_error > kWarning && !force)
+      return global_error;
   }
 
   /*----------------------- END OF IMMENSE WHILE-LOOP -----------------------*/
 
-  if (((png || jng) && !have_IEND) || (mng && !have_MEND)) {
-    printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
-      mng? " M":"n I");
-    set_err(1);
-    return;
+  if (no_err(kMinorError)) {
+    if (((png || jng) && !have_IEND) || (mng && !have_MEND)) {
+      printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
+        mng? " M":"n I");
+      set_err(kMinorError);
+    }
   }
+
+  if (global_error > kWarning)
+    return global_error;
 
   /* GRR 19970621: print compression ratio based on file size vs. byte-packed
    *   raw data size.  Arguably it might be fairer to compare against the size
@@ -4146,14 +4432,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
    * GRR 19990619: disabled for MNG, at least until we figure out a reasonable
    *   way to calculate the ratio; also switched to MNG-relevant stats. */
 
-  if (error == 0) {
+  /* if (global_error == 0) */ {   /* GRR 20061202:  always print a summary */
     if (mng) {
       if (verbose) {  /* already printed MHDR/IHDR/JHDR info */
-        printf("%s in %s (%ld chunks).\n", error? "ERRORS DETECTED" :
-          "No errors detected", fname, num_chunks);
+        printf("%s in %s (%ld chunks).\n",
+          global_error? "WARNINGS DETECTED" : "No errors detected", fname, num_chunks);
       } else if (!quiet) {
-        printf("%s: %s (%ldx%ld, %ld chunks", error? "err" : "OK", fname,
-          mng_width, mng_height, num_chunks);
+        printf("%s: %s (%ldx%ld, %ld chunks", global_error? "WARN" : "OK",
+          fname, mng_width, mng_height, num_chunks);
         if (vlc == 1)
           printf(", VLC");
         else if (lc == 1)
@@ -4189,16 +4475,16 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
       if (verbose) {  /* already printed JHDR info */
         printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
-          error? "ERRORS DETECTED" : "No errors detected", fname,
+          global_error? "WARNINGS DETECTED" : "No errors detected", fname,
           num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
         if (jtyp < 2)
           printf("%s: %s (%ldx%ld, %d-bit %s%s%s, %s%d.%d%%).\n",
-            error? "err" : "OK", fname, w, h, jbitd, and, jng_type[jtyp],
+            global_error? "WARN" : "OK", fname, w, h, jbitd, and, jng_type[jtyp],
             lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
         else
           printf("%s: %s (%ldx%ld, %d-bit %s%s + %d-bit alpha%s, %s%d.%d%%).\n",
-            error? "err" : "OK", fname, w, h, jbitd, and, jng_type[jtyp-2],
+            global_error? "WARN" : "OK", fname, w, h, jbitd, and, jng_type[jtyp-2],
             alphadepth, lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
       }
 
@@ -4206,9 +4492,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
       char *sgn = "";
       int cfactor;
 
-      if (!did_stat) {
+      if (!did_stat)
         stat(fname, &statbuf);   /* already know file exists */
-      }
 
       /* uncompressed size (bytes), compressed size => returns 10*ratio (%) */
       if ((cfactor = ratio((ulg)(h*((w*bitdepth+7)>>3)), statbuf.st_size)) < 0)
@@ -4219,31 +4504,29 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
       if (verbose) {  /* already printed IHDR/JHDR info */
         printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
-          error? "ERRORS DETECTED" : "No errors detected", fname,
+          global_error? "WARNINGS DETECTED" : "No errors detected", fname,
           num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
-/*
-        printf("No errors detected in %s\n  (%ldx%ld, %d-bit %s%s, "
-          "%sinterlaced, %s%d.%d%%).\n",
-          fname, w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
-          (ityp == 3 && have_tRNS)? "+trns" : "", lace? "" : "non-",
-          sgn, cfactor/10, cfactor%10);
- */
         printf("%s: %s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
-          error? "err" : "OK", fname, w, h, bitdepth, (ityp > 6)? png_type[1] :
-          png_type[ityp], (ityp == 3 && have_tRNS)? "+trns" : "",
+          global_error? "WARN" : "OK", fname, w, h, bitdepth,
+          (ityp > 6)? png_type[1] : png_type[ityp],
+          (ityp == 3 && have_tRNS)? "+trns" : "",
           lace? "" : "non-", sgn, cfactor/10, cfactor%10);
       }
     }
 
   }
+
+  return global_error;
+
 } /* end function pngcheck() */
 
 
 
-void pnginfile(FILE *fp, char *fname, int ipng, int extracting)
+int pnginfile(FILE *fp, char *fname, int ipng, int extracting)
 {
   char name[1024], *szdot;
+  int err = kOK;
   FILE *fpOut = NULL;
 
 #if 1
@@ -4273,22 +4556,24 @@ void pnginfile(FILE *fp, char *fname, int ipng, int extracting)
     *szdot = 0;
   }
 
-  pngcheck(fp, name, 1, fpOut);
+  err = pngcheck(fp, name, 1, fpOut);
 
   if (fpOut != NULL) {
     if (ferror(fpOut) != 0 || fclose(fpOut) != 0) {
-      perror(name); /* Will only show most recent error */
+      perror(name); /* will only show most recent error */
       fprintf(stderr, "%s: error on output (ignored)\n", name);
     }
   }
+
+  return err;
 }
 
 
 
 void pngsearch(FILE *fp, char *fname, int extracting)
 {
-  /* Go through the file looking for a PNG magic number, if one is
-     found check the data to see if it is a PNG and validate the
+  /* Go through the file looking for a PNG magic number; if one is
+     found, check the data to see if it is a PNG and validate the
      contents.  Useful when something puts a PNG in something else. */
   int ch;
   int ipng = 0;
@@ -4311,9 +4596,10 @@ void pngsearch(FILE *fp, char *fname, int extracting)
           (ch = getc(fp)) == good_PNG_magic[4] &&
           (ch = getc(fp)) == good_PNG_magic[5] &&
           (ch = getc(fp)) == good_PNG_magic[6] &&
-          (ch = getc(fp)) == good_PNG_magic[7]) {
-        /* Just after a PNG header. */
-        pnginfile(fp, fname, ++ipng, extracting);
+          (ch = getc(fp)) == good_PNG_magic[7])
+      {
+        /* just after a PNG header */
+        /* int error = */ pnginfile(fp, fname, ++ipng, extracting);
       }
     }
   } while (ch != EOF);
@@ -4357,7 +4643,7 @@ int check_magic(uch *magic, char *fname, int which)
       magic[6] != good_magic[6] || magic[7] != good_magic[7]) {
 
     if (!verbose) {
-      printf("%s:  File is CORRUPTED by text conversion.\n", fname);
+      printf("%s:  CORRUPTED by text conversion\n", fname);
       return 1;
     }
 
@@ -4400,24 +4686,24 @@ int check_magic(uch *magic, char *fname, int which)
 
 
 
-/* GRR:  not EBCDIC-safe! */
+/* GRR 20061203:  now EBCDIC-safe */
 int check_chunk_name(char *chunk_name, char *fname)
 {
-  if (isalpha((int)chunk_name[0]) && isalpha((int)chunk_name[1]) &&
-      isalpha((int)chunk_name[2]) && isalpha((int)chunk_name[3]))
+  if (isASCIIalpha((int)chunk_name[0]) && isASCIIalpha((int)chunk_name[1]) &&
+      isASCIIalpha((int)chunk_name[2]) && isASCIIalpha((int)chunk_name[3]))
     return 0;
 
-  printf("%s%s  Chunk name %02x %02x %02x %02x doesn't conform to naming "
-    "rules.\n", verbose? "":fname, verbose? "":":",
+  printf("%s%s  invalid chunk name \"%.*s\" (%02x %02x %02x %02x)\n",
+    verbose? "":fname, verbose? "":":", 4, chunk_name,
     chunk_name[0], chunk_name[1], chunk_name[2], chunk_name[3]);
-  set_err(2);
+  set_err(kMajorError);  /* usually means we've "jumped the tracks": bail! */
   return 1;
 }
 
 
 
 /* GRR 20050724 */
-/* caller must do set_err(1) based on return value */
+/* caller must do set_err(kMinorError) based on return value (0 == OK) */
 /* keyword_name is "keyword" for most chunks, but it can instead be "name" or
  * "identifier" or whatever makes sense for the chunk in question */
 int check_keyword(uch *buffer, int maxsize, int *pKeylen,
@@ -4475,4 +4761,96 @@ int check_keyword(uch *buffer, int maxsize, int *pKeylen,
   }
 
   return 0;
+}
+
+
+
+/* GRR 20061203 */
+/* caller must do set_err(kMinorError) based on return value (0 == OK) */
+int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
+{
+  char *qq = buffer, *bufEnd = buffer + len;
+  int have_sign = 0, have_integer = 0, have_dot = 0, have_fraction = 0;
+  int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
+  int rc = 0;
+
+  for (qq = buffer;  qq < bufEnd && !rc;  ++qq) {
+    switch (*qq) {
+      case '+':
+      case '-':
+        if (qq == buffer) {
+          have_sign = 1;
+          in_digits = 0;
+        } else if (have_E && !have_Esign) {
+          have_Esign = 1;
+          in_digits = 0;
+        } else {
+          printf("%s  invalid sign character%s%s (buf[%d])\n",
+            verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
+            qq-buffer);
+          rc = 1;
+        }
+        break;
+
+      case '.':
+        if (!have_dot && !have_E) {
+          have_dot = 1;
+          in_digits = 0;
+        } else {
+          printf("%s  invalid decimal point%s%s (buf[%d])\n",
+            verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
+            qq-buffer);
+          rc = 2;
+        }
+        break;
+
+      case 'e':
+      case 'E':
+        if (have_integer || have_fraction) {
+          have_E = 1;
+          in_digits = 0;
+        } else {
+          printf("%s  invalid exponent before mantissa%s%s (buf[%d])\n",
+            verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
+            qq-buffer);
+          rc = 3;
+        }
+        break;
+
+      default:
+        if (*qq < '0' || *qq > '9') {
+          printf("%s  invalid character ('%c' = 0x%02x)%s%s\n",
+            verbose? ":":fname, *qq, *qq,
+            verbose? "":" in ", verbose? "":chunkid);
+          rc = 4;
+        } else if (in_digits) {
+          /* still in digits:  do nothing */
+        } else if (!have_integer && !have_dot) {
+          have_integer = 1;
+          in_digits = 1;
+        } else if (have_dot && !have_fraction) {
+          have_fraction = 1;
+          in_digits = 1;
+        } else if (have_E && !have_exponent) {
+          have_exponent = 1;
+          in_digits = 1;
+        } else {
+          /* is this case possible? */
+          printf("%s  invalid digits%s%s (buf[%d])\n",
+            verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
+            qq-buffer);
+          rc = 5;
+        }
+        break;
+    }
+  }
+
+  /* must have either integer part or fractional part; all else is optional */
+  if (rc == 0 && !have_integer && !have_fraction) {
+    printf("%s  missing mantissa%s%s\n",
+      verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid);
+    rc = 6;
+  }
+
+  return rc;
 }

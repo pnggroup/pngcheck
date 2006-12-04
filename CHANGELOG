@@ -10,73 +10,92 @@
  *   JB   -  John Bowler
  *   TGL  -  Tom Lane
  *
- * 19950223 AL: fixed wrong magic numbers
- *
- * 19950313 AL: crc code from png spec, compiles on memory impaired PCs now,
- *          check for IHDR/IEND chunks
- *
- * 19950325 GRP: rewrote magic-number-checking and moved it to
- *          PNG_check_magic(buffer)
- *
- * 19950327 AL: fixed CRC code for 64 bit, -t switch, unsigned char vs. char
- *          pointer changes
- *
- * 19960601 AL: check for data after IEND chunk
- *
+ * 19950223 AL:  fixed wrong magic numbers
+ *               ["version 1.1"]
+ *               ---------------
+ * 19950313 AL:  CRC code from PNG spec; compiles on memory-impaired PCs now;
+ *               check for IHDR/IEND chunks
+ *               ["version 1.2"]
+ *               ---------------
+ * 19950325 GRP: rewrote magic-number-checking and moved it to PNG_check_magic()
+ *               ["version 1.3"]
+ *               ---------------
+ * 19950327 AL:  fixed CRC code for 64-bit; -t switch; unsigned char vs. char
+ *               pointer changes
+ *               ["version 1.4"]
+ *               ---------------
+ * 19960601 AL:  check for data after IEND chunk
+ *               ["version 1.5"]
+ *               ---------------
  * 19950601 GRR: reformatted; print tEXt and zTXt keywords; added usage
- *
- * 19950731 AL: check for control chars, check for MacBinary header, new
- *          force option
- *
- * 19950827 AL: merged Greg's 1.61 changes: print IHDR and tIME contents,
- *          call emx wildcard function
- *
+ * 19950601 GRR: released version 1.6, a.k.a. pngcheck-grr1.c
+ *               --------------------------------------------
+ * 19950607 GRR: print image info (IHDR) and tIME; enable EMX wildcards
+ * 19950615 GRR: released version 1.61, a.k.a. pngcheck-grr2.c
+ *               ---------------------------------------------
+ * 19950731 AL:  check for control chars; check for MacBinary header; new
+ *               force option
+ * 19950731 AL:  released version 1.7
+ *               --------------------
+ * 19950827 AL:  merged Greg's 1.61 changes: print IHDR and tIME contents,
+ *               call emx wildcard function
+ * 19950827 AL:  released version 1.8
+ *               --------------------
+ * 19950904 GRR: added brackets on keyword error messages to distinguish from
+ *               keyword text
+ * 19950904 GRR: released version 1.81
+ *               ---------------------
  * 19951121 AED: re-ordered internal chunk checking in pngcheck().
- *          Now decodes most of the known chunk types to check for invalid
- *          contents (except IDAT and zTXt).  Information is printed
- *          about the contents of known chunks, and unknown chunks have
- *          their chunk name flags decoded.  Also checks chunk ordering.
- *
+ *               Now decodes most of the known chunk types to check for invalid
+ *               contents (except IDAT and zTXt).  Information is printed
+ *               about the contents of known chunks, and unknown chunks have
+ *               their chunk name flags decoded.  Also checks chunk ordering.
+ * 19951121 AED: released version 1.9
+ *               --------------------
  * 19951126 AED: minor bug fixes and nicening of the output.  Checks for
- *          valid cHRM contents per Chris Lilley's recommendation.
- *
+ *               valid cHRM contents per Chris Lilley's recommendation.
+ * 19951126 AED: released version 1.91
+ *               ---------------------
  * 19951204 AED: minor bug in cHRM error output fixed
- *
- * 19960105 AED: added -q flaq to only output a message if an error occurrs
- *
- * 19960119 AED: added ability to parse multiple options with a single '-'
+ * 19960105 AED: added -q flaq to output a message only if an error occurs
+ * 19960105 AED: released version 1.92
+ *               ---------------------
+ * 19960119 AED: added ability to parse multiple options with a single '-';
  *               changed tIME output to be in RFC 1123 format
- *
+ * 19960306 AED: released version 1.93
+ *               ---------------------
  * 19960517 GRR: fixed obvious(?) fprintf error; fixed multiple-tIME error msg
- *
- * 19960521 AL: fixed two tRNS errors reported by someone from W3C (whose name
- *              I currently don't remember) (complained about missing palette
- *              in greyscale images, missing breaks in case statement)
- *              avoid reference to undefined array entry with out of range ityp
- *
- * 19960605 AED: removed extra linefeed from cHRM output when not verbose
- *               added test to see if sBIT contents are valid
- *               added test for zero width or height in IHDR
+ * 19960517 GRR: released version 1.94
+ *               ---------------------
+ * 19960521 AL:  fixed two tRNS errors reported by someone from W3C (whose name
+ *               I currently don't remember) (complained about missing palette
+ *               in greyscale images, missing breaks in case statement); avoid
+ *               reference to undefined array entry with out of range ityp
+ * 19960521 AL:  released version 1.95
+ *               ---------------------
+ * 19960605 AED: removed extra linefeed from cHRM output when not verbose;
+ *               added test to see if sBIT contents are valid;
+ *               added test for zero width or height in IHDR;
  *               added test for insufficient IDAT data (minimum 10 bytes)
- *
- * 19960605 AED: added -p flag to dump the palette contents
- *
- * 19961231 JB: add decoding of the zlib header from the first IDAT chunk (16-
- *              bit header code in first two bytes, see print_zlibheader).
- *
+ * 19960605 AED: released version 1.96
+ *               ---------------------
+ * 19960605 AED: added -p flag to dump the palette contents (decimal and hex);
+ *               cleaned up internals
+ * 19960927 AED: released version 1.97
+ *               ---------------------
+ * 19961231 JB:  add decoding of the zlib header from the first IDAT chunk (16-
+ *               bit header code in first two bytes, see print_zlibheader).
  * 19970102 GRR: more sensible zlib-header output (version "1.97grr"); nuked
  *               some tabs; fixed blank lines between files in verbose output
- *
- * 19970106 AED: initialize the command-line flags
- *               add macros to ensure the error level doesn't go down
- *               return error level to calling program
- *               consolidate PNG magic on one place
- *               add "-" as input file for stdin
- *               check for valid tEXt/zTXt keywords per PNG Spec 1.0
- *               slight modification to output of tEXt/zTXt keywords/contents
- *               change 'extract' to only output valid chunks (unless forced)
- *                 this may allow one to fix minor errors in a PNG file
- *
+ * 19970106 AED: initialize the command-line flags; add macros to ensure the
+ *               error level doesn't go down; return error level to calling
+ *               program; consolidate PNG magic on one place; add "-" as input
+ *               file for stdin; check for valid tEXt/zTXt keywords per PNG
+ *               Spec 1.0; slight modification to output of tEXt/zTXt keywords/
+ *               contents; change 'extract' to output only valid chunks (unless
+ *               forced)--this may allow one to fix minor errors in a PNG file
+ * 19970107 AED: released version 1.98
+ *               ---------------------
  * 19970107 GRR: added USE_ZLIB compile option to print line filters (with -vv)
  * 19970110 GRR: fixed line-filters code for large-IDAT case
  * 19970621 GRR: added compression-ratio info
@@ -172,4 +191,16 @@
  *               CRC error message ("actual/should be" -> "computed/expected");
  *               added sTER support
  * 20060617 GRR: released version 2.1.0
+ *               ----------------------
+ * 20061202 GRR: always print a per-file summary (even if error(s))
+ * 20061203 GRR: added tests for all but two of the error conditions present
+ *               in Chris Nokleberg's brokensuite-20061201; added new warning
+ *               level (treat as OK if private test, error if public); started
+ *               reducing dependence on global variables; added final totals
+ *               for errors, warnings, and "OK" files; switched to logical
+ *               names for error levels; fixed some inconsistent error levels;
+ *               started removing unsafe ASCII assumptions; added checks for
+ *               (private) cmOD, cpIp chunks; filled in old (missing) version
+ *               info in CHANGELOG
+ * 20061203 GRR: released version 2.2.0
  *               ----------------------

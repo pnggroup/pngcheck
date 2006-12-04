@@ -1,20 +1,36 @@
-pngcheck version 2.1.0 of 17 June 2006
+pngcheck version 2.2.0 of 3 December 2006
 
-I believe this is the sixth or seventh major release since version 1.98,
-which is when I took over maintenance of pngcheck from Alexander Lehmann
-and Andreas Dilger.  Enhancements since 1.98 include:  zlib capability
-(to test the compressed stream and, optionally, to print out the image's
-row filters); support for all known PNG, MNG and JNG chunks; extended
-support for printing palettes (includes transparency info and histograms
-now); better error-checking; info on the compression factor of the image
-(expressed as a percentage, where 0% is no compression and 100% would be
-total compression--note that this can be negative since it counts PNG's
-chunk overhead against the compression factor); png-fix-IDAT-windowsize
-and pngsplit utilities; and support for Win32 (using MSVC), RISC OS, and
-Amiga compilation.  It also contains many fixes, including ones from Tom
-Lane, Glenn Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John
-Bowler, and others.  Thanks also to Tim Pritlove, Bob Friesenhahn, the
-GraalOnline folks, Chris Nokleberg, and others for test images.
+A new release of brokensuite tends to be a good excuse for a new release of
+pngcheck, too.  This version detects errors or warning conditions in 105 of
+the 107 test cases in brokensuite-20061201, up from 89 for version 2.1.0.
+(The remaining two are ztxt_data_format.png and splt_duplicate_name.png;
+the former will be detected when I overhaul zlib support to handle zTXt,
+iTXt, iCCP, etc., while the latter...well, I'll get to it at some point, but
+detecting duplicate keywords for an ancillary chunk-type is not particularly
+high on my priority list at the moment. ;-) )
+
+Here's a list of the major enhancements since version 1.98, which was the
+last release before I took over maintenance:
+
+ - zlib support (to test the compressed stream and, optionally, to print
+   out the image's row filters)
+ - support for all remaining known PNG chunks (conformance)
+ - complete support for all known MNG and JNG chunks (informational)
+ - extended support for printing palettes (includes transparency info and
+   histograms)
+ - improved error-checking
+ - info on the compression factor of the image (expressed as a percentage,
+   where 0% is no compression and 100% would be total compression; note that
+   this can be negative since it counts PNG's chunk overhead against the
+   compression factor
+ - png-fix-IDAT-windowsize and pngsplit utilities
+ - compilation support for Win32 (using MSVC), RISC OS, and Amiga
+
+There are also many fixes, of course, including ones from Tom Lane, Glenn
+Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John Bowler, and
+others.  Thanks also to Chris Nokleberg (brokensuite), Tim Pritlove, Bob
+Friesenhahn, the GraalOnline folks, and others for test images.  See the
+included CHANGELOG file for the complete, detailed list of who did what.
 
 Note that while MNG support is now complete in the sense of covering all
 registered chunk types, there are still numerous error conditions that
@@ -23,8 +39,8 @@ erroneously.  Some of those can and will be fixed (particularly the latter
 class), but many of them involve complex interactions between different
 chunk types and would require virtually a full MNG decoder engine, something
 that is unlikely ever to happen in pngcheck.  In other words, consider
-pngcheck a handy debugging tool but not a full validator.  Use it in con-
-junction with the MNG specification and a libmng-based viewer for best
+pngcheck a handy MNG debugging tool but not a full validator.  Use it in
+conjunction with the MNG specification and a libmng-based viewer for best
 results.  (PNG support, on the other hand, is pretty solid.)  Also use
 zlib 1.2.x for best results--older versions failed to detect a number of
 invalid deflate/zlib conditions, including out-of-range LZ77 distance codes.
