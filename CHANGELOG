@@ -204,3 +204,17 @@
  *               info in CHANGELOG
  * 20061203 GRR: released version 2.2.0
  *               ----------------------
+ * 20070211 GRR: extended pngsplit file-signature recognizer to support MNG and
+ *               JNG (as claimed in help screen)
+ * 20070704 GRR: cleaner fix for narrow interlaced images (account for missing
+ *               passes); added rows per pass for interlaced images; added
+ *               pass-separators in -vv row-filter output; added -c option for
+ *               ANSI colors (filenames, chunk names, row filters, error/OK);
+ *               alphabetized options on usage screen; made const string-arrays
+ *               const
+ * 20070707 GRR: fixed 64-bit ptrdiff_t printf() issue (%td); added check for
+ *               NULLs (and "discouraged" chars) in tEXt; added check for zero
+ *               values in sCAL; fixed error cascade for private interlace
+ *               method; fixed non-verbose-mode IDAT/PLTE message
+ * 20070707 GRR: released version 2.3.0
+ *               ----------------------

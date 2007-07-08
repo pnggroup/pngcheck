@@ -27,7 +27,7 @@
 **
 */
 
-#define VERSION "0.52 BETA of 17 June 2006"
+#define VERSION "0.60 BETA of 11 February 2007"
 
 /*
  * TO DO:
@@ -92,9 +92,14 @@ static const char *pngsplit_usage = "\
    \"foo.png.0000.sig\", \"foo.png.0001.IHDR\", etc.).\n";
 
 static const uch pngsig[8] = {137, 80, 78, 71, 13, 10, 26, 10};
-ulg IHDR = ( (73L << 24) | (72L << 16) | (68L << 8) | (82L) );  // 0x49484452
-ulg IDAT = ( (73L << 24) | (68L << 16) | (65L << 8) | (84L) );  // 0x49444154
-ulg IEND = ( (73L << 24) | (69L << 16) | (78L << 8) | (68L) );  // 0x49454e44
+static const uch mngsig[8] = {138, 77, 78, 71, 13, 10, 26, 10};
+static const uch jngsig[8] = {139, 74, 78, 71, 13, 10, 26, 10};
+
+/*
+ * ulg IHDR = ( (73L << 24) | (72L << 16) | (68L << 8) | (82L) );  // 0x49484452
+ * ulg IDAT = ( (73L << 24) | (68L << 16) | (65L << 8) | (84L) );  // 0x49444154
+ * ulg IEND = ( (73L << 24) | (69L << 16) | (78L << 8) | (68L) );  // 0x49454e44
+ */
 
 
 static int pngsplit (char *filename, int force, int verbose);
@@ -280,12 +285,15 @@ static int pngsplit(char *filename, int force, int verbose)
     ** Step 1: read in the input image.
     */
 
-    // check PNG header
+    // check PNG/MNG/JNG header
     inptr = inbuf;
     incnt = fread(inbuf, 1, BUFSZ, infile);   // 4096 bytes
 
-    if (incnt < MIN_PNG_SIZE || memcmp(inbuf, pngsig, 8) != 0) {
-        fprintf(stderr, "  error:  %s is not a PNG file\n", filename);
+    if (incnt < MIN_PNG_SIZE || (memcmp(inbuf, pngsig, 8) != 0 &&
+        memcmp(inbuf, mngsig, 8) != 0 && memcmp(inbuf, jngsig, 8) != 0))
+    {
+        fprintf(stderr, "  error:  %s does not appear to be a PNG, MNG, or "
+          "JNG file\n", filename);
         fflush(stderr);
         return 17;
     }

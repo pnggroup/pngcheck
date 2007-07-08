@@ -9,7 +9,7 @@
  * readable form.
  *
  *        NOTE:  this program is currently NOT EBCDIC-compatible!
- *               (as of December 2006)
+ *               (as of July 2007)
  *
  * Maintainer:  Greg Roelofs <newt@pobox.com>
  * ChangeLog:   see CHANGELOG file
@@ -17,7 +17,7 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2006 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2007 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -33,10 +33,10 @@
  *
  *===========================================================================*/
 
-#define VERSION "2.2.0 of 3 December 2006"
+#define VERSION "2.3.0 of 7 July 2007"
 
 /*
- * GRR NOTE:  current MNG support is informational; error-checking is MINIMAL!
+ * NOTE:  current MNG support is informational; error-checking is MINIMAL!
  *
  *
  * Currently supported chunks, in order of appearance in pngcheck() function:
@@ -49,7 +49,8 @@
  *   iCCP iTXt oFFs pCAL pHYs sBIT sCAL sPLT
  *   sRGB tEXt zTXt tIME tRNS
  *
- *   cmOD cpIp mkBF mkBS mkBT prVW		// known private PNG chunks
+ *   cmOD cmPP cpIp mkBF mkBS mkBT mkTS pcLb	// known private PNG chunks
+ *   prVW spAL					// [msOG = ??]
  *
  *   JDAT JSEP  				// critical JNG chunks
  *
@@ -60,7 +61,7 @@
  *
  * Known unregistered, "public" chunks (i.e., invalid and now flagged as such):
  *
- *   pRVW nULL
+ *   pRVW nULL tXMP
  *
  *
  * GRR to do:
@@ -92,7 +93,7 @@
  *
  *    without zlib:
  *       gcc -O -o pngcheck pngcheck.c
- *    with zlib support:
+ *    with zlib support (recommended):
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
  *    or (static zlib):
  *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
@@ -185,7 +186,7 @@ void init_printbuf_state (printbuf_state *prbuf);
 void print_buffer (printbuf_state *prbuf, uch *buffer, int size, int indent);
 void report_printbuf (printbuf_state *prbuf, char *fname, char *chunkid);
 int  keywordlen (uch *buffer, int maxsize);
-char *getmonth (int m);
+const char *getmonth (int m);
 int  ratio (ulg uc, ulg c);
 ulg  gcf (ulg a, ulg b);
 int  pngcheck (FILE *fp, char *_fname, int searching, FILE *fpOut);
@@ -195,7 +196,8 @@ int  check_magic (uch *magic, char *fname, int which);
 int  check_chunk_name (char *chunk_name, char *fname);
 int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
                     char *keyword_name, char *chunkid, char *fname);
-int  check_ascii_float (char *buffer, int len, char *chunkid, char *fname);
+int  check_text (uch *buffer, int maxsize, char *chunkid, char *fname);
+int  check_ascii_float (uch *buffer, int len, char *chunkid, char *fname);
 
 #define BS 32000 /* size of read block for CRC calculation (and zlib) */
 
@@ -207,6 +209,23 @@ int  check_ascii_float (char *buffer, int len, char *chunkid, char *fname);
 #define DO_PNG  0
 #define DO_MNG  1
 #define DO_JNG  2
+
+/* GRR 20070704:  borrowed from GRR from/mailx hack */
+#define COLOR_NORMAL        "\033[0m"
+#define COLOR_RED_BOLD      "\033[01;31m"
+#define COLOR_RED           "\033[40;31m"
+#define COLOR_GREEN_BOLD    "\033[01;32m"
+#define COLOR_GREEN         "\033[40;32m"
+#define COLOR_YELLOW_BOLD   "\033[01;33m"
+#define COLOR_YELLOW        "\033[40;33m"	/* chunk names */
+#define COLOR_BLUE_BOLD     "\033[01;34m"
+#define COLOR_BLUE          "\033[40;34m"
+#define COLOR_MAGENTA_BOLD  "\033[01;35m"
+#define COLOR_MAGENTA       "\033[40;35m"
+#define COLOR_CYAN_BOLD     "\033[01;36m"
+#define COLOR_CYAN          "\033[40;36m"
+#define COLOR_WHITE_BOLD    "\033[01;37m"	/* filenames, filter seps */
+#define COLOR_WHITE         "\033[40;37m"
 
 #define isASCIIalpha(x)     (ascii_alpha_table[x] & 0x1)
 
@@ -235,6 +254,7 @@ int verbose = 0;	/* print chunk info */
 int quiet = 0;		/* print only error messages */
 int printtext = 0;	/* print tEXt chunks */
 int printpal = 0;	/* print PLTE/tRNS/hIST/sPLT contents */
+int color = 0;		/* print with ANSI colors to spice things up */
 int sevenbit = 0;	/* escape characters >=160 */
 int force = 0;		/* continue even if an error occurs (CRC error, etc) */
 int check_windowbits = 1;	/* more stringent zlib stream-checking */
@@ -249,16 +269,46 @@ int global_error = kOK; /* the current error status */
 uch buffer[BS];
 
 /* what the PNG, MNG and JNG magic numbers should be */
-static uch good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
-static uch good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
-static uch good_JNG_magic[8] = {139, 74, 78, 71, 13, 10, 26, 10};
+static const uch good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+static const uch good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
+static const uch good_JNG_magic[8] = {139, 74, 78, 71, 13, 10, 26, 10};
+
+/* GRR FIXME:  could merge all three of these into single table (bit fields) */
 
 /* GRR 20061203:  for "isalpha()" that works even on EBCDIC machines */
-static uch ascii_alpha_table[256] = {
+static const uch ascii_alpha_table[256] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
   0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0
+  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+};
+
+/* GRR 20070707:  list of forbidden characters in various keywords */
+static const uch latin1_keyword_forbidden[256] = {
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+};
+
+/* GRR 20070707:  list of discouraged (control) characters in tEXt/zTXt text */
+static const uch latin1_text_discouraged[256] = {
+  1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
 };
 
 #ifdef USE_ZLIB
@@ -268,18 +318,20 @@ static uch ascii_alpha_table[256] = {
    unsigned zlib_windowbits = 15;
    uch outbuf[BS];
    z_stream zstrm;
+   const char **pass_color;
+   const char *color_off;
 #else
    ulg crc_table[256];           /* table of CRCs of all 8-bit messages */
    int crc_table_computed = 0;   /* flag:  has the table been computed? */
 #endif
 
 
-static char *inv = "INVALID";
+static const char *inv = "INVALID";
 
 
 /* PNG stuff */
 
-static char *png_type[] = {			/* IHDR, tRNS, BASI, summary */
+static const char *png_type[] = {		/* IHDR, tRNS, BASI, summary */
   "grayscale",
   "INVALID",   /* can't use inv as initializer */
   "RGB",
@@ -289,7 +341,7 @@ static char *png_type[] = {			/* IHDR, tRNS, BASI, summary */
   "RGB+alpha"
 };
 
-static char *deflate_type[] = {				/* IDAT */
+static const char *deflate_type[] = {			/* IDAT */
   "superfast",
   "fast",
   "default",
@@ -297,7 +349,7 @@ static char *deflate_type[] = {				/* IDAT */
 };
 
 #ifdef USE_ZLIB
-static char *zlib_error_type[] = {			/* IDAT */
+static const char *zlib_error_type[] = {		/* IDAT */
   "filesystem error",
   "stream error",
   "data error",
@@ -305,18 +357,33 @@ static char *zlib_error_type[] = {			/* IDAT */
   "buffering error",
   "version error"
 };
-#endif
 
-static char *eqn_type[] = {				/* pCAL */
+static const char *pass_color_enabled[] = {		/* IDAT */
+  COLOR_NORMAL,		/* color_off */
+  COLOR_WHITE,		/* using 1-based indexing */
+  COLOR_BLUE,
+  COLOR_GREEN,
+  COLOR_YELLOW,
+  COLOR_RED,
+  COLOR_CYAN,
+  COLOR_MAGENTA
+};
+
+static const char *pass_color_disabled[] = {		/* IDAT */
+  "", "", "", "", "", "", "", ""
+};
+#endif /* USE_ZLIB */
+
+static const char *eqn_type[] = {			/* pCAL */
   "physical_value = p0 + p1 * original_sample / (x1-x0)",
   "physical_value = p0 + p1 * exp(p2 * original_sample / (x1-x0))",
   "physical_value = p0 + p1 * pow(p2, (original_sample / (x1-x0)))",
   "physical_value = p0 + p1 * sinh(p2 * (original_sample - p3) / (x1-x0))"
 };
 
-static int eqn_params[] = { 2, 3, 3, 4 };		/* pCAL */
+static const int eqn_params[] = { 2, 3, 3, 4 };		/* pCAL */
 
-static char *rendering_intent[] = {			/* sRGB */
+static const char *rendering_intent[] = {		/* sRGB */
   "perceptual",
   "relative colorimetric",
   "saturation-preserving",
@@ -326,7 +393,7 @@ static char *rendering_intent[] = {			/* sRGB */
 
 /* JNG stuff */
 
-static char *jng_type[] = {				/* JHDR, summary */
+static const char *jng_type[] = {			/* JHDR, summary */
   "grayscale",
   "YCbCr",
   "grayscale+alpha",
@@ -336,7 +403,7 @@ static char *jng_type[] = {				/* JHDR, summary */
 
 /* MNG stuff */
 
-static char *delta_type[] = {				/* DHDR */
+static const char *delta_type[] = {			/* DHDR */
   "full image replacement",
   "block pixel addition",
   "block alpha addition",
@@ -345,21 +412,21 @@ static char *delta_type[] = {				/* DHDR */
   "no change"
 };
 
-static char *termination_condition[] = {		/* LOOP */
+static const char *termination_condition[] = {		/* LOOP */
   "deterministic",
   "decoder discretion",
   "user discretion",
   "external signal"
 };
 
-static char *termination_action[] = {			/* TERM */
+static const char *termination_action[] = {		/* TERM */
   "show last frame indefinitely",
   "cease displaying anything",
   "show first frame after TERM",
   "repeat sequence between TERM and MEND"
 };
 
-static char *framing_mode[] = {				/* FRAM */
+static const char *framing_mode[] = {			/* FRAM */
   "no change in framing mode",
   "no background layer; interframe delay before each image displayed",
   "no background layer; interframe delay before each FRAM chunk",
@@ -367,13 +434,13 @@ static char *framing_mode[] = {				/* FRAM */
   "interframe delay and background layer after each FRAM chunk"
 };
 
-static char *change_interframe_delay[] = {		/* FRAM */
+static const char *change_interframe_delay[] = {	/* FRAM */
   "no change in interframe delay",
   "change interframe delay for next subframe",
   "change interframe delay and make default"
 };
 
-static char *change_timeout_and_termination[] = {	/* FRAM */
+static const char *change_timeout_and_termination[] = {	/* FRAM */
   "no change in timeout and termination",
   "deterministic change in timeout and termination for next subframe",
   "deterministic change in timeout and termination; make default",
@@ -385,31 +452,31 @@ static char *change_timeout_and_termination[] = {	/* FRAM */
   "change in timeout and termination via signal; make default"
 };
 
-static char *change_subframe_clipping_boundaries[] = {	/* FRAM */
+static const char *change_subframe_clipping_boundaries[] = {	/* FRAM */
   "no change in subframe clipping boundaries",
   "change frame clipping boundaries for next subframe",
   "change frame clipping boundaries and make default"
 };
 
-static char *change_sync_id_list[] = {			/* FRAM */
+static const char *change_sync_id_list[] = {		/* FRAM */
   "no change in sync ID list",
   "change sync ID list for next subframe:",
   "change sync ID list and make default:"
 };
 
-static char *clone_type[] = {				/* CLON */
+static const char *clone_type[] = {			/* CLON */
   "full",
   "partial",
   "renumber"
 };
 
-static char *do_not_show[] = {				/* DEFI, CLON */
+static const char *do_not_show[] = {			/* DEFI, CLON */
   "potentially visible",
   "do not show",
   "same visibility as parent"
 };
 
-static char *show_mode[] = {				/* SHOW */
+static const char *show_mode[] = {			/* SHOW */
   "make objects potentially visible and display",
   "make objects invisible",
   "display potentially visible objects",
@@ -420,14 +487,14 @@ static char *show_mode[] = {				/* SHOW */
   "make next object potentially visible but do not display; make rest invisible"
 };
 
-static char *entry_type[] = {				/* SAVE */
+static const char *entry_type[] = {			/* SAVE */
   "segment with full info",
   "segment",
   "subframe",
   "exported image"
 };
 
-static char *pplt_delta_type[] = {			/* PPLT */
+static const char *pplt_delta_type[] = {		/* PPLT */
   "replacement RGB samples",
   "delta RGB samples",
   "replacement alpha samples",
@@ -436,13 +503,13 @@ static char *pplt_delta_type[] = {			/* PPLT */
   "delta RGBA samples"
 };
 
-static char *composition_mode[] = {			/* PAST */
+static const char *composition_mode[] = {		/* PAST */
   "composite over",
   "replace",
   "composite under"
 };
 
-static char *orientation[] = {				/* PAST */
+static const char *orientation[] = {			/* PAST */
   "same as source image",
   "flipped left-right then up-down",
   "flipped left-right",
@@ -450,7 +517,7 @@ static char *orientation[] = {				/* PAST */
   "tiled with source image"
 };
 
-static char *order_type[] = {				/* ORDR */
+static const char *order_type[] = {			/* ORDR */
   "anywhere",
   "after IDAT and/or JDAT or JDAA",
   "before IDAT and/or JDAT or JDAA",
@@ -458,7 +525,7 @@ static char *order_type[] = {				/* ORDR */
   "before IDAT but not after PLTE"
 };
 
-static char *magnification_method[] = {			/* MAGN */
+static const char *magnification_method[] = {		/* MAGN */
   "no magnification",
   "pixel replication of all samples",
   "linear interpolation of all samples",
@@ -466,6 +533,20 @@ static char *magnification_method[] = {			/* MAGN */
   "linear interpolation of color, nearest-pixel replication of alpha",
   "linear interpolation of alpha, nearest-pixel replication of color"
 };
+
+const char *brief_error_color = COLOR_RED_BOLD "ERROR" COLOR_NORMAL;
+const char *brief_error_plain = "ERROR";
+const char *brief_warn_color = COLOR_YELLOW_BOLD "WARN" COLOR_NORMAL;
+const char *brief_warn_plain = "WARN";
+const char *brief_OK_color = COLOR_GREEN_BOLD "OK" COLOR_NORMAL;
+const char *brief_OK_plain = "OK";
+
+const char *errors_color = COLOR_RED_BOLD "ERRORS DETECTED" COLOR_NORMAL;
+const char *errors_plain = "ERRORS DETECTED";
+const char *warnings_color = COLOR_YELLOW_BOLD "WARNINGS DETECTED" COLOR_NORMAL;
+const char *warnings_plain = "WARNINGS DETECTED";
+const char *no_err_color = COLOR_GREEN_BOLD "No errors detected" COLOR_NORMAL;
+const char *no_err_plain = "No errors detected";
 
 
 
@@ -477,6 +558,8 @@ int main(int argc, char *argv[])
   int num_files = 0;
   int num_errors = 0;
   int num_warnings = 0;
+  const char *brief_error     = color? brief_error_color : brief_error_plain;
+  const char *errors_detected = color? errors_color      : errors_plain;
 
 #ifdef __EMX__
   _wildcard(&argc, &argv);   /* Unix-like globbing for OS/2 and DOS */
@@ -492,6 +575,10 @@ int main(int argc, char *argv[])
       case '7':
         printtext = 1;
         sevenbit = 1;
+        ++i;
+        break;
+      case 'c':
+        color = 1;
         ++i;
         break;
       case 'f':
@@ -520,7 +607,7 @@ int main(int argc, char *argv[])
         break;
       case 'v':
         ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
-        quiet = 0;
+        quiet = 0;  /* verbose == 4 means print pixel values, too */
         ++i;
         break;
       case 'w':
@@ -536,6 +623,22 @@ int main(int argc, char *argv[])
         usage(stderr);
         return kCommandLineError;
     }
+  }
+
+  if (color) {
+    brief_error = brief_error_color;
+    errors_detected = errors_color;
+#ifdef USE_ZLIB
+    pass_color = pass_color_enabled;
+    color_off = pass_color_enabled[0];
+#endif
+  } else {
+    brief_error = brief_error_plain;
+    errors_detected = errors_plain;
+#ifdef USE_ZLIB
+    pass_color = pass_color_disabled;
+    color_off = pass_color_disabled[0];
+#endif
   }
 
   if (argc == 1) {
@@ -554,9 +657,10 @@ int main(int argc, char *argv[])
       else if (err > kWarning) {
         ++num_errors;
         if (verbose)
-          printf("ERRORS DETECTED in %s\n", fname);
+          printf("%s in %s\n", errors_detected, fname);
         else
-          printf("ERROR: %s\n", fname);
+          printf("%s: %s%s%s\n", brief_error,
+            color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"");
       }
     }
   } else {
@@ -602,9 +706,10 @@ int main(int argc, char *argv[])
       else if (err > kWarning) {
         ++num_errors;
         if (verbose)
-          printf("ERRORS DETECTED in %s\n", fname);
+          printf("%s in %s\n", errors_detected, fname);
         else
-          printf("ERROR: %s\n", fname);
+          printf("%s: %s%s%s\n", brief_error,
+            color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"");
       }
     }
   }
@@ -644,25 +749,24 @@ void usage(FILE *fpMsg)
   fprintf(fpMsg, "\n"
     "Test PNG, JNG or MNG image files for corruption, and print size/type info."
     "\n\n"
-    "Usage:  pngcheck [-vqt7f] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
-    "   or:  ... | pngcheck [-sx][vqt7f]\n"
-    "   or:  pngcheck -{sx}[vqt7f] file-containing-PNGs...\n"
+    "Usage:  pngcheck [-7cfpqtv] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
+    "   or:  ... | pngcheck [-7cfpqstvx]\n"
+    "   or:  pngcheck [-7cfpqstvx] file-containing-PNGs...\n"
     "\n"
     "Options:\n"
+    "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n"
+    "   -c  colorize output (for ANSI terminals)\n"
+    "   -f  force continuation even after major errors\n"
+    "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n"
+    "   -q  test quietly (output only errors)\n"
+    "   -s  search for PNGs within another file\n"
+    "   -t  print contents of tEXt chunks (can be used with -q)\n"
     "   -v  test verbosely (print most chunk data)\n"
 #ifdef USE_ZLIB
     "   -vv test very verbosely (decode & print line filters)\n"
-#endif
-    "   -q  test quietly (output only errors)\n"
-#ifdef USE_ZLIB
     "   -w  suppress windowBits test (more-stringent compression check)\n"
 #endif
-    "   -t  print contents of tEXt chunks (can be used with -q)\n"
-    "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n"
-    "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n"
-    "   -f  force continuation even after major errors\n"
-    "   -s  search for PNGs within another file\n"
-    "   -x  search for PNGs and extract them when found\n"
+    "   -x  search for PNGs within another file and extract them when found\n"
     "\n"
     "Note:  MNG support is more informational than conformance-oriented.\n"
   );
@@ -854,9 +958,9 @@ int keywordlen(uch *buf, int maxsize)
 
 
 
-char *getmonth(int m)
+const char *getmonth(int m)
 {
-  static char *month[] = {
+  static const char *month[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
   };
@@ -940,11 +1044,16 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   printbuf_state prbuf_state;
   struct stat statbuf;
   static int first_file = 1;
+  const char *brief_warn  = color? brief_warn_color  : brief_warn_plain;
+  const char *brief_OK    = color? brief_OK_color    : brief_OK_plain;
+  const char *warnings_detected  = color? warnings_color : warnings_plain;
+  const char *no_errors_detected = color? no_err_color   : no_err_plain;
 
   global_error = kOK;
 
   if (verbose || printtext || printpal) {
-    printf("%sFile: %s", first_file? "":"\n", fname);
+    printf("%sFile: %s%s%s", first_file? "":"\n", color? COLOR_WHITE_BOLD:"",
+      fname, color? COLOR_NORMAL:"");
 
     if (searching) {
       printf("\n");
@@ -1061,8 +1170,9 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
     }
 
     if (verbose)
-      printf("  chunk %s at offset 0x%05lx, length %ld", chunkid,
-             ftell(fp)-4, sz);
+      printf("  chunk %s%s%s at offset 0x%05lx, length %ld",
+        color? COLOR_YELLOW:"", chunkid, color? COLOR_NORMAL:"",
+        ftell(fp)-4, sz);
 
     if (is_err(kMajorError))
       return global_error;
@@ -1074,7 +1184,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
         (jng && !have_JHDR && strcmp(chunkid,"JHDR")!=0))
     {
       printf("%s  first chunk must be %cHDR\n",
-             verbose? ":":fname, png? 'I' : (mng? 'M':'J'));
+        verbose? ":":fname, png? 'I' : (mng? 'M':'J'));
       set_err(kMinorError);
       if (!force)
         return global_error;
@@ -1084,7 +1194,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 
     if (fread(buffer, 1, (size_t)toread, fp) != (size_t)toread) {
       printf("%s  EOF while reading %s%sdata\n",
-             verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
+        verbose? ":":fname, verbose? "":chunkid, verbose? "":" ");
       set_err(kCriticalError);
       return global_error;
     }
@@ -1549,8 +1659,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
           set_err(kMajorError);
         }
       } else if (png && ityp == 3 && !have_PLTE) {
-        printf("%s  must follow PLTE in %s image\n",
-               verbose? ":":fname, png_type[ityp]);
+        printf("%s  %smust follow PLTE in %s image\n",
+          verbose? ":":fname, verbose? "":"IDAT ", png_type[ityp]);
         set_err(kMajorError);
       } else if (verbose)
         printf("\n");
@@ -1619,7 +1729,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         static uch *p;   /* always points to next filter byte */
         static int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
         static long cur_width, cur_linebytes;
-        static long numfilt, numfilt_this_block, numfilt_total;
+        static long numfilt, numfilt_this_block, numfilt_total, numfilt_pass[7];
         uch *eod;
         int err=Z_OK;
 
@@ -1649,29 +1759,49 @@ FIXME: make sure bit 31 (0x80000000) is 0
           numfilt = 0L;
           first_idat = 0;
           if (lace) {   /* loop through passes to calculate total filters */
-            int pass, yskip=0, yoff=0;
+            int passm1, yskip=0, yoff=0, xoff=0;
 
-            numfilt_total = 0L;
-            for (pass = 1;  pass <= 7;  ++pass) {
-              switch (pass) {
-                case 1:  /* fall through (see table below for full summary) */
-                case 2:  yskip = 8; yoff = 0; break;
-                case 3:  yskip = 8; yoff = 4; break;
-                case 4:  yskip = 4; yoff = 0; break;
-                case 5:  yskip = 4; yoff = 2; break;
-                case 6:  yskip = 2; yoff = 0; break;
-                case 7:  yskip = 2; yoff = 1; break;
+            if (verbose)  /* GRR FIXME? could move this calc outside USE_ZLIB */
+              printf("    rows per pass%s: ",
+                (lace > 1)? " (assuming Adam7-like interlacing)":"");
+            for (passm1 = 0;  passm1 < 7;  ++passm1) {
+              switch (passm1) {  /* (see table below for full summary) */
+                case 0:  yskip = 8; yoff = 0; xoff = 0; break;
+                case 1:  yskip = 8; yoff = 0; xoff = 4; break;
+                case 2:  yskip = 8; yoff = 4; xoff = 0; break;
+                case 3:  yskip = 4; yoff = 0; xoff = 2; break;
+                case 4:  yskip = 4; yoff = 2; xoff = 0; break;
+                case 5:  yskip = 2; yoff = 0; xoff = 1; break;
+                case 6:  yskip = 2; yoff = 1; xoff = 0; break;
               }
-              /* effective height is reduced if odd pass: subtract yoff */
-              numfilt_total += (h - yoff + yskip - 1) / yskip;
+              /* effective height is reduced if odd pass:  subtract yoff (but
+               * if effective width of pass is 0 => no rows and no filters) */
+              numfilt_pass[passm1] =
+                (w <= xoff)? 0 : (h - yoff + yskip - 1) / yskip;
+              if (verbose) {
+                /* colors here are handy as a key if row-filters are being
+                 * printed, but otherwise they're a bit too busy */
+                printf("%s%s%ld%s", passm1? ", ":"",
+                  (verbose > 1)? pass_color[passm1+1]:"",
+                  numfilt_pass[passm1], (verbose > 1)? color_off:"");
+              }
+              if (passm1 > 0)  /* now make it cumulative */
+                numfilt_pass[passm1] += numfilt_pass[passm1 - 1];
             }
-          } else
-            numfilt_total = h;   /* if non-interlaced */
+            if (verbose)
+              printf("\n");
+          } else {
+            numfilt_pass[0] = h;   /* if non-interlaced */
+            numfilt_pass[1] = numfilt_pass[2] = numfilt_pass[3] = h;
+            numfilt_pass[4] = numfilt_pass[5] = numfilt_pass[6] = h;
+          }
+          numfilt_total = numfilt_pass[6];
         }
 
         if (verbose > 1) {
-          printf("    zlib line filters (0 none, 1 sub, 2 up, 3 avg, "
-            "4 paeth)%s:\n     ", verbose > 3? " and data" : "");
+          printf("    row filters (0 none, 1 sub, 2 up, 3 avg, "
+            "4 paeth)%s:\n     %s", verbose > 3? " and data" : "",
+            pass_color[cur_pass]);
         }
         numfilt_this_block = 0L;
 
@@ -1693,17 +1823,21 @@ FIXME: make sure bit 31 (0x80000000) is 0
             if (cur_linebytes) {	/* GRP 20000727:  bugfix */
               int filttype = p[0];
               if (filttype > 127) {
+                if (lace > 1)
+                  break;  /* assume it's due to unknown interlace method */
                 if (numfilt_this_block == 0) {
                   /* warn only on first one per block; don't break */
                   printf("%s  private (invalid?) %srow-filter type (%d) "
-                    "(warning)\n", verbose? "\n":fname, verbose? "":"IDAT ",
+                    "(warning)\n", verbose? "\n  ":fname, verbose? "":"IDAT ",
                     filttype);
                   set_err(kWarning);
                 }
               } else if (filttype > 4) {
-                printf("%s  invalid %srow-filter type (%d)\n",
-                  verbose? "  ":fname, verbose? "":"IDAT ", filttype);
-                set_err(kMinorError);
+                if (lace <= 1) {
+                  printf("%s  invalid %srow-filter type (%d)\n",
+                    verbose? "  ":fname, verbose? "":"IDAT ", filttype);
+                  set_err(kMinorError);
+                } /* else assume it's due to unknown interlace method */
                 break;
               }
               if (verbose > 3) {	/* GRR 20000304 */
@@ -1724,10 +1858,29 @@ FIXME: make sure bit 31 (0x80000000) is 0
                     printf("\n     ");
                 }
                 ++numfilt;
+                if (lace && verbose > 1) {
+                  int passm1, cur_pass_delta=0;
+
+                  for (passm1 = 0;  passm1 < 6;  ++passm1) {  /* omit pass 7 */
+                    if (numfilt == numfilt_pass[passm1]) {
+                      ++cur_pass_delta;
+                      if (color) {
+                        printf("%s %s|", COLOR_NORMAL, COLOR_WHITE_BOLD);
+                      } else {
+                        printf(" |");
+                      }
+                      if (++numfilt_this_block % 25 == 0) /* pretend | is one */
+                        printf("%s\n     %s", color_off,
+                          pass_color[cur_pass + cur_pass_delta]);
+                    }
+                  }
+                  if (numfilt_this_block % 25)  /* else already did this */
+                    printf("%s%s", color_off,
+                      pass_color[cur_pass + cur_pass_delta]);
+                }
                 p += cur_linebytes;
               }
-            } else
-              --numfilt_total;
+            }
             cur_y += cur_yskip;
 
             if (lace) {
@@ -1760,13 +1913,13 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 /* effective width is reduced if even pass: subtract cur_xoff */
                 cur_width = (w - cur_xoff + cur_xskip - 1) / cur_xskip;
                 cur_linebytes = ((cur_width*bitdepth + 7) >> 3) + 1;
-                if (cur_linebytes == 1)	/* GRP 20000727:  added fix */
-                    --cur_linebytes;
+                if (cur_linebytes == 1)	/* just the filter byte?  no can do */
+                    cur_linebytes = 0;	/* GRP 20000727:  added fix */
               }
             } else if (cur_y >= h) {
               if (verbose > 3) {	/* GRR 20000304:  bad code */
-                printf(" %d bytes remaining in buffer before inflateEnd()",
-                  eod-p);
+                printf(" %td bytes remaining in buffer before inflateEnd()",
+                  eod-p);		// ptrdiff_t
                 printf("\n     ");
                 fflush(stdout);
                 i = inflateEnd(&zstrm);	/* we're all done */
@@ -1805,7 +1958,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
         }
         if (verbose > 1 && no_err(kMinorError))
-          printf(" (%ld out of %ld)\n", numfilt, numfilt_total);
+          printf("%s (%ld out of %ld)\n", color_off, numfilt, numfilt_total);
       }
       if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
         set_err(kMajorError);
@@ -2084,15 +2237,15 @@ FIXME: make sure bit 31 (0x80000000) is 0
         set_err(kMinorError);
       } else if (!have_PLTE) {
         printf("%s  %smust follow PLTE\n",
-               verbose? ":":fname, verbose? "":"hIST ");
+          verbose? ":":fname, verbose? "":"hIST ");
         set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"hIST ");
+          verbose? ":":fname, verbose? "":"hIST ");
         set_err(kMinorError);
       } else if (sz != nplte * 2) {
         printf("%s  invalid number of %sentries (%g)\n",
-               verbose? ":":fname, verbose? "":"hIST ", (double)sz / 2);
+          verbose? ":":fname, verbose? "":"hIST ", (double)sz / 2);
         set_err(kMajorError);
       }
       if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
@@ -2521,7 +2674,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
      *------*/
     } else if (strcmp(chunkid, "sCAL") == 0) {
       int unittype = buffer[0];
-      char *pPixwidth = buffer+1, *pPixheight=NULL;
+      uch *pPixwidth = buffer+1, *pPixheight=NULL;
 
       if (!mng && have_sCAL) {
         printf("%s  multiple sCAL not allowed\n", verbose? ":":fname);
@@ -2550,7 +2703,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           set_err(kMinorError);
         } else {
           pPixheight = qq + 1;
-          if (pPixheight == (char *)buffer+sz || *pPixheight == 0) {
+          if (pPixheight == buffer+sz || *pPixheight == 0) {
             printf("%s  missing %spixel height\n",
                    verbose? ":":fname, verbose? "":"sCAL ");
             set_err(kMinorError);
@@ -2572,7 +2725,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             set_err(kMinorError);
           } else if (check_ascii_float(pPixwidth, pPixheight-pPixwidth-1,
                                        chunkid, fname) ||
-                     check_ascii_float(pPixheight, (char *)buffer+sz-pPixheight,
+                     check_ascii_float(pPixheight, buffer+sz-pPixheight,
                                        chunkid, fname))
           {
             set_err(kMinorError);
@@ -2759,6 +2912,10 @@ FIXME: make sure bit 31 (0x80000000) is 0
 FIXME: add support for checking zlib header bytes of zTXt (and iTXt, iCCP, etc.)
  */
       }
+      else if (check_text(buffer + keylen + 1, toread - keylen - 1, chunkid,
+                          fname)) {
+        set_err(kMinorError);
+      }
       if (no_err(kMinorError)) {
         init_printbuf_state(&prbuf_state);
         if (verbose || printtext) {
@@ -2769,7 +2926,8 @@ FIXME: add support for checking zlib header bytes of zTXt (and iTXt, iCCP, etc.)
         if (printtext) {
           printf(verbose? "\n" : ":\n");
           if (strcmp(chunkid, "tEXt") == 0)
-            print_buffer(&prbuf_state, buffer + keylen + 1, toread - keylen - 1, 1);
+            print_buffer(&prbuf_state, buffer + keylen + 1,
+              toread - keylen - 1, 1);
           else {
             printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
 /*
@@ -2841,7 +2999,7 @@ FIXME: add support for decompressing/printing zTXt
         /* print the date in RFC 1123 format, rather than stored order */
         /* FIXME:  change to ISO-whatever format, i.e., yyyy-mm-dd hh:mm:ss? */
         if (verbose && no_err(kMinorError)) {
-          printf(": %2d %s %4d %02d:%02d:%02d GMT\n", dy, getmonth(mo), yr,
+          printf(": %2d %s %4d %02d:%02d:%02d UTC\n", dy, getmonth(mo), yr,
             hh, mm, ss);
         }
       }
@@ -2864,7 +3022,7 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMinorError);
       } else if (png && have_IDAT) {
         printf("%s  %smust precede IDAT\n",
-               verbose? ":":fname, verbose? "":"tRNS ");
+          verbose? ":":fname, verbose? "":"tRNS ");
         set_err(kMinorError);
       }
       if (no_err(kMinorError)) {
@@ -2872,7 +3030,7 @@ FIXME: add support for decompressing/printing zTXt
           case 0:
             if (sz != 2) {
               printf("%s  invalid %slength for %s image\n",
-                     verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
+                verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
               set_err(kMajorError);
             } else if (verbose && no_err(kMinorError)) {
               printf("\n    gray = 0x%04x\n", SH(buffer));
@@ -2881,7 +3039,7 @@ FIXME: add support for decompressing/printing zTXt
           case 2:
             if (sz != 6) {
               printf("%s  invalid %slength for %s image\n",
-                     verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
+                verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
               set_err(kMajorError);
             } else if (verbose && no_err(kMinorError)) {
               printf("\n    red = 0x%04x, green = 0x%04x, blue = 0x%04x\n",
@@ -2891,9 +3049,10 @@ FIXME: add support for decompressing/printing zTXt
           case 3:
             if (sz > nplte) {
               printf("%s  invalid %slength for %s image\n",
-                     verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
+                verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
               set_err(kMajorError);
-            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
+            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError))
+            {
               if (!verbose && printpal && !quiet)
                 printf("  tRNS chunk");
               printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
@@ -2934,6 +3093,15 @@ FIXME: add support for decompressing/printing zTXt
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
+     | cmPP |   (guessing MS)
+     *------*/
+    } else if (strcmp(chunkid, "cmPP") == 0) {
+      if (verbose)
+        printf("\n    "
+          "Microsoft Picture It(?) private, ancillary, unsafe-to-copy chunk\n");
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
      | cpIp |
      *------*/
     } else if (strcmp(chunkid, "cpIp") == 0) {
@@ -2970,12 +3138,42 @@ FIXME: add support for decompressing/printing zTXt
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
+     | mkTS |
+     *------*/
+    } else if (strcmp(chunkid, "mkTS") == 0) {
+      if (verbose)
+        printf("\n    "
+          "Macromedia Fireworks(?) private, ancillary, unsafe-to-copy chunk\n");
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /* msOG - Microsoft?  Macromedia? */
+
+    /*------*
+     | pcLb |
+     *------*/
+    } else if (strcmp(chunkid, "pcLb") == 0) {
+      if (verbose)
+        printf("\n    "
+          "Piclab(?) private, ancillary, safe-to-copy chunk\n");
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
      | prVW |
      *------*/
     } else if (strcmp(chunkid, "prVW") == 0) {
       if (verbose)
         printf("\n    Macromedia Fireworks preview chunk"
           " (private, ancillary, unsafe to copy)\n");
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+     | spAL |  intermediate sPLT test version (still had gamma field)
+     *------*/
+    } else if (strcmp(chunkid, "spAL") == 0) {
+      /* png-group/documents/history/png-proposed-sPLT-19961015.html */
+      if (verbose)
+        printf("\n    preliminary/test version of sPLT "
+          "(private, ancillary, unsafe to copy)\n");
       last_is_IDAT = last_is_JDAT = 0;
 
     /*================================================*
@@ -3358,7 +3556,7 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMajorError);
       }
       if (verbose && no_err(kMinorError)) {
-        char *noshow = do_not_show[0];
+        const char *noshow = do_not_show[0];
         uch concrete = 0;
         long x = 0L;
         long y = 0L;
@@ -3603,7 +3801,7 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMajorError);
       }
       if (verbose && no_err(kMinorError)) {
-        char *ctype;
+        const char *ctype;
 
         switch (buffer[0]) {
           case 2:
@@ -4083,7 +4281,7 @@ FIXME: add support for decompressing/printing zTXt
         int num_names = 0;
 
         while (bytes_left > 0) {
-          if (check_chunk_name(buf, fname) != 0) {
+          if (check_chunk_name((char *)buf, fname) != 0) {
             printf("%s  invalid chunk name to be dropped\n",
               verbose? ":":fname);
             set_err(kMinorError);
@@ -4121,7 +4319,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("%s  invalid %spolarity (%u)\n",
           verbose? ":":fname, verbose? "":"DBYK ", buffer[4]);
         set_err(kMinorError);
-      } else if (check_chunk_name(buffer, fname) != 0) {
+      } else if (check_chunk_name((char *)buffer, fname) != 0) {
         printf("%s  invalid chunk name to be dropped\n",
           verbose? ":":fname);
         set_err(kMinorError);
@@ -4193,7 +4391,7 @@ FIXME: add support for decompressing/printing zTXt
         if (verbose)
           printf("\n");
         while (bytes_left > 0) {
-          if (check_chunk_name(buf, fname) != 0) {
+          if (check_chunk_name((char *)buf, fname) != 0) {
             printf("%s  %slisted chunk name is invalid\n",
               verbose? ":":fname, verbose? "":"ORDR: ");
             set_err(kMinorError);
@@ -4436,10 +4634,13 @@ FIXME: add support for decompressing/printing zTXt
     if (mng) {
       if (verbose) {  /* already printed MHDR/IHDR/JHDR info */
         printf("%s in %s (%ld chunks).\n",
-          global_error? "WARNINGS DETECTED" : "No errors detected", fname, num_chunks);
+          global_error? warnings_detected : no_errors_detected, fname,
+          num_chunks);
       } else if (!quiet) {
-        printf("%s: %s (%ldx%ld, %ld chunks", global_error? "WARN" : "OK",
-          fname, mng_width, mng_height, num_chunks);
+        printf("%s: %s%s%s (%ldx%ld, %ld chunks",
+          global_error? brief_warn : brief_OK,
+          color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
+          mng_width, mng_height, num_chunks);
         if (vlc == 1)
           printf(", VLC");
         else if (lc == 1)
@@ -4475,16 +4676,20 @@ FIXME: add support for decompressing/printing zTXt
 
       if (verbose) {  /* already printed JHDR info */
         printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
-          global_error? "WARNINGS DETECTED" : "No errors detected", fname,
+          global_error? warnings_detected : no_errors_detected, fname,
           num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
         if (jtyp < 2)
-          printf("%s: %s (%ldx%ld, %d-bit %s%s%s, %s%d.%d%%).\n",
-            global_error? "WARN" : "OK", fname, w, h, jbitd, and, jng_type[jtyp],
+          printf("%s: %s%s%s (%ldx%ld, %d-bit %s%s%s, %s%d.%d%%).\n",
+            global_error? brief_warn : brief_OK,
+            color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
+            w, h, jbitd, and, jng_type[jtyp],
             lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
         else
-          printf("%s: %s (%ldx%ld, %d-bit %s%s + %d-bit alpha%s, %s%d.%d%%).\n",
-            global_error? "WARN" : "OK", fname, w, h, jbitd, and, jng_type[jtyp-2],
+          printf("%s: %s%s%s (%ldx%ld, %d-bit %s%s + %d-bit alpha%s, %s%d.%d%%)"
+            ".\n", global_error? brief_warn : brief_OK,
+            color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
+            w, h, jbitd, and, jng_type[jtyp-2],
             alphadepth, lace? ", progressive":"", sgn, cfactor/10, cfactor%10);
       }
 
@@ -4504,12 +4709,13 @@ FIXME: add support for decompressing/printing zTXt
 
       if (verbose) {  /* already printed IHDR/JHDR info */
         printf("%s in %s (%ld chunks, %s%d.%d%% compression).\n",
-          global_error? "WARNINGS DETECTED" : "No errors detected", fname,
+          global_error? warnings_detected : no_errors_detected, fname,
           num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
-        printf("%s: %s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
-          global_error? "WARN" : "OK", fname, w, h, bitdepth,
-          (ityp > 6)? png_type[1] : png_type[ityp],
+        printf("%s: %s%s%s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
+          global_error? brief_warn : brief_OK,
+          color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
+          w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
           (ityp == 3 && have_tRNS)? "+trns" : "",
           lace? "" : "non-", sgn, cfactor/10, cfactor%10);
       }
@@ -4628,8 +4834,8 @@ void pngsearch(FILE *fp, char *fname, int extracting)
 int check_magic(uch *magic, char *fname, int which)
 {
   int i;
-  uch *good_magic = (which == 0)? good_PNG_magic :
-                    ((which == 1)? good_MNG_magic : good_JNG_magic);
+  const uch *good_magic = (which == 0)? good_PNG_magic :
+                          ((which == 1)? good_MNG_magic : good_JNG_magic);
 
   for (i = 1; i < 3; ++i)
   {
@@ -4753,8 +4959,8 @@ int check_keyword(uch *buffer, int maxsize, int *pKeylen,
   }
 
   for (j = 0; j < keylen; ++j) {
-    if (buffer[j] < 32 || (buffer[j] > 126 && buffer[j] < 161)) {
-      printf("%s  %s %s has control characters (%u)\n",
+    if (latin1_keyword_forbidden[buffer[j]]) {   /* [0,31] || [127,160] */
+      printf("%s  %s %s has control character(s) (%u)\n",
         verbose? ":":fname, verbose? "":chunkid, keyword_name, buffer[j]);
       return 6;
     }
@@ -4765,13 +4971,37 @@ int check_keyword(uch *buffer, int maxsize, int *pKeylen,
 
 
 
-/* GRR 20061203 */
+/* GRR 20070707 */
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
-int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
+int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 {
-  char *qq = buffer, *bufEnd = buffer + len;
+  int j, ctrlwarn = verbose? 1 : 0;  /* print message once, only if verbose */
+
+  for (j = 0; j < maxsize; ++j) {
+    if (buffer[j] == 0) {
+      printf("%s  %s text contains NULL character(s)\n",
+        verbose? ":":fname, verbose? "":chunkid);
+      return 1;
+    } else if (ctrlwarn && latin1_text_discouraged[buffer[j]]) {
+      printf(":   text has control character(s) (%u) (discouraged)\n",
+        buffer[j]);
+      ctrlwarn = 0;
+    }
+  }
+
+  return 0;
+}
+
+
+
+/* GRR 20061203 (used only for sCAL) */
+/* caller must do set_err(kMinorError) based on return value (0 == OK) */
+int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
+{
+  uch *qq = buffer, *bufEnd = buffer + len;
   int have_sign = 0, have_integer = 0, have_dot = 0, have_fraction = 0;
   int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
+  int have_nonzero = 0;
   int rc = 0;
 
   for (qq = buffer;  qq < bufEnd && !rc;  ++qq) {
@@ -4785,9 +5015,9 @@ int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
           have_Esign = 1;
           in_digits = 0;
         } else {
-          printf("%s  invalid sign character%s%s (buf[%d])\n",
+          printf("%s  invalid sign character%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
-            qq-buffer);
+            qq-buffer);		// ptrdiff_t
           rc = 1;
         }
         break;
@@ -4797,9 +5027,9 @@ int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
           have_dot = 1;
           in_digits = 0;
         } else {
-          printf("%s  invalid decimal point%s%s (buf[%d])\n",
+          printf("%s  invalid decimal point%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
-            qq-buffer);
+            qq-buffer);		// ptrdiff_t
           rc = 2;
         }
         break;
@@ -4810,9 +5040,9 @@ int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
           have_E = 1;
           in_digits = 0;
         } else {
-          printf("%s  invalid exponent before mantissa%s%s (buf[%d])\n",
+          printf("%s  invalid exponent before mantissa%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
-            qq-buffer);
+            qq-buffer);		// ptrdiff_t
           rc = 3;
         }
         break;
@@ -4824,21 +5054,27 @@ int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
             verbose? "":" in ", verbose? "":chunkid);
           rc = 4;
         } else if (in_digits) {
-          /* still in digits:  do nothing */
+          /* still in digits:  do nothing except check for non-zero digits */
+          if (!have_exponent && *qq != '0')
+            have_nonzero = 1;
         } else if (!have_integer && !have_dot) {
           have_integer = 1;
           in_digits = 1;
+          if (*qq != '0')
+            have_nonzero = 1;
         } else if (have_dot && !have_fraction) {
           have_fraction = 1;
           in_digits = 1;
+          if (*qq != '0')
+            have_nonzero = 1;
         } else if (have_E && !have_exponent) {
           have_exponent = 1;
           in_digits = 1;
         } else {
           /* is this case possible? */
-          printf("%s  invalid digits%s%s (buf[%d])\n",
+          printf("%s  invalid digits%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
-            qq-buffer);
+            qq-buffer);		// ptrdiff_t
           rc = 5;
         }
         break;
@@ -4850,6 +5086,15 @@ int check_ascii_float(char *buffer, int len, char *chunkid, char *fname)
     printf("%s  missing mantissa%s%s\n",
       verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid);
     rc = 6;
+  }
+
+  /* non-exponent part must be non-zero (=> must have seen a non-zero digit) */
+  if (rc == 0 && !have_nonzero) {
+    if (verbose)
+      printf(":  invalid zero value(s)\n");
+    else
+      printf("%s  invalid zero %s value(s)\n", fname, chunkid);
+    rc = 7;
   }
 
   return rc;

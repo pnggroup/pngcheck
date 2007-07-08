@@ -1,13 +1,25 @@
-pngcheck version 2.2.0 of 3 December 2006
+pngcheck version 2.3.0 of 7 July 2007
 
-A new release of brokensuite tends to be a good excuse for a new release of
-pngcheck, too.  This version detects errors or warning conditions in 105 of
-the 107 test cases in brokensuite-20061201, up from 89 for version 2.1.0.
-(The remaining two are ztxt_data_format.png and splt_duplicate_name.png;
-the former will be detected when I overhaul zlib support to handle zTXt,
-iTXt, iCCP, etc., while the latter...well, I'll get to it at some point, but
-detecting duplicate keywords for an ancillary chunk-type is not particularly
-high on my priority list at the moment. ;-) )
+This version adds a new ANSI-colorized-output option (probably optimized for
+dark-background xterms) and more informative output for interlaced images,
+such as:
+
+  chunk IDAT at offset 0x000e1, length 8119
+    zlib: deflated, 32K window, default compression
+    rows per pass: 9, 9, 9, 18, 17, 35, 34                 // new summary line
+    row filters (0 none, 1 sub, 2 up, 3 avg, 4 paeth):
+      0 0 2 4 2 2 4 0 0 | 0 0 3 1 4 4 2 0 2 | 0 4 2 2 2    // vertical bars
+      2 2 0 0 | 0 0 2 2 2 2 2 2 2 2 2 2 2 2 4 2 0 0 | 0    //  separate passes
+      1 4 1 4 4 1 2 2 2 2 2 1 4 2 1 1 | 0 0 0 4 3 2 4 2
+      4 2 4 1 2 4 2 2 2 2 2 4 2 2 2 2 2 2 2 4 2 2 2 4 4
+      4 0 | 0 0 4 4 3 1 4 4 4 4 4 1 1 4 4 3 2 2 3 3 2 3
+      3 3 1 4 1 4 2 4 4 1 3 1 (131 out of 131)
+
+It also detects two more of the warning/error cases in brokensuite-20061204,
+bringing the total to 112 of the 114 files, and it fixes some minor problems
+with the output of some of the other cases.  In addition, pngsplit now sup-
+ports MNG and JNG files, as originally claimed but not actually implemented
+(oops...).
 
 Here's a list of the major enhancements since version 1.98, which was the
 last release before I took over maintenance:
@@ -18,12 +30,14 @@ last release before I took over maintenance:
  - complete support for all known MNG and JNG chunks (informational)
  - extended support for printing palettes (includes transparency info and
    histograms)
+ - color support
  - improved error-checking
  - info on the compression factor of the image (expressed as a percentage,
    where 0% is no compression and 100% would be total compression; note that
    this can be negative since it counts PNG's chunk overhead against the
-   compression factor
- - png-fix-IDAT-windowsize and pngsplit utilities
+   compression factor)
+ - png-fix-IDAT-windowsize utility
+ - pngsplit utility
  - compilation support for Win32 (using MSVC), RISC OS, and Amiga
 
 There are also many fixes, of course, including ones from Tom Lane, Glenn
