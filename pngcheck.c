@@ -74,9 +74,6 @@
  *   - allow top-level ancillary PNGs in MNG (i.e., subsequent ones may be NULL)
  *   * add MNG profile report based on actual chunks found
  *   - split out each chunk's code into XXXX() function (e.g., IDAT(), tRNS())
- *   * with USE_ZLIB, print zTXt and compressed iTXt chunks if -t option
- *       (break out zlib decoder into separate function and reuse)
- *       (also iCCP?)
  *   - DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   - EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
@@ -592,6 +589,12 @@ int main(int argc, char *argv[])
         printpal = 1;
         ++i;
         break;
+      case 'S':
+        verbose = 0;
+	force = 1;
+        quiet = 2; /* summary */
+        ++i;
+        break;
       case 'q':
         verbose = 0;
         quiet = 1;
@@ -658,7 +661,7 @@ int main(int argc, char *argv[])
         ++num_errors;
         if (verbose)
           printf("%s in %s\n", errors_detected, fname);
-        else
+        else if (quiet < 2)
           printf("%s: %s%s%s\n", brief_error,
             color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"");
       }
@@ -707,7 +710,7 @@ int main(int argc, char *argv[])
         ++num_errors;
         if (verbose)
           printf("%s in %s\n", errors_detected, fname);
-        else
+        else if (quiet < 2)
           printf("%s: %s%s%s\n", brief_error,
             color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"");
       }
@@ -759,6 +762,7 @@ void usage(FILE *fpMsg)
     "   -f  force continuation even after major errors\n"
     "   -p  print contents of PLTE, tRNS, hIST, sPLT and PPLT (can be used with -q)\n"
     "   -q  test quietly (output only errors)\n"
+    "   -S  test quietly but output a summary\n"
     "   -s  search for PNGs within another file\n"
     "   -t  print contents of tEXt chunks (can be used with -q)\n"
     "   -v  test verbosely (print most chunk data)\n"
@@ -1011,6 +1015,155 @@ ulg gcf(ulg a, ulg b)
 }
 
 
+#ifdef USE_ZLIB
+/*
+ * inflate a deflated thing.
+ */
+typedef struct inflate_buffer {
+  struct inflate_buffer *next;
+  uInt                   size;
+  uch                    buffer[16];
+} inflate_buffer;
+
+void inflate_buffer_delete(inflate_buffer **ptr) {
+  if ((*ptr)->next)
+    inflate_buffer_delete(&(*ptr)->next);
+  free(*ptr);
+  *ptr = 0;
+}
+
+inflate_buffer **inflate_buffer_end(inflate_buffer **ptr) {
+  while (*ptr) ptr = &(*ptr)->next;
+  return ptr;
+}
+
+inflate_buffer *inflate_buffer_add(inflate_buffer **ptr,
+    const uch *bytes, uInt size) {
+  inflate_buffer *add = malloc((sizeof *add)+size-16);
+  if (add) {
+    add->next = 0;
+    add->size = size;
+    memcpy(add->buffer, bytes, size);
+    *inflate_buffer_end(ptr) = add;
+  }
+  return add;
+}
+
+size_t inflate_buffer_length(inflate_buffer *ptr) {
+  if (ptr)
+    return inflate_buffer_length(ptr->next) + ptr->size;
+  return 0;
+}
+
+typedef struct inflate_engine {
+  inflate_buffer *list;
+  z_stream        zlib;
+  int             oom;
+  uch             temp[1024];
+} inflate_engine;
+
+int inflate_engine_init(inflate_engine *e) {
+  int rc;
+  memset(e, 0, sizeof *e);
+  rc = inflateInit(&e->zlib);
+  e->zlib.next_out = e->temp;
+  e->zlib.avail_out = sizeof e->temp;
+  return rc;
+}
+
+void inflate_engine_destroy(inflate_engine *e) {
+  if (e->list) inflate_buffer_delete(&e->list);
+  if (e->zlib.opaque) inflateEnd(&e->zlib);
+}
+
+void inflate_engine_stash(inflate_engine *e) {
+  if (e->zlib.next_out > e->temp && !e->oom) {
+    if (!inflate_buffer_add(&e->list, e->temp, e->zlib.next_out - e->temp)) {
+      inflate_buffer_delete(&e->list);
+      e->oom = 1;
+    }
+  }
+  e->zlib.next_out = e->temp;
+  e->zlib.avail_out = sizeof e->temp;
+}
+
+size_t inflate_engine_length(inflate_engine *e) {
+  return inflate_buffer_length(e->list);
+}
+
+int inflate_engine_process(inflate_engine *e, uch *bytes, size_t avail_in,
+    const char *chunkid, const char *fname, int end) {
+  int rc, stashed;
+  e->zlib.next_in = bytes;
+
+  for (;;) {
+    if (avail_in > (uInt)-1)
+      e->zlib.avail_in = (uInt)-1;
+    else
+      e->zlib.avail_in = (uInt)/*SAFE*/avail_in;
+    avail_in -= e->zlib.avail_in;
+    rc = inflate(&e->zlib, Z_NO_FLUSH);
+    avail_in += e->zlib.avail_in;
+    /* Stash the output first: */
+    stashed = (e->zlib.avail_out == 0);
+    if (stashed) inflate_engine_stash(e);
+
+    switch (rc) {
+      case Z_OK:
+        /* At the end may have to go round the loop again with no more input
+         * if we ran out of output.
+         */
+        if (avail_in == 0 && (!end || !stashed)) return Z_OK;
+        continue;
+
+      case Z_STREAM_END:
+        inflate_engine_stash(e); /* Store any remaining bytes */
+        if (e->zlib.avail_in > 0) {
+          fprintf(stderr, "%s: %s: extra compressed data\n", fname, chunkid);
+          set_err(kWarning);
+        }
+        return Z_STREAM_END;
+
+      case Z_BUF_ERROR:
+        /* At the end we get this from the above attempt to finish if the
+         * stream really was truncated!  Return Z_OK here because the code
+         * above provoked the buffer error.
+         */
+        if (avail_in == 0 && !stashed && end) return Z_OK;
+        if (e->zlib.msg == NULL) e->zlib.msg = "jpegtopng bug"; /* BUG */
+        /* FALL THROUGH */
+      default: /* zlib error */
+        fprintf(stderr, "%s: %s: zlib code %d: '%s'\n", fname, chunkid, rc,
+            e->zlib.msg ? e->zlib.msg : "<nothing>");
+        set_err(kWarning);
+        return rc;
+    }
+  }
+}
+
+void inflate_engine_print(printbuf_state *prbuf, inflate_engine *e, int indent)
+{
+  inflate_buffer *buf = e->list;
+
+  while (buf) {
+    print_buffer(prbuf, buf->buffer, buf->size, indent);
+    buf = buf->next;
+  }
+}
+
+int inflate_engine_check_text(inflate_engine *e, char *chunkid, char *fname) {
+  inflate_buffer *buf = e->list;
+
+  while (buf) {
+    if (check_text(buf->buffer, buf->size, chunkid, fname))
+      return 1; /* text includes a '\0' */
+    buf = buf->next;
+  }
+  return 0;
+}
+#endif /* USE_ZLIB */
+
+
 
 int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 {
@@ -1023,7 +1176,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int c;
   int have_IHDR = 0, have_IEND = 0;
   int have_MHDR = 0, have_MEND = 0;
-  int have_DHDR = 0, have_PLTE = 0;
+  int have_PLTE = 0;
   int have_JHDR = 0, have_JSEP = 0, need_JSEP = 0;
   int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
   int have_bKGD = 0, have_cHRM = 0, have_gAMA = 0, have_hIST = 0, have_iCCP = 0;
@@ -1038,9 +1191,14 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   long w = 0L, h = 0L;
   long mng_width = 0L, mng_height = 0L;
   int vlc = -1, lc = -1;
-  int bitdepth = 0, sampledepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
+  uch ityp = 1;
+  int bitdepth = 0, sampledepth = 0, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
   int did_stat = 0;
+#ifdef USE_ZLIB
+  unsigned long filter_counts[7][7];
+  int last_filter = 5;
+#endif
   printbuf_state prbuf_state;
   struct stat statbuf;
   static int first_file = 1;
@@ -1050,6 +1208,17 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   const char *no_errors_detected = color? no_err_color   : no_err_plain;
 
   global_error = kOK;
+
+#ifdef USE_ZLIB
+  {
+    int i;
+    for (i=0; i<7; ++i) {
+      int j;
+      for (j=0; j<7; ++j)
+        filter_counts[i][j] = 0;
+    }
+  }
+#endif
 
   if (verbose || printtext || printpal) {
     printf("%sFile: %s%s%s", first_file? "":"\n", color? COLOR_WHITE_BOLD:"",
@@ -1429,7 +1598,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (no_err(kMinorError)) {
         ulg tps, playtime, profile;
-        int validtrans = 0;
+        /* int validtrans = 0; */
 
         mng_width  = w = LG(buffer);
         mng_height = h = LG(buffer+4);
@@ -1505,7 +1674,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               printf("%s%svalid transparency info", bits? ", " : "",
                 (bits > 0 && (bits % 3) == 0)? "\n      " : "");
             ++bits;
-            validtrans = 1;
+            /* validtrans = 1; */
           }
           if (/* validtrans && */ profile & 0x0080) {
             if (verbose)
@@ -1822,6 +1991,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
 
             if (cur_linebytes) {	/* GRP 20000727:  bugfix */
               int filttype = p[0];
+              if (filttype <= 4) {
+	        filter_counts[last_filter][filttype]++;
+		last_filter = filttype;
+	      } else {
+		/* Handle all user defined filters in one block. */
+	        filter_counts[last_filter][6]++;
+		last_filter = 6;
+	      }
               if (filttype > 127) {
                 if (lace > 1)
                   break;  /* assume it's due to unknown interlace method */
@@ -1948,7 +2125,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
             sz -= toread;
             toread = (sz > BS)? BS:sz;
             if ((data_read = fread(buffer, 1, toread, fp)) != toread) {
-              printf("\nEOF while reading %s data\n", chunkid);
+              printf("\n%s  EOF while reading %s data\n", verbose? ":":fname,
+		chunkid);
               set_err(kCriticalError);
               return global_error;
             }
@@ -2088,19 +2266,19 @@ FIXME: make sure bit 31 (0x80000000) is 0
         bx = (double)LG(buffer+24)/100000;
         by = (double)LG(buffer+28)/100000;
 
-        if (wx < 0 || wx > 0.8 || wy < 0 || wy > 0.8 || wx + wy > 1.0) {
+        if (wx < 0 || wx > 0.8 || wy <= 0 || wy > 1.0 || wx + wy > 1.0) {
           printf("%s  invalid %swhite point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", wx, wy);
           set_err(kMinorError);
-        } else if (rx < 0 || rx > 0.8 || ry < 0 || ry > 0.8 || rx + ry > 1.0) {
+        } else if (rx < 0 || rx > 1.0 || ry < 0 || ry > 1.0 || rx + ry > 1.0) {
           printf("%s  invalid %sred point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", rx, ry);
           set_err(kMinorError);
-        } else if (gx < 0 || gx > 0.8 || gy < 0 || gy > 0.8 || gx + gy > 1.0) {
+        } else if (gx < 0 || gx > 1.0 || gy < 0 || gy > 1.0 || gx + gy > 1.0) {
           printf("%s  invalid %sgreen point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", gx, gy);
           set_err(kMinorError);
-        } else if (bx < 0 || bx > 0.8 || by < 0 || by > 0.8 || bx + by > 1.0) {
+        } else if (bx < 0 || bx > 1.0 || by < 0 || by > 1.0 || bx + by > 1.0) {
           printf("%s  invalid %sblue point %0g %0g\n",
                  verbose? ":":fname, verbose? "":"cHRM ", bx, by);
           set_err(kMinorError);
@@ -2277,7 +2455,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (!mng && have_iCCP) {
         printf("%s  multiple iCCP not allowed\n", verbose? ":":fname);
         set_err(kMinorError);
-      } else if (!mng && have_sRGB) {
+      } else if (!mng && have_sRGB && 0) {
         printf("%s  %snot allowed with sRGB\n",
                verbose? ":":fname, verbose? "":"iCCP ");
         set_err(kMinorError);
@@ -2335,7 +2513,10 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (check_keyword(buffer, toread, &keylen, "keyword", chunkid, fname))
         set_err(kMinorError);
       else {
-        int compressed = 0, compr = 0, taglen = 0;
+        int compressed = 0, compr = 0;
+#ifdef USE_ZLIB
+        int can_inflate = 0;
+#endif
 
         init_printbuf_state(&prbuf_state);
         if (verbose) {
@@ -2363,8 +2544,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
             verbose? ":":fname, verbose? "":"iTXt ", compr);
           set_err(kMinorError);
         }
+#ifdef USE_ZLIB
+        else
+          can_inflate = 1;
+#endif
         if (no_err(kMinorError)) {
-          taglen = keywordlen(buffer+keylen+3, toread-keylen-3);
+          int taglen = keywordlen(buffer+keylen+3, toread-keylen-3);
+          int tranlen = keywordlen(buffer+keylen+3+taglen+1,
+              toread-(keylen+3+taglen+1));
           if (verbose) {
             if (taglen > 0) {
               printf("    %scompressed, language tag = ", compressed? "":"un");
@@ -2376,16 +2563,61 @@ FIXME: make sure bit 31 (0x80000000) is 0
             if (buffer[keylen+3+taglen+1] == 0)
               printf("\n    no translated keyword, %ld bytes of UTF-8 text\n",
                 sz - (keylen+3+taglen+1));
-            else
+            else {
               printf("\n    %ld bytes of translated keyword and UTF-8 text\n",
                 sz - (keylen+3+taglen));
+              print_buffer(&prbuf_state, buffer+keylen+3+taglen+1, tranlen, 0);
+            }
           } else if (printtext) {
-            if (buffer[keylen+3+taglen+1] == 0)
-              printf("    (no translated keyword, %ld bytes of UTF-8 text)\n",
-                sz - (keylen+3+taglen+1));
-            else
-              printf("    (%ld bytes of translated keyword and UTF-8 text)\n",
-                sz - (keylen+3+taglen));
+            int text_offset = keylen+3+taglen+1+tranlen+1;
+            if (!compressed) {
+              print_buffer(&prbuf_state, buffer+text_offset,
+                  toread-text_offset, 1);
+              printf("\n");
+            }
+#ifdef USE_ZLIB
+            else if (can_inflate) {
+              inflate_engine e;
+
+              if (inflate_engine_init(&e) == Z_OK) {
+                int rc = inflate_engine_process(&e, buffer+keylen+2,
+                    toread-text_offset, chunkid, fname, toread == sz);
+                const char *tag = "";
+                const char *type = "UTF-8 text";
+
+                if (rc == Z_OK) {
+                  if (toread == sz) {
+                    set_err(kWarning);
+                    tag = "UNTERMINATED ";
+                    fprintf(stderr, "%s: %s: %s: unterminated deflate data\n",
+                        fname, chunkid, buffer);
+                  }
+                } else if (rc != Z_STREAM_END) {
+                  tag = "DAMAGED ";
+                  fprintf(stderr, "%s: %s: %s: damaged deflate data\n", fname,
+                      chunkid, buffer);
+                }
+
+                if (inflate_engine_check_text(&e, chunkid, fname)) {
+                  set_err(kWarning); /* text contains '\0' */
+                  type = "binary";
+                }
+
+                printf("    (%ld characters of %scompressed %s %s)\n",
+                    inflate_engine_length(&e), tag, chunkid, type);
+                inflate_engine_print(&prbuf_state, &e, 1);
+                inflate_engine_destroy(&e);
+              } else
+                fprintf(stderr, "%s: %s: failed to init zlib (ignored)\n",
+                    fname, chunkid);
+            }
+#endif /* USE_ZLIB */
+            else {
+              printf("    (compressed %s UTF-8 text)\n", chunkid);
+            }
+
+            if (toread != sz)
+              printf("    {%ld bytes not read}\n", sz-toread);
           }
         }
         report_printbuf(&prbuf_state, fname, chunkid);   /* print CR/LF & NULLs info */
@@ -2894,6 +3126,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
     } else if (strcmp(chunkid, "tEXt") == 0 || strcmp(chunkid, "zTXt") == 0) {
       int ztxt = (chunkid[0] == 'z');
       int keylen;
+#ifdef USE_ZLIB
+      int can_inflate = 0;
+#endif
 
       if (check_keyword(buffer, toread, &keylen, "keyword", chunkid, fname))
         set_err(kMinorError);
@@ -2908,13 +3143,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
             verbose? ":":fname, verbose? "":"zTXt ", compr);
           set_err(kMinorError);
         }
-/*
-FIXME: add support for checking zlib header bytes of zTXt (and iTXt, iCCP, etc.)
- */
+#ifdef USE_ZLIB
+        else
+          can_inflate = 1;
+#endif
       }
       else if (check_text(buffer + keylen + 1, toread - keylen - 1, chunkid,
                           fname)) {
-        set_err(kMinorError);
+        set_err(kWarning);
       }
       if (no_err(kMinorError)) {
         init_printbuf_state(&prbuf_state);
@@ -2928,11 +3164,45 @@ FIXME: add support for checking zlib header bytes of zTXt (and iTXt, iCCP, etc.)
           if (strcmp(chunkid, "tEXt") == 0)
             print_buffer(&prbuf_state, buffer + keylen + 1,
               toread - keylen - 1, 1);
+#ifdef USE_ZLIB
+          else if (can_inflate) {
+            inflate_engine e;
+
+            if (inflate_engine_init(&e) == Z_OK) {
+              int rc = inflate_engine_process(&e, buffer+keylen+2,
+                  toread-keylen-2, chunkid, fname, toread == sz);
+              const char *tag = "";
+              const char *type = "text";
+
+              if (rc == Z_OK) {
+                if (toread == sz) {
+                  set_err(kWarning);
+                  tag = "UNTERMINATED ";
+                  fprintf(stderr, "%s: %s: %s: unterminated deflate data\n",
+                      fname, chunkid, buffer);
+                }
+              } else if (rc != Z_STREAM_END) {
+                tag = "DAMAGED ";
+                fprintf(stderr, "%s: %s: %s: damaged deflate data\n", fname,
+                    chunkid, buffer);
+              }
+
+              if (inflate_engine_check_text(&e, chunkid, fname)) {
+                set_err(kWarning); /* text contains '\0' */
+                type = "binary";
+              }
+
+              printf("    (%ld characters of %scompressed %s %s)\n",
+                  inflate_engine_length(&e), tag, chunkid, type);
+              inflate_engine_print(&prbuf_state, &e, 1);
+              inflate_engine_destroy(&e);
+            } else
+              fprintf(stderr, "%s: %s: failed to init zlib (ignored)\n", fname,
+                  chunkid);
+          }
+#endif /* USE_ZLIB */
           else {
             printf("%s(compressed %s text)", verbose? "    " : "", chunkid);
-/*
-FIXME: add support for decompressing/printing zTXt
- */
           }
 
           /* For the sake of simplifying this program, we will not print
@@ -2942,6 +3212,8 @@ FIXME: add support for decompressing/printing zTXt
            * mean that the tEXt/zTXt contents will be lost if extracting.
            */
           printf("\n");
+          if (toread != sz)
+            printf("    {%ld bytes not read}\n", sz-toread);
         } else if (verbose) {
           printf("\n");
         }
@@ -3280,7 +3552,6 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      have_DHDR = 1;
       last_is_IDAT = last_is_JDAT = 0;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
@@ -4621,7 +4892,7 @@ FIXME: add support for decompressing/printing zTXt
     }
   }
 
-  if (global_error > kWarning)
+  if (global_error > kWarning && quiet != 2)
     return global_error;
 
   /* GRR 19970621: print compression ratio based on file size vs. byte-packed
@@ -4718,6 +4989,26 @@ FIXME: add support for decompressing/printing zTXt
           w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
           (ityp == 3 && have_tRNS)? "+trns" : "",
           lace? "" : "non-", sgn, cfactor/10, cfactor%10);
+      } else if (quiet == 2) {
+        /* The same information but more concise: */
+        printf("%s%s%s %ld %ld %d %s%s %sinterlaced %s%d.%d%%",
+          color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
+          w, h, bitdepth, (ityp > 6)? png_type[1] : png_type[ityp],
+          (ityp == 3 && have_tRNS)? "+trns" : "",
+          lace? "" : "non-", sgn, cfactor/10, cfactor%10);
+#ifdef USE_ZLIB
+	/* Record the end-of-line filter: */
+	filter_counts[last_filter][5]++;
+        {
+          int i;
+          for (i=0; i<7; ++i) {
+	    int j;
+	    for (j=0; j<7; ++j)
+	      printf(" %lu", filter_counts[i][j]);
+	  }
+        }
+#endif
+        printf("\n");
       }
     }
 
@@ -4977,7 +5268,7 @@ int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 {
   int j, ctrlwarn = verbose? 1 : 0;  /* print message once, only if verbose */
 
-  for (j = 0; j < maxsize; ++j) {
+  if (quiet != 2) for (j = 0; j < maxsize; ++j) {
     if (buffer[j] == 0) {
       printf("%s  %s text contains NULL character(s)\n",
         verbose? ":":fname, verbose? "":chunkid);
@@ -4999,7 +5290,7 @@ int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
 {
   uch *qq = buffer, *bufEnd = buffer + len;
-  int have_sign = 0, have_integer = 0, have_dot = 0, have_fraction = 0;
+  int have_integer = 0, have_dot = 0, have_fraction = 0;
   int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
   int have_nonzero = 0;
   int rc = 0;
@@ -5009,7 +5300,6 @@ int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
       case '+':
       case '-':
         if (qq == buffer) {
-          have_sign = 1;
           in_digits = 0;
         } else if (have_E && !have_Esign) {
           have_Esign = 1;
