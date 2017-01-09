@@ -17,7 +17,7 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2007 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2017 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "2.3.0 of 7 July 2007"
+#define VERSION "2.4.0-beta09 of 9 January 2017"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
