@@ -888,28 +888,38 @@ void init_printbuf_state(printbuf_state *prbuf)
 /* GRR EBCDIC WARNING */
 void print_buffer(printbuf_state *prbuf, uch *buf, int size, int indent)
 {
+  int linewidth = 79, ctg;
+  const char *term;
   if (indent)
-    printf("    ");
+    printf("    "), linewidth -= 4, term = "\\\n    ";
+  else
+    term = "\\\n";
+  ctg = linewidth;
   while (size--) {
     uch c;
 
     c = *buf++;
 
     if ((c < ' ' && c != '\t' && c != '\n') ||
-        (sevenbit? c > 127 : (c >= 127 && c < 160)))
-      printf("\\%02X", c);
+        (sevenbit? c > 127 : (c >= 127 && c < 160))) {
+      if (ctg < 3) printf("%s", term), ctg = linewidth;
+      printf("\\%02X", c), ctg -= 3;
+    }
 /*
     else if (c == '\\')
       printf("\\\\");
  */
-    else
-      putchar(c);
+    else {
+      if (ctg < 1) printf("%s", term), ctg = linewidth;
+      putchar(c), ctg -= 1;
+    }
 
     if (c < 32 || (c >= 127 && c < 160)) {
       if (c == '\n') {
         prbuf->lf = 1;
         if (indent && size > 0)
           printf("    ");
+        ctg = linewidth;
       } else if (c == '\r')
         prbuf->cr = 1;
       else if (c == '\0')
@@ -2561,10 +2571,10 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 compressed? "":"un");
             }
             if (buffer[keylen+3+taglen+1] == 0)
-              printf("\n    no translated keyword, %ld bytes of UTF-8 text\n",
+              printf("\n    no translated keyword, %ld bytes of compressed UTF-8 text\n",
                 sz - (keylen+3+taglen+1));
             else {
-              printf("\n    %ld bytes of translated keyword and UTF-8 text\n",
+              printf("\n    %ld bytes of translated keyword and compressed UTF-8 text\n",
                 sz - (keylen+3+taglen));
               print_buffer(&prbuf_state, buffer+keylen+3+taglen+1, tranlen, 0);
             }
@@ -2580,7 +2590,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               inflate_engine e;
 
               if (inflate_engine_init(&e) == Z_OK) {
-                int rc = inflate_engine_process(&e, buffer+keylen+2,
+                int rc = inflate_engine_process(&e, buffer+text_offset,
                     toread-text_offset, chunkid, fname, toread == sz);
                 const char *tag = "";
                 const char *type = "UTF-8 text";
@@ -2607,6 +2617,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                     inflate_engine_length(&e), tag, chunkid, type);
                 inflate_engine_print(&prbuf_state, &e, 1);
                 inflate_engine_destroy(&e);
+                printf("\n");
               } else
                 fprintf(stderr, "%s: %s: failed to init zlib (ignored)\n",
                     fname, chunkid);
