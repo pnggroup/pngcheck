@@ -1,0 +1,71 @@
+# Sample makefile for pngcheck using mingw32-gcc (native or cross) and make.
+# Greg Roelofs
+# Last modified:  12 July 2007
+#
+# Invoke this makefile from a DOS-prompt window via:
+#
+#	make -f Makefile.mingw32
+#
+# This makefile assumes zlib has already been built or downloaded and is in
+# a subdirectory at the same level as the current subdirectory (as indicated
+# by the ZPATH macro below).  Edit as appropriate.
+#
+# Note that the names of the dynamic and static zlib libraries used below may
+# change in later releases of the library.  This makefile builds statically
+# linked executables, but that can be changed by uncommenting the appropriate
+# ZLIB line.
+
+
+# macros --------------------------------------------------------------------
+
+#ZPATH = ../zlib
+ZPATH = ../zlib-win32
+ZINC = -I$(ZPATH)
+#ZLIB = $(ZPATH)/libzdll.a #	link dynamically against DLL
+ZLIB = $(ZPATH)/libz.a #	link statically
+
+INCS = $(ZINC)
+LIBS = $(ZLIB)
+
+#CC = gcc
+CC = i386-mingw32msvc-gcc #	e.g., Linux -> Win32 cross-compilation
+LD = $(CC)
+RM = rm -f
+CFLAGS = -O -Wall $(INCS) $(MINGW_CCFLAGS) -DUSE_ZLIB
+# [note that -Wall is a gcc-specific compilation flag ("most warnings on")]
+LDFLAGS = $(MINGW_LDFLAGS)
+O = .o
+E = .exe
+
+PROG  = pngcheck
+PROG2 = pngsplit
+PROG3 = png-fix-IDAT-windowsize
+
+EXES  = $(PROG)$(E) $(PROG2)$(E) $(PROG3)$(E)
+
+
+# implicit make rules -------------------------------------------------------
+
+.c$(O):
+	$(CC) -c $(CFLAGS) $<
+
+
+# dependencies --------------------------------------------------------------
+
+all:  $(EXES)
+
+$(PROG)$(E): $(PROG).c
+	$(CC) $(CFLAGS) -o $@ $(PROG).c $(LIBS)
+
+# both of these require zlib, too (for crc32() function)
+$(PROG2)$(E): gpl/$(PROG2).c
+	$(CC) $(CFLAGS) -o $@ gpl/$(PROG2).c $(LIBS)
+
+$(PROG3)$(E): gpl/$(PROG3).c
+	$(CC) $(CFLAGS) -o $@ gpl/$(PROG3).c $(LIBS)
+
+
+# maintenance ---------------------------------------------------------------
+
+clean:
+	$(RM) $(EXES)

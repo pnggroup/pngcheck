@@ -69,7 +69,7 @@
  *   - fix tEXt chunk:  small buffers or lots of text => truncation
  *       (see pngcheck-1.99.4-test.c.dif)
  *   - fix iCCP, sPLT chunks:  small buffers or large chunks => truncation?
- *   - update existing MNG support to version 1.0 (already done?)
+ *   - update existing MNG support to version 1.0 (DHDR bug just fixed 2010!)
  *   - add JNG restrictions to bKGD
  *   - allow top-level ancillary PNGs in MNG (i.e., subsequent ones may be NULL)
  *   * add MNG profile report based on actual chunks found
@@ -212,19 +212,19 @@ int  check_ascii_float (uch *buffer, int len, char *chunkid, char *fname);
 
 /* GRR 20070704:  borrowed from GRR from/mailx hack */
 #define COLOR_NORMAL        "\033[0m"
-#define COLOR_RED_BOLD      "\033[01;31m"
+#define COLOR_RED_BOLD      "\033[40;31;1m"
 #define COLOR_RED           "\033[40;31m"
-#define COLOR_GREEN_BOLD    "\033[01;32m"
+#define COLOR_GREEN_BOLD    "\033[40;32;1m"
 #define COLOR_GREEN         "\033[40;32m"
-#define COLOR_YELLOW_BOLD   "\033[01;33m"
+#define COLOR_YELLOW_BOLD   "\033[40;33;1m"
 #define COLOR_YELLOW        "\033[40;33m"	/* chunk names */
-#define COLOR_BLUE_BOLD     "\033[01;34m"
+#define COLOR_BLUE_BOLD     "\033[40;34;1m"
 #define COLOR_BLUE          "\033[40;34m"
-#define COLOR_MAGENTA_BOLD  "\033[01;35m"
+#define COLOR_MAGENTA_BOLD  "\033[40;35;1m"
 #define COLOR_MAGENTA       "\033[40;35m"
-#define COLOR_CYAN_BOLD     "\033[01;36m"
+#define COLOR_CYAN_BOLD     "\033[40;36;1m"
 #define COLOR_CYAN          "\033[40;36m"
-#define COLOR_WHITE_BOLD    "\033[01;37m"	/* filenames, filter seps */
+#define COLOR_WHITE_BOLD    "\033[40;37;1m"	/* filenames, filter seps */
 #define COLOR_WHITE         "\033[40;37m"
 
 #define isASCIIalpha(x)     (ascii_alpha_table[x] & 0x1)
@@ -3261,7 +3261,7 @@ FIXME: add support for decompressing/printing zTXt
           (dtype < sizeof(delta_type)/sizeof(char *))?
           delta_type[dtype] : inv);
         if (sz > 4) {
-          if (dtype == 5) {
+          if (dtype == 7) {
             printf("%s  invalid %slength for delta type %d\n",
               verbose? ":":fname, verbose? "":"DHDR ", dtype);
             set_err(kMinorError);
@@ -3269,7 +3269,7 @@ FIXME: add support for decompressing/printing zTXt
             printf("    block width = %lu, block height = %lu\n", LG(buffer+4),
               LG(buffer+8));
             if (sz > 12) {
-              if (dtype == 0 || dtype == 5) {
+              if (dtype == 0) {
                 printf("%s  invalid %slength for delta type %d\n",
                   verbose? ":":fname, verbose? "":"DHDR ", dtype);
                 set_err(kMinorError);

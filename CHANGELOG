@@ -218,3 +218,7 @@
  *               method; fixed non-verbose-mode IDAT/PLTE message
  * 20070707 GRR: released version 2.3.0
  *               ----------------------
+ * 20070709 GRR: tweaked color definitions slightly to work better on terminals
+ *               with white/light backgrounds
+ * 20070712 GRR: added Makefile.mingw32
+ * 20100504 GRR: fixed DHDR (pre-MNG-1.0) bug identified by Winfried <szukw000@arcor.de>
