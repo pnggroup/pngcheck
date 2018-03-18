@@ -670,13 +670,13 @@ int main(int argc, char *argv[])
 #ifdef USE_ZLIB
     /* make sure we're using the zlib version we were compiled to use */
     if (zlib_version[0] != ZLIB_VERSION[0]) {
-      printf("zlib error:  incompatible version (expected %s,"
+      fprintf(stderr, "zlib error:  incompatible version (expected %s,"
         " using %s):  skipping zlib check\n\n", ZLIB_VERSION, zlib_version);
       check_zlib = 0;
       if (verbose > 1)
         verbose = 1;
     } else if (strcmp(zlib_version, ZLIB_VERSION) != 0) {
-      printf("zlib warning:  different version (expected %s,"
+      fprintf(stderr, "zlib warning:  different version (expected %s,"
         " using %s)\n\n", ZLIB_VERSION, zlib_version);
     }
 #endif /* USE_ZLIB */
