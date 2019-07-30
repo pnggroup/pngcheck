@@ -5139,7 +5139,7 @@ int check_magic(uch *magic, char *fname, int which)
   const uch *good_magic = (which == 0)? good_PNG_magic :
                           ((which == 1)? good_MNG_magic : good_JNG_magic);
 
-  for (i = 1; i < 3; ++i)
+  for (i = 1; i <= 3; ++i)
   {
     if (magic[i] != good_magic[i]) {
       return 2;
