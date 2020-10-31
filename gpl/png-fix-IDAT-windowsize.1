@@ -1,0 +1,27 @@
+.TH PNG-FIX-IDAT-WINDOWSIZE "1" "October 2020" "png-fix-IDAT-windowsize 1.0" "User Commands"
+.SH NAME
+png-fix-IDAT-windowsize \- manual page for png-fix-IDAT-windowsize 1.0
+.SH SYNOPSIS
+.B png\-fix\-IDAT\-windowsize
+.RI [ options ]
+.I pngfile
+.RI [ pngfile \ ...]
+.SH DESCRIPTION
+png\-fix\-IDAT\-windowsize, version 1.0 of 31 October 2020, by Greg Roelofs.
+.PP
+Uses explicit, hardcoded compression settings and line filters, writing
+result to output file with extension "\-fixed.png".
+.PP
+This software is licensed under the GNU General Public License.
+There is NO warranty.
+.SH OPTIONS
+.TP
+.B \-force
+overwrite existing output files
+.TP
+.B \-verbose
+print more status messages (synonym:
+.BR \-noquiet )
+.SH "SEE ALSO"
+.BR pngcheck (1),
+.BR pngsplit (1)

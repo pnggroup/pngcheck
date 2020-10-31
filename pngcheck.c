@@ -17,7 +17,7 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2007 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2020 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "2.3.0 of 7 July 2007"
+#define VERSION "2.4.0 of 31 October 2020"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -45,9 +45,9 @@
  *
  *   PLTE IDAT IEND				// critical PNG chunks
  *
- *   bKGD cHRM fRAc gAMA gIFg gIFt gIFx hIST	// ancillary PNG chunks
- *   iCCP iTXt oFFs pCAL pHYs sBIT sCAL sPLT
- *   sRGB tEXt zTXt tIME tRNS
+ *   bKGD cHRM eXIf fRAc gAMA gIFg gIFt gIFx	// ancillary PNG chunks
+ *   hIST iCCP iTXt oFFs pCAL pHYs sBIT sCAL
+ *   sPLT sRGB sTER tEXt zTXt tIME tRNS
  *
  *   cmOD cmPP cpIp mkBF mkBS mkBT mkTS pcLb	// known private PNG chunks
  *   prVW spAL					// [msOG = ??]
@@ -69,16 +69,17 @@
  *   - fix tEXt chunk:  small buffers or lots of text => truncation
  *       (see pngcheck-1.99.4-test.c.dif)
  *   - fix iCCP, sPLT chunks:  small buffers or large chunks => truncation?
- *   - update existing MNG support to version 1.0 (already done?)
+ *   - update existing MNG support to version 1.0 (DHDR bug just fixed 2010!)
  *   - add JNG restrictions to bKGD
  *   - allow top-level ancillary PNGs in MNG (i.e., subsequent ones may be NULL)
  *   * add MNG profile report based on actual chunks found
- *   - split out each chunk's code into XXXX() function (e.g., IDAT(), tRNS())
+ *   - REFACTOR THE WHOLE THING!  split out each chunk's code into a separate
+ *       XXXX() function (e.g., IDAT(), tRNS())
  *   * with USE_ZLIB, print zTXt and compressed iTXt chunks if -t option
  *       (break out zlib decoder into separate function and reuse)
  *       (also iCCP?)
- *   - DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
- *   - EBCDIC support (minimal?)
+ *   ? DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
+ *   ? EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
  *
  *
@@ -92,11 +93,13 @@
  * Compilation example (GNU C, command line; replace "/zlibpath" appropriately):
  *
  *    without zlib:
- *       gcc -O -o pngcheck pngcheck.c
+ *       gcc -Wall -O -o pngcheck pngcheck.c
  *    with zlib support (recommended):
- *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
+ *       gcc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
+ *    or (if zlib lives in non-standard location):
+ *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
  *    or (static zlib):
- *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
+ *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
  * whatever has been run):
@@ -212,19 +215,19 @@ int  check_ascii_float (uch *buffer, int len, char *chunkid, char *fname);
 
 /* GRR 20070704:  borrowed from GRR from/mailx hack */
 #define COLOR_NORMAL        "\033[0m"
-#define COLOR_RED_BOLD      "\033[01;31m"
+#define COLOR_RED_BOLD      "\033[40;31;1m"
 #define COLOR_RED           "\033[40;31m"
-#define COLOR_GREEN_BOLD    "\033[01;32m"
+#define COLOR_GREEN_BOLD    "\033[40;32;1m"
 #define COLOR_GREEN         "\033[40;32m"
-#define COLOR_YELLOW_BOLD   "\033[01;33m"
+#define COLOR_YELLOW_BOLD   "\033[40;33;1m"
 #define COLOR_YELLOW        "\033[40;33m"	/* chunk names */
-#define COLOR_BLUE_BOLD     "\033[01;34m"
+#define COLOR_BLUE_BOLD     "\033[40;34;1m"
 #define COLOR_BLUE          "\033[40;34m"
-#define COLOR_MAGENTA_BOLD  "\033[01;35m"
+#define COLOR_MAGENTA_BOLD  "\033[40;35;1m"
 #define COLOR_MAGENTA       "\033[40;35m"
-#define COLOR_CYAN_BOLD     "\033[01;36m"
+#define COLOR_CYAN_BOLD     "\033[40;36;1m"
 #define COLOR_CYAN          "\033[40;36m"
-#define COLOR_WHITE_BOLD    "\033[01;37m"	/* filenames, filter seps */
+#define COLOR_WHITE_BOLD    "\033[40;37;1m"	/* filenames, filter seps */
 #define COLOR_WHITE         "\033[40;37m"
 
 #define isASCIIalpha(x)     (ascii_alpha_table[x] & 0x1)
@@ -1023,12 +1026,12 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int c;
   int have_IHDR = 0, have_IEND = 0;
   int have_MHDR = 0, have_MEND = 0;
-  int have_DHDR = 0, have_PLTE = 0;
+  int /* have_DHDR = 0, */ have_PLTE = 0;
   int have_JHDR = 0, have_JSEP = 0, need_JSEP = 0;
   int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
-  int have_bKGD = 0, have_cHRM = 0, have_gAMA = 0, have_hIST = 0, have_iCCP = 0;
-  int have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0, have_sCAL = 0;
-  int have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
+  int have_bKGD = 0, have_cHRM = 0, have_eXIf = 0, have_gAMA = 0, have_hIST = 0;
+  int have_iCCP = 0, have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0;
+  int have_sCAL = 0, have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
   int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
   int top_level = 1;
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
@@ -1429,7 +1432,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
       }
       if (no_err(kMinorError)) {
         ulg tps, playtime, profile;
-        int validtrans = 0;
+        /* int validtrans = 0; */
 
         mng_width  = w = LG(buffer);
         mng_height = h = LG(buffer+4);
@@ -1505,7 +1508,7 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
               printf("%s%svalid transparency info", bits? ", " : "",
                 (bits > 0 && (bits % 3) == 0)? "\n      " : "");
             ++bits;
-            validtrans = 1;
+            /* validtrans = 1; */
           }
           if (/* validtrans && */ profile & 0x0080) {
             if (verbose)
@@ -2120,6 +2123,30 @@ FIXME: make sure bit 31 (0x80000000) is 0
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
+     | eXIf |
+     *------*/
+    } else if (strcmp(chunkid, "eXIf") == 0) {
+      if (jng) {
+        printf("%s  eXIf not defined in JNG\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (png && have_eXIf) {
+        printf("%s  multiple eXIf not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      }
+      else if (verbose /* && no_err(kMinorError) */) {
+        if (SH(buffer) == 0x4d4d && buffer[2] == 0 && buffer[3] == 0x2a) {
+          printf(": EXIF metadata, big-endian (MM) format\n");
+        } else if (SH(buffer) == 0x4949 && buffer[2] == 0x2a && buffer[3] == 0) {
+          printf(": EXIF metadata, little-endian (II) format\n");
+        } else {
+          printf(": EXIF metadata, unrecognized format: 0x%02x 0x%02x 0x%02x 0x%02x\n",
+                 buffer[0], buffer[1], buffer[2], buffer[3]);
+        }
+      }
+      have_eXIf = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
      | fRAc |
      *------*/
     } else if (strcmp(chunkid, "fRAc") == 0) {
@@ -2152,6 +2179,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
                verbose? ":":fname, verbose? "":"gAMA ");
         set_err(kMinorError);
       }
+      // FIXME?  probably need to distinguish from minor errors in this chunk
+      // (no need for new line) and those in previous chunks (need newline for
+      // verbose mode, and no real harm in printing gAMA info, too); likely
+      // applies to many other chunks as well, but need to create an appropriate
+      // test PNG to verify
       if (verbose && no_err(kMinorError)) {
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
@@ -3051,8 +3083,7 @@ FIXME: add support for decompressing/printing zTXt
               printf("%s  invalid %slength for %s image\n",
                 verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
               set_err(kMajorError);
-            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError))
-            {
+            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
               if (!verbose && printpal && !quiet)
                 printf("  tRNS chunk");
               printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
@@ -3261,7 +3292,7 @@ FIXME: add support for decompressing/printing zTXt
           (dtype < sizeof(delta_type)/sizeof(char *))?
           delta_type[dtype] : inv);
         if (sz > 4) {
-          if (dtype == 5) {
+          if (dtype == 7) {
             printf("%s  invalid %slength for delta type %d\n",
               verbose? ":":fname, verbose? "":"DHDR ", dtype);
             set_err(kMinorError);
@@ -3269,7 +3300,7 @@ FIXME: add support for decompressing/printing zTXt
             printf("    block width = %lu, block height = %lu\n", LG(buffer+4),
               LG(buffer+8));
             if (sz > 12) {
-              if (dtype == 0 || dtype == 5) {
+              if (dtype == 0) {
                 printf("%s  invalid %slength for delta type %d\n",
                   verbose? ":":fname, verbose? "":"DHDR ", dtype);
                 set_err(kMinorError);
@@ -3280,7 +3311,7 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      have_DHDR = 1;
+      //have_DHDR = 1;
       last_is_IDAT = last_is_JDAT = 0;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
@@ -4999,7 +5030,7 @@ int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
 {
   uch *qq = buffer, *bufEnd = buffer + len;
-  int have_sign = 0, have_integer = 0, have_dot = 0, have_fraction = 0;
+  int /* have_sign = 0, */ have_integer = 0, have_dot = 0, have_fraction = 0;
   int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
   int have_nonzero = 0;
   int rc = 0;
@@ -5009,7 +5040,7 @@ int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
       case '+':
       case '-':
         if (qq == buffer) {
-          have_sign = 1;
+          //have_sign = 1;
           in_digits = 0;
         } else if (have_E && !have_Esign) {
           have_Esign = 1;
