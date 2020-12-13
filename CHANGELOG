@@ -232,3 +232,17 @@
  *               (thanks to Ben Beasley for catching that)
  * 20201031 GRR: released version 2.4.0
  *               ----------------------
+ * 20201113 BB:  fixed buffer-overflow vulnerability discovered by "giantbranch
+ *               of NSFOCUS Security Team"
+ *               https://bugzilla.redhat.com/show_bug.cgi?id=1897485
+ * 20201128 BB:  found and fixed four additional vulnerabilities (null-pointer
+ *               dereference and three buffer overruns)
+ * 20201209 LP:  fixed an off-by-one bug in check_magic() (Lucy Phipps)
+ * 20201209 LL:  converted two zlib-version warnings/errors to go to stderr
+ *               (Lemures Lemniscati, actually from 20180318; forwarded by LP)
+ * 20201210 BB:  fixed another buffer-overflow vulnerability discovered by
+ *               "giantbranch of NSFOCUS Security Team"
+ *               https://bugzilla.redhat.com/show_bug.cgi?id=1905775
+ * 20201212 GRR: removed -f ("force") option due to multiple security issues
+ * 20201212 GRR: released version 3.0.0
+ *               ----------------------
