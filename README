@@ -1,19 +1,7 @@
-pngcheck version 3.0.0 of 12 December 2020
+pngcheck version 3.0.1 of 24 January 2021
 
-This version gets a major-version bump not because of a huge new feature but
-because an existing feature was removed.  Specifically, the implementation of
-the -f ("force continuation after major errors") option was lacking--largely
-because it's difficult to properly reason about program state after continuing
-beyond one or more critical errors--and had resulted in a growing number of
-security vulnerabilities being reported.  (The combinatorial issues surrounding
-the force option, various verbosity levels, multiple chunk-printing and
-character-set options, and optional zlib decoding only exacerbate the problem.)
-
-That said, a number of the recently reported vulnerabilities were fixed by
-Ben Beasley of the Fedora Linux project, for which I am most grateful.  (He
-found a number of them himself, as did "giantbranch of NSFOCUS Security Team.")
-Thanks also to Lucy Phipps for tracking down an off-by-one error in PNG/MNG/JNG
-signature validation and for forwarding another small patch from github.
+This version fixes two more security vulnerabilities discovered by Ben Beasley
+of the Fedora Linux project (who also supplied the fixes).  Again, our thanks!
 
 Here's a list of the major enhancements since version 1.98, which was the
 last release before I took over maintenance:
@@ -33,6 +21,10 @@ last release before I took over maintenance:
  - png-fix-IDAT-windowsize utility
  - pngsplit utility
  - compilation support for Win32 (using MSVC), RISC OS, and Amiga
+
+Also, this "anti-enhancement" occurred in version 3.0.0 for security reasons:
+
+ - -f ("force continuation after major errors") option REMOVED
 
 There are also many fixes, of course, including ones from Tom Lane, Glenn
 Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John Bowler, and
@@ -59,12 +51,12 @@ UTF-16 and UTF-32-based ones, if there are any for which "char" defaults to
 more than 8 bits), but there doesn't seem to be much point in that anymore.
 I'd still kind of like to extend the zlib support to include zTXt, iTXt, iCCP,
 etc., but given the pace of recent years ("nonexistent" would be fair), folks
-should definitely not hold their breath.  Similarly, the code could also do a
-better job with chunks whose data exceed the buffer size, and in general,
-immense if-else blocks (e.g., > 3000 lines) are extremely nasty and should be
-rewritten, but...yeah.  The gap between 2.3.0 and 2.4.0 (the two previous
-releases) was bigger than that between 2.3.0 and the creation of the PNG format
-itself. :-/  (Did we mention that PNG turned 25 this year?)
+should definitely not hold their breath waiting for that.  Similarly, the code
+could do a better job with chunks whose data exceed the buffer size, and in
+general, immense if-else blocks (e.g., > 3000 lines) are extremely nasty and
+should be rewritten, but...yeah.  The gap between 2.3.0 and 2.4.0 (the two
+previous releases) was bigger than that between 2.3.0 and the creation of the
+PNG format itself. :-/  (Did we mention that PNG turned 25 in 2020?)
 
 But if there ever are additional updates, you might find them here:
 

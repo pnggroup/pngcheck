@@ -246,3 +246,7 @@
  * 20201212 GRR: removed -f ("force") option due to multiple security issues
  * 20201212 GRR: released version 3.0.0
  *               ----------------------
+ * 20201214 BB:  generalized previous sPLT buffer-overrun fix, and found and
+ *               fixed a PPLT vulnerability
+ * 20210124 GRR: released version 3.0.1
+ *               ----------------------
