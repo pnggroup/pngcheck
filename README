@@ -1,7 +1,16 @@
-pngcheck version 3.0.1 of 24 January 2021
+pngcheck version 3.0.2 of 31 January 2021
 
-This version fixes two more security vulnerabilities discovered by Ben Beasley
-of the Fedora Linux project (who also supplied the fixes).  Again, our thanks!
+This version fixes one more (probable) security vulnerability discovered by
+Ben Beasley of the Fedora Linux project (who also supplied the fix last month,
+oops...).  Again, our thanks!
+
+I've also updated the MinGW32 cross-compiler makefile for both Win32 and Win64
+targets (i.e., there are two such makefiles now), but other than verifying
+that binaries come out the other end, these are COMPLETELY UNTESTED.  In
+particular, the printf() format "%td" for ptrdiff_t (pointer differences, i.e.,
+subtraction) doesn't appear to be supported under Windows, but I don't know
+what the appropriate type is.  So the five affected print statements presumably
+just won't work correctly.
 
 Here's a list of the major enhancements since version 1.98, which was the
 last release before I took over maintenance:

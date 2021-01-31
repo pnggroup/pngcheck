@@ -1,12 +1,12 @@
 # Sample makefile for pngcheck using mingw32-gcc (native or cross) and make.
-# This one is currently set up for Win32 cross-compilation from Linux.
+# This one is currently set up for Win64 cross-compilation from Linux.
 #
 # Greg Roelofs
 # Last modified:  31 January 2021
 #
 # Invoke this makefile from a DOS-prompt window or xterm or whatever via:
 #
-#	make -f Makefile.mingw32
+#	make -f Makefile.mingw64
 #
 # This makefile assumes zlib has already been built or downloaded and is in
 # a subdirectory at the same level as the current subdirectory (as indicated
@@ -21,7 +21,7 @@
 # macros --------------------------------------------------------------------
 
 #ZPATH = ../zlib
-ZPATH = ../zlib-1.2.11-win32
+ZPATH = ../zlib-1.2.11-win64
 ZINC = -I$(ZPATH)
 #ZLIB = $(ZPATH)/libzdll.a #	link dynamically against DLL
 ZLIB = $(ZPATH)/libz.a #	link statically
@@ -30,14 +30,14 @@ INCS = $(ZINC)
 LIBS = $(ZLIB)
 
 #CC = gcc
-CC = i686-w64-mingw32-gcc #	Linux -> Win32 cross-compilation
+CC = x86_64-w64-mingw32-gcc #	Linux -> Win64 cross-compilation
 LD = $(CC)
 RM = rm -f
 CFLAGS = -O -Wall $(INCS) $(MINGW_CCFLAGS) -DUSE_ZLIB
 # [note that -Wall is a gcc-specific compilation flag ("most warnings on")]
 LDFLAGS = $(MINGW_LDFLAGS)
 O = .o
-E = .win32.exe
+E = .win64.exe
 
 PROG  = pngcheck
 PROG2 = pngsplit

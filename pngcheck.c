@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "3.0.1 of 24 January 2021"
+#define VERSION "3.0.2 of 31 January 2021"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -752,9 +752,9 @@ void usage(FILE *fpMsg)
   fprintf(fpMsg, "\n"
     "Test PNG, JNG or MNG image files for corruption, and print size/type info."
     "\n\n"
-    "Usage:  pngcheck [-7cfpqtv] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
-    "   or:  ... | pngcheck [-7cfpqstvx]\n"
-    "   or:  pngcheck [-7cfpqstvx] file-containing-PNGs...\n"
+    "Usage:  pngcheck [-7cpqtv] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
+    "   or:  ... | pngcheck [-7cpqstvx]\n"
+    "   or:  pngcheck [-7cpqstvx] file-containing-PNGs...\n"
     "\n"
     "Options:\n"
     "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n"
@@ -766,7 +766,7 @@ void usage(FILE *fpMsg)
     "   -v  test verbosely (print most chunk data)\n"
 #ifdef USE_ZLIB
     "   -vv test very verbosely (decode & print line filters)\n"
-    "   -w  suppress windowBits test (more-stringent compression check)\n"
+    "   -w  suppress windowBits test (a more-stringent compression check)\n"
 #endif
     "   -x  search for PNGs within another file and extract them when found\n"
     "\n"
@@ -3815,8 +3815,12 @@ FIXME: add support for decompressing/printing zTXt
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"LOOP ");
         set_err(kMajorError);
-      }
-      if (verbose && no_err(kMinorError)) {
+      } else if (sz > BS) {
+	/* FIXME: large LOOP chunks should be supported */
+        printf("%s  checking large %schunk not currently supported\n",
+          verbose? ":":fname, verbose? "":"LOOP ");
+        set_err(kMinorError);
+      } else if (verbose && no_err(kMinorError)) {
         printf(":  nest level = %u\n    count = %lu, termination = %s\n",
           (unsigned)(buffer[0]), LG(buffer+1), sz == 5?
           termination_condition[0] :
