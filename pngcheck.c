@@ -17,7 +17,7 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2020 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2021 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "3.0.0 of 12 December 2020"
+#define VERSION "3.0.2 of 31 January 2021"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -757,9 +757,9 @@ void usage(FILE *fpMsg)
   fprintf(fpMsg, "\n"
     "Test PNG, JNG or MNG image files for corruption, and print size/type info."
     "\n\n"
-    "Usage:  pngcheck [-7cfpqtv] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
-    "   or:  ... | pngcheck [-7cfpqstvx]\n"
-    "   or:  pngcheck [-7cfpqstvx] file-containing-PNGs...\n"
+    "Usage:  pngcheck [-7cpqtv] file.{png|jng|mng} [file2.{png|jng|mng} [...]]\n"
+    "   or:  ... | pngcheck [-7cpqstvx]\n"
+    "   or:  pngcheck [-7cpqstvx] file-containing-PNGs...\n"
     "\n"
     "Options:\n"
     "   -7  print contents of tEXt chunks, escape chars >=128 (for 7-bit terminals)\n"
@@ -772,7 +772,7 @@ void usage(FILE *fpMsg)
     "   -v  test verbosely (print most chunk data)\n"
 #ifdef USE_ZLIB
     "   -vv test very verbosely (decode & print line filters)\n"
-    "   -w  suppress windowBits test (more-stringent compression check)\n"
+    "   -w  suppress windowBits test (a more-stringent compression check)\n"
 #endif
     "   -x  search for PNGs within another file and extract them when found\n"
     "\n"
@@ -3097,10 +3097,10 @@ FIXME: make sure bit 31 (0x80000000) is 0
             spc = "      ";
 
           /* TODO: Support larger sPLT contents with an input-reading loop */
-	  if (nsplt > BS / jstep) {
+	  if (nsplt > (BS - j) / jstep) {
             printf("%s  printing truncated %scontents\n",
               verbose? ":":fname, verbose? "":"sPLT ");
-            nsplt = BS / jstep;
+            nsplt = (BS - j) / jstep;
           }
           /* GRR:  could check for (required) non-increasing freq order */
           /* GRR:  could also check for all zero freqs:  undefined hist */
@@ -4100,8 +4100,12 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("%s  invalid %slength\n",
           verbose? ":":fname, verbose? "":"LOOP ");
         set_err(kMajorError);
-      }
-      if (verbose && no_err(kMinorError)) {
+      } else if (sz > BS) {
+	/* FIXME: large LOOP chunks should be supported */
+        printf("%s  checking large %schunk not currently supported\n",
+          verbose? ":":fname, verbose? "":"LOOP ");
+        set_err(kMinorError);
+      } else if (verbose && no_err(kMinorError)) {
         printf(":  nest level = %u\n    count = %lu, termination = %s\n",
           (unsigned)(buffer[0]), LG(buffer+1), sz == 5?
           termination_condition[0] :
@@ -4353,7 +4357,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         uch dtype = buffer[0];
         uch first_idx = buffer[1];
         uch last_idx = buffer[2];
-        uch *buf = buffer+3;
+        int base = 3;
         int bytes_left = sz-3;
         int samples, npplt = 0, nblks = 0;
 
@@ -4373,27 +4377,37 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (bytes_left < 0)
             break;
           ++nblks;
-          for (i = first_idx;  i <= last_idx;  ++i, buf += samples) {
+          for (i = first_idx;  i <= last_idx;  ++i, base += samples) {
+            if (sz - samples < base) {
+              printf("%s  implied sample outside %schunk bounds\n",
+                verbose? ":":fname, verbose? "":"PPLT ");
+              set_err(kMinorError);
+              /* break out of outer loop, and suppress additional length error */
+              bytes_left = 0;
+              break;
+            }
             ++npplt;
             if (printpal) {
               if (samples == 4)
                 printf("    %3d:  %s(%3d,%3d,%3d,%3d) = "
                   "%s(0x%02x,0x%02x,0x%02x,0x%02x)\n", i,
-                  plus, buf[0], buf[1], buf[2], buf[3],
-                  plus, buf[0], buf[1], buf[2], buf[3]);
+                  plus, buffer[base + 0], buffer[base + 1],
+                  buffer[base + 2], buffer[base + 3],
+                  plus, buffer[base + 0], buffer[base + 1],
+                  buffer[base + 2], buffer[base + 3]);
               else if (samples == 3)
                 printf("    %3d:  %s(%3d,%3d,%3d) = %s(0x%02x,0x%02x,0x%02x)\n",
-                  i, plus, buf[0], buf[1], buf[2],
-                  plus, buf[0], buf[1], buf[2]);
+                  i, plus, buffer[base + 0], buffer[base + 1], buffer[base + 2],
+                  plus, buffer[base + 0], buffer[base + 1], buffer[base + 2]);
               else
                 printf("    %3d:  %s(%3d) = %s(0x%02x)\n", i,
-                  plus, *buf, plus, *buf);
+                  plus, buffer[base], plus, buffer[base]);
             }
           }
           if (bytes_left > 2) {
-            first_idx = buf[0];
-            last_idx = buf[1];
-            buf += 2;
+            first_idx = buffer[base + 0];
+            last_idx = buffer[base + 1];
+            base += 2;
             bytes_left -= 2;
           } else if (bytes_left)
             break;

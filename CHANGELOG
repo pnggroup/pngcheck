@@ -246,3 +246,14 @@
  * 20201212 GRR: removed -f ("force") option due to multiple security issues
  * 20201212 GRR: released version 3.0.0
  *               ----------------------
+ * 20201214 BB:  generalized previous sPLT buffer-overrun fix, and found and
+ *               fixed a PPLT vulnerability
+ * 20210124 GRR: released version 3.0.1
+ *               ----------------------
+ * 20201217 BB:  fixed a crash bug (and probable vulnerability) in large (MNG)
+ *               LOOP chunks
+ * 20210131 GRR: updated Makefile.mingw32 for modern versions and added
+ *               Makefile.mingw64 (targets Win64); both are essentially
+ *               UNTESTED, however!
+ * 20210131 GRR: released version 3.0.2
+ *               ----------------------
