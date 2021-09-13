@@ -331,7 +331,7 @@ static const uch latin1_text_discouraged[256] = {
    const char *color_off;
 #else
    ulg crc_table[256];           /* table of CRCs of all 8-bit messages */
-   int crc_table_computed = 0;   /* flag:  has the table been computed? */
+   bool crc_table_computed = false;   /* flag:  has the table been computed? */
 #endif
 
 
@@ -808,7 +808,7 @@ void make_crc_table(void)
 
     crc_table[n] = c;
   }
-  crc_table_computed = 1;
+  crc_table_computed = true;
 }
 
 
@@ -5048,7 +5048,8 @@ int check_chunk_name(const char *chunk_name, const char *fname)
 int check_keyword(const uch *buffer, int maxsize, int *pKeylen,
                   const char *keyword_name, const char *chunkid, const char *fname)
 {
-  int j, prev_space = 0;
+  int j;
+  bool prev_space = false;
   int keylen = keywordlen(buffer, maxsize);
 
   if (pKeylen)
@@ -5085,9 +5086,9 @@ int check_keyword(const uch *buffer, int maxsize, int *pKeylen,
           verbose? ":":fname, verbose? "":chunkid, keyword_name);
         return 5;
       }
-      prev_space = 1;
+      prev_space = true;
     } else {
-      prev_space = 0;
+      prev_space = false;
     }
   }
 
@@ -5108,7 +5109,8 @@ int check_keyword(const uch *buffer, int maxsize, int *pKeylen,
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
 int check_text(const uch *buffer, int maxsize, const char *chunkid, const char *fname)
 {
-  int j, ctrlwarn = verbose? 1 : 0;  /* print message once, only if verbose */
+  int j;
+  bool ctrlwarn = verbose != 0;  /* print message once, only if verbose */
 
   for (j = 0; j < maxsize; ++j) {
     if (buffer[j] == 0) {
@@ -5118,7 +5120,7 @@ int check_text(const uch *buffer, int maxsize, const char *chunkid, const char *
     } else if (ctrlwarn && latin1_text_discouraged[buffer[j]]) {
       printf(":   text has control character(s) (%u) (discouraged)\n",
         buffer[j]);
-      ctrlwarn = 0;
+      ctrlwarn = false;
     }
   }
 
