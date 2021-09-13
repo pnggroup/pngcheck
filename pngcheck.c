@@ -311,17 +311,10 @@ bool is_latin1_keyword_forbidden(uch x) {
   return (0x00 <= x && x <= 0x1F) || (0x7F <= x && x <= 0xA0);
 }
 
-/* GRR 20070707:  list of discouraged (control) characters in tEXt/zTXt text */
-static const uch latin1_text_discouraged[256] = {
-  1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
-};
+/* list of discouraged (control) characters in tEXt/zTXt text */
+bool is_latin1_text_discouraged(uch x) {
+  return (0x00 <= x && x <= 0x09) || (0x0B <= x && x <= 0x1F) || (0x7F <= x && x <= 0x9F);
+}
 
 #ifdef USE_ZLIB
    int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
@@ -5120,7 +5113,7 @@ int check_text(const uch *buffer, int maxsize, const char *chunkid, const char *
       printf("%s  %s text contains NULL character(s)\n",
         verbose? ":":fname, verbose? "":chunkid);
       return 1;
-    } else if (ctrlwarn && latin1_text_discouraged[buffer[j]]) {
+    } else if (ctrlwarn && is_latin1_text_discouraged(buffer[j])) {
       printf(":   text has control character(s) (%u) (discouraged)\n",
         buffer[j]);
       ctrlwarn = false;
