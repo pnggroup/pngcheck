@@ -3,7 +3,8 @@
                           Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
                           Greg Roelofs <newt@pobox.com>,
                           John Bowler <jbowler@acm.org>,
-                          Tom Lane <tgl@sss.pgh.pa.us>
+                          Tom Lane <tgl@sss.pgh.pa.us>,
+                          Project Nayuki (https://www.nayuki.io/)
 
    Permission to use, copy, modify, and distribute this software and its
    documentation for any purpose and without fee is hereby granted, provided
