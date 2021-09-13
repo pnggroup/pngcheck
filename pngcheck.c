@@ -261,18 +261,18 @@ enum Error {
 
 /* Command-line flag variables */
 int verbose = 0;	/* print chunk info */
-int quiet = 0;		/* print only error messages */
-int printtext = 0;	/* print tEXt chunks */
-int printpal = 0;	/* print PLTE/tRNS/hIST/sPLT contents */
-int color = 0;		/* print with ANSI colors to spice things up */
-int sevenbit = 0;	/* escape characters >=160 */
-int check_windowbits = 1;	/* more stringent zlib stream-checking */
-int suppress_warnings = 0;	/* don't fuss about ambiguous stuff */
-int search = 0;		/* hunt for PNGs in the file... */
-int extract = 0;	/* ...and extract them to arbitrary file names. */
-int png = 0;		/* it's a PNG */
-int mng = 0;		/* it's a MNG instead of a PNG (won't work in pipe) */
-int jng = 0;		/* it's a JNG */
+bool quiet = false;		/* print only error messages */
+bool printtext = false;	/* print tEXt chunks */
+bool printpal = false;	/* print PLTE/tRNS/hIST/sPLT contents */
+bool color = false;		/* print with ANSI colors to spice things up */
+bool sevenbit = false;	/* escape characters >=160 */
+bool check_windowbits = true;	/* more stringent zlib stream-checking */
+bool suppress_warnings = false;	/* don't fuss about ambiguous stuff */
+bool search = false;		/* hunt for PNGs in the file... */
+bool extract = false;	/* ...and extract them to arbitrary file names. */
+bool png = false;		/* it's a PNG */
+bool mng = false;		/* it's a MNG instead of a PNG (won't work in pipe) */
+bool jng = false;		/* it's a JNG */
 
 enum Error global_error = kOK; /* the current error status */
 uch buffer[BS];
@@ -582,45 +582,45 @@ int main(int argc, char *argv[])
         i = 1;
         break;
       case '7':
-        printtext = 1;
-        sevenbit = 1;
+        printtext = true;
+        sevenbit = true;
         ++i;
         break;
       case 'c':
-        color = 1;
+        color = true;
         ++i;
         break;
       case 'h':
         usage(stdout);
         return err;
       case 'p':
-        printpal = 1;
+        printpal = true;
         ++i;
         break;
       case 'q':
         verbose = 0;
-        quiet = 1;
+        quiet = true;
         ++i;
         break;
       case 's':
-        search = 1;
+        search = true;
         ++i;
         break;
       case 't':
-        printtext = 1;
+        printtext = true;
         ++i;
         break;
       case 'v':
         ++verbose;  /* verbose == 2 means decode IDATs and print filter info */
-        quiet = 0;  /* verbose == 4 means print pixel values, too */
+        quiet = false;  /* verbose == 4 means print pixel values, too */
         ++i;
         break;
       case 'w':
-        check_windowbits = 0;
+        check_windowbits = false;
         ++i;
         break;
       case 'x':
-        search = extract = 1;
+        search = extract = true;
         ++i;
         break;
       default:
@@ -1072,7 +1072,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   }
 
   first_file = 0;
-  png = mng = jng = 0;
+  png = mng = jng = false;
 
   if (!searching) {
     int check = 0;
@@ -1091,15 +1091,15 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
         printf("    cannot read past MacBinary header\n");
         set_err(kCriticalError);
       } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
-        png = 1;
+        png = true;
         if (!quiet)
           printf("    this PNG seems to be contained in a MacBinary file\n");
       } else if ((check = check_magic(magic, fname, DO_MNG)) == 0) {
-        mng = 1;
+        mng = true;
         if (!quiet)
           printf("    this MNG seems to be contained in a MacBinary file\n");
       } else if ((check = check_magic(magic, fname, DO_JNG)) == 0) {
-        jng = 1;
+        jng = true;
         if (!quiet)
           printf("    this JNG seems to be contained in a MacBinary file\n");
       } else {
@@ -1108,14 +1108,14 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
         set_err(kCriticalError);
       }
     } else if ((check = check_magic(magic, fname, DO_PNG)) == 0) {
-      png = 1;
+      png = true;
     } else if (check == 1) {   /* bytes 2-4 == "PNG" but others are bad */
       set_err(kCriticalError);
     } else if (check == 2) {   /* not "PNG"; see if it's MNG or JNG instead */
       if ((check = check_magic(magic, fname, DO_MNG)) == 0)
-        mng = 1;        /* yup */
+        mng = true;        /* yup */
       else if (check == 2 && (check = check_magic(magic, fname, DO_JNG)) == 0)
-        jng = 1;        /* yup */
+        jng = true;        /* yup */
       else {
         set_err(kCriticalError);
         if (check == 2)
