@@ -5132,9 +5132,9 @@ int check_text(const uch *buffer, int maxsize, const char *chunkid, const char *
 int check_ascii_float(const uch *buffer, int len, const char *chunkid, const char *fname)
 {
   const uch *qq = buffer, *bufEnd = buffer + len;
-  int /* have_sign = 0, */ have_integer = 0, have_dot = 0, have_fraction = 0;
-  int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
-  int have_nonzero = 0;
+  bool /* have_sign = false, */ have_integer = false, have_dot = false, have_fraction = false;
+  bool have_E = false, have_Esign = false, have_exponent = false, in_digits = false;
+  bool have_nonzero = false;
   int rc = 0;
 
   for (qq = buffer;  qq < bufEnd && !rc;  ++qq) {
@@ -5142,11 +5142,11 @@ int check_ascii_float(const uch *buffer, int len, const char *chunkid, const cha
       case '+':
       case '-':
         if (qq == buffer) {
-          //have_sign = 1;
-          in_digits = 0;
+          //have_sign = true;
+          in_digits = false;
         } else if (have_E && !have_Esign) {
-          have_Esign = 1;
-          in_digits = 0;
+          have_Esign = true;
+          in_digits = false;
         } else {
           printf("%s  invalid sign character%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
@@ -5157,8 +5157,8 @@ int check_ascii_float(const uch *buffer, int len, const char *chunkid, const cha
 
       case '.':
         if (!have_dot && !have_E) {
-          have_dot = 1;
-          in_digits = 0;
+          have_dot = true;
+          in_digits = false;
         } else {
           printf("%s  invalid decimal point%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
@@ -5170,8 +5170,8 @@ int check_ascii_float(const uch *buffer, int len, const char *chunkid, const cha
       case 'e':
       case 'E':
         if (have_integer || have_fraction) {
-          have_E = 1;
-          in_digits = 0;
+          have_E = true;
+          in_digits = false;
         } else {
           printf("%s  invalid exponent before mantissa%s%s (buf[%td])\n",
             verbose? ":":fname, verbose? "":" in ", verbose? "":chunkid,
@@ -5189,20 +5189,20 @@ int check_ascii_float(const uch *buffer, int len, const char *chunkid, const cha
         } else if (in_digits) {
           /* still in digits:  do nothing except check for non-zero digits */
           if (!have_exponent && *qq != '0')
-            have_nonzero = 1;
+            have_nonzero = true;
         } else if (!have_integer && !have_dot) {
-          have_integer = 1;
-          in_digits = 1;
+          have_integer = true;
+          in_digits = true;
           if (*qq != '0')
-            have_nonzero = 1;
+            have_nonzero = true;
         } else if (have_dot && !have_fraction) {
-          have_fraction = 1;
-          in_digits = 1;
+          have_fraction = true;
+          in_digits = true;
           if (*qq != '0')
-            have_nonzero = 1;
+            have_nonzero = true;
         } else if (have_E && !have_exponent) {
-          have_exponent = 1;
-          in_digits = 1;
+          have_exponent = true;
+          in_digits = true;
         } else {
           /* is this case possible? */
           printf("%s  invalid digits%s%s (buf[%td])\n",
