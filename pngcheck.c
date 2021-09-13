@@ -184,24 +184,24 @@ void usage (FILE *fpMsg);
 void make_crc_table (void);
 ulg  update_crc (ulg crc, uch *buf, int len);
 #endif
-ulg  getlong (FILE *fp, char *fname, char *where);
+ulg  getlong (FILE *fp, const char *fname, const char *where);
 void putlong (FILE *fpOut, ulg ul);
 void init_printbuf_state (printbuf_state *prbuf);
 void print_buffer (printbuf_state *prbuf, uch *buffer, int size, int indent);
-void report_printbuf (printbuf_state *prbuf, char *fname, char *chunkid);
+void report_printbuf (printbuf_state *prbuf, const char *fname, const char *chunkid);
 int  keywordlen (uch *buffer, int maxsize);
 const char *getmonth (int m);
 int  ratio (ulg uc, ulg c);
 ulg  gcf (ulg a, ulg b);
-int  pngcheck (FILE *fp, char *_fname, int searching, FILE *fpOut);
-int  pnginfile (FILE *fp, char *fname, int ipng, int extracting);
-void pngsearch (FILE *fp, char *fname, int extracting);
-int  check_magic (uch *magic, char *fname, int which);
-int  check_chunk_name (char *chunk_name, char *fname);
+int  pngcheck (FILE *fp, const char *_fname, int searching, FILE *fpOut);
+int  pnginfile (FILE *fp, const char *fname, int ipng, int extracting);
+void pngsearch (FILE *fp, const char *fname, int extracting);
+int  check_magic (uch *magic, const char *fname, int which);
+int  check_chunk_name (const char *chunk_name, const char *fname);
 int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
-                    char *keyword_name, char *chunkid, char *fname);
-int  check_text (uch *buffer, int maxsize, char *chunkid, char *fname);
-int  check_ascii_float (uch *buffer, int len, char *chunkid, char *fname);
+                    const char *keyword_name, const char *chunkid, const char *fname);
+int  check_text (uch *buffer, int maxsize, const char *chunkid, const char *fname);
+int  check_ascii_float (uch *buffer, int len, const char *chunkid, const char *fname);
 char const * u2name_helper(unsigned int value, const char **names,
                            size_t nnames);
 
@@ -836,7 +836,7 @@ ulg update_crc(ulg crc, uch *buf, int len)
 
 
 
-ulg getlong(FILE *fp, char *fname, char *where)
+ulg getlong(FILE *fp, const char *fname, const char *where)
 {
   ulg res = 0;
   int j;
@@ -925,7 +925,7 @@ void print_buffer(printbuf_state *prbuf, uch *buf, int size, int indent)
 
 
 
-void report_printbuf(printbuf_state *prbuf, char *fname, char *chunkid)
+void report_printbuf(printbuf_state *prbuf, const char *fname, const char *chunkid)
 {
   if (prbuf->cr) {
     if (prbuf->lf) {
@@ -1017,7 +1017,7 @@ ulg gcf(ulg a, ulg b)
 
 
 
-int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
+int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
 {
   int i, j;
   long sz;  /* FIXME:  should be ulg (not using negative values as flags...) */
@@ -4859,7 +4859,7 @@ FIXME: add support for decompressing/printing zTXt
 
 
 
-int pnginfile(FILE *fp, char *fname, int ipng, int extracting)
+int pnginfile(FILE *fp, const char *fname, int ipng, int extracting)
 {
   char name[1024], *szdot;
   int err = kOK;
@@ -4906,7 +4906,7 @@ int pnginfile(FILE *fp, char *fname, int ipng, int extracting)
 
 
 
-void pngsearch(FILE *fp, char *fname, int extracting)
+void pngsearch(FILE *fp, const char *fname, int extracting)
 {
   /* Go through the file looking for a PNG magic number; if one is
      found, check the data to see if it is a PNG and validate the
@@ -4961,7 +4961,7 @@ void pngsearch(FILE *fp, char *fname, int extracting)
  * without any restrictions.
  *
  */
-int check_magic(uch *magic, char *fname, int which)
+int check_magic(uch *magic, const char *fname, int which)
 {
   int i;
   const uch *good_magic = (which == 0)? good_PNG_magic :
@@ -5022,7 +5022,7 @@ int check_magic(uch *magic, char *fname, int which)
 
 
 /* GRR 20061203:  now EBCDIC-safe */
-int check_chunk_name(char *chunk_name, char *fname)
+int check_chunk_name(const char *chunk_name, const char *fname)
 {
   if (isASCIIalpha((int)(uch)chunk_name[0]) &&
       isASCIIalpha((int)(uch)chunk_name[1]) &&
@@ -5044,7 +5044,7 @@ int check_chunk_name(char *chunk_name, char *fname)
 /* keyword_name is "keyword" for most chunks, but it can instead be "name" or
  * "identifier" or whatever makes sense for the chunk in question */
 int check_keyword(uch *buffer, int maxsize, int *pKeylen,
-                  char *keyword_name, char *chunkid, char *fname)
+                  const char *keyword_name, const char *chunkid, const char *fname)
 {
   int j, prev_space = 0;
   int keylen = keywordlen(buffer, maxsize);
@@ -5104,7 +5104,7 @@ int check_keyword(uch *buffer, int maxsize, int *pKeylen,
 
 /* GRR 20070707 */
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
-int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
+int check_text(uch *buffer, int maxsize, const char *chunkid, const char *fname)
 {
   int j, ctrlwarn = verbose? 1 : 0;  /* print message once, only if verbose */
 
@@ -5127,7 +5127,7 @@ int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 
 /* GRR 20061203 (used only for sCAL) */
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
-int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
+int check_ascii_float(uch *buffer, int len, const char *chunkid, const char *fname)
 {
   uch *qq = buffer, *bufEnd = buffer + len;
   int /* have_sign = 0, */ have_integer = 0, have_dot = 0, have_fraction = 0;
