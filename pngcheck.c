@@ -1228,7 +1228,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
         }
         bitdepth = sampledepth = (uch)buffer[8];
         ityp = (uch)buffer[9];
-        if (ityp == 1 || ityp == 5 || ityp > sizeof(png_type)/sizeof(char*)) {
+        if (ityp == 1 || ityp == 5 || (uch)ityp > sizeof(png_type)/sizeof(char*)) {
           printf("%s  invalid %simage type (%d)\n",
             verbose? ":":fname, verbose? "":"IHDR ", ityp);
           ityp = 1; /* avoid out of range array index */
@@ -3983,7 +3983,7 @@ FIXME: add support for decompressing/printing zTXt
         }
         bitdepth = (uch)buffer[8];
         ityp = (uch)buffer[9];
-        if (ityp > sizeof(png_type)/sizeof(char*)) {
+        if ((uch)ityp > sizeof(png_type)/sizeof(char*)) {
           ityp = 1; /* avoid out of range array index */
         }
         switch (bitdepth) {
