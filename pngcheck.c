@@ -239,12 +239,24 @@ char const * u2name_helper(unsigned int value, const char **names,
 #define U2NAME(x, names) (u2name_helper(x, &names[0], \
                                         sizeof(names) / sizeof(names[0])))
 
-#define ANCILLARY(chunkID)  ((chunkID)[0] & 0x20)
-#define PRIVATE(chunkID)    ((chunkID)[1] & 0x20)
-#define RESERVED(chunkID)   ((chunkID)[2] & 0x20)
-#define SAFECOPY(chunkID)   ((chunkID)[3] & 0x20)
-#define CRITICAL(chunkID)   (!ANCILLARY(chunkID))
-#define PUBLIC(chunkID)     (!PRIVATE(chunkID))
+bool is_ancillary(const char *chunkID) {
+  return (chunkID[0] & 0x20) != 0;
+}
+bool is_private(const char *chunkID) {
+  return (chunkID[1] & 0x20) != 0;
+}
+bool is_reserved(const char *chunkID) {
+  return (chunkID[2] & 0x20) != 0;
+}
+bool is_safe_copy(const char *chunkID) {
+  return (chunkID[3] & 0x20) != 0;
+}
+bool is_critical(const char *chunkID) {
+  return !is_ancillary(chunkID);
+}
+bool is_public(const char *chunkID) {
+  return !is_private(chunkID);
+}
 
 #define set_err(x)  global_error = ((global_error < (x))? (x) : global_error)
 #define is_err(x)   (global_error >= (x))
@@ -4659,17 +4671,17 @@ FIXME: add support for decompressing/printing zTXt
      *===============*/
 
     } else {
-      if (CRITICAL(chunkid) && SAFECOPY(chunkid)) {
+      if (is_critical(chunkid) && is_safe_copy(chunkid)) {
         /* a critical, safe-to-copy chunk is an error */
         printf("%s  illegal critical, safe-to-copy chunk%s%s\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
         set_err(kMajorError);
-      } else if (RESERVED(chunkid)) {
+      } else if (is_reserved(chunkid)) {
         /* a chunk with the reserved bit set is an error (or spec updated) */
         printf("%s  illegal reserved-bit-set chunk%s%s\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
         set_err(kMajorError);
-      } else if (PUBLIC(chunkid)) {
+      } else if (is_public(chunkid)) {
         /* GRR 20050725:  all registered (public) PNG/MNG/JNG chunks are now
          *  known to pngcheck, so any unknown public ones are invalid (or have
          *  been proposed and approved since the last release of pngcheck) */
@@ -4677,7 +4689,7 @@ FIXME: add support for decompressing/printing zTXt
                "chunk%s%s\n", verbose? ":":fname, verbose? "":" ",
                verbose? "":chunkid);
         set_err(kMajorError);
-      } else if (/* !PUBLIC(chunkid) && */ CRITICAL(chunkid) &&
+      } else if (/* !is_public(chunkid) && */ is_critical(chunkid) &&
                  !suppress_warnings)
       {
         /* GRR 20060617:  as Chris Nokleberg noted, "private, critical chunks
@@ -4688,10 +4700,10 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kWarning);  /* not an error if used only internally */
       } else if (verbose) {
         printf("\n    unknown %s, %s, %s%ssafe-to-copy chunk\n",
-               PRIVATE(chunkid)   ? "private":"public",
-               ANCILLARY(chunkid) ? "ancillary":"critical",
-               RESERVED(chunkid)  ? "reserved-bit-set, ":"",
-               SAFECOPY(chunkid)  ? "":"un");
+               is_private(chunkid)   ? "private":"public",
+               is_ancillary(chunkid) ? "ancillary":"critical",
+               is_reserved(chunkid)  ? "reserved-bit-set, ":"",
+               is_safe_copy(chunkid)  ? "":"un");
       }
       last_is_IDAT = last_is_JDAT = false;
     }
