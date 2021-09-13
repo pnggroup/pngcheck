@@ -306,17 +306,10 @@ bool is_ascii_alpha(uch x) {
   return (0x41 <= x && x <= 0x5A) || (0x61 <= x && x <= 0x7A);
 }
 
-/* GRR 20070707:  list of forbidden characters in various keywords */
-static const uch latin1_keyword_forbidden[256] = {
-  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
-};
+/* list of forbidden characters in various keywords */
+bool is_latin1_keyword_forbidden(uch x) {
+  return (0x00 <= x && x <= 0x1F) || (0x7F <= x && x <= 0xA0);
+}
 
 /* GRR 20070707:  list of discouraged (control) characters in tEXt/zTXt text */
 static const uch latin1_text_discouraged[256] = {
@@ -5103,7 +5096,7 @@ int check_keyword(const uch *buffer, int maxsize, int *pKeylen,
   }
 
   for (j = 0; j < keylen; ++j) {
-    if (latin1_keyword_forbidden[buffer[j]]) {   /* [0,31] || [127,160] */
+    if (is_latin1_keyword_forbidden(buffer[j])) {   /* [0,31] || [127,160] */
       printf("%s  %s %s has control character(s) (%u)\n",
         verbose? ":":fname, verbose? "":chunkid, keyword_name, buffer[j]);
       return 6;
