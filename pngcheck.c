@@ -269,9 +269,16 @@ enum Error {
 
 enum Error global_error = kOK; /* the current error status */
 
-#define set_err(x)  global_error = ((global_error < (x))? (x) : global_error)
-#define is_err(x)   (global_error >= (x))
-#define no_err(x)   (global_error < (x))
+void set_err(enum Error x) {
+  if (global_error < x)
+    global_error = x;
+}
+bool is_err(enum Error x) {
+  return global_error >= x;
+}
+bool no_err(enum Error x) {
+  return global_error < x;
+}
 
 /* Command-line flag variables */
 int verbose = 0;	/* print chunk info */
