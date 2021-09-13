@@ -249,7 +249,7 @@ char const * u2name_helper(unsigned int value, const char **names,
 #define is_err(x)   (global_error >= (x))
 #define no_err(x)   (global_error < (x))
 
-enum {
+enum Error {
   kOK = 0,
   kWarning,           /* could be an error in some circumstances but not all */
   kCommandLineError,  /* pilot error */
@@ -273,7 +273,7 @@ int png = 0;		/* it's a PNG */
 int mng = 0;		/* it's a MNG instead of a PNG (won't work in pipe) */
 int jng = 0;		/* it's a JNG */
 
-int global_error = kOK; /* the current error status */
+enum Error global_error = kOK; /* the current error status */
 uch buffer[BS];
 
 /* what the PNG, MNG and JNG magic numbers should be */
@@ -562,7 +562,7 @@ int main(int argc, char *argv[])
 {
   FILE *fp;
   int i = 1;
-  int err = kOK;
+  enum Error err = kOK;
   int num_files = 0;
   int num_errors = 0;
   int num_warnings = 0;
@@ -4862,7 +4862,7 @@ FIXME: add support for decompressing/printing zTXt
 int pnginfile(FILE *fp, const char *fname, int ipng, int extracting)
 {
   char name[1024], *szdot;
-  int err = kOK;
+  enum Error err = kOK;
   FILE *fpOut = NULL;
 
 #if 1
