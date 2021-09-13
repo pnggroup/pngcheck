@@ -182,26 +182,26 @@ typedef struct printbuf_state {
 void usage (FILE *fpMsg);
 #ifndef USE_ZLIB
 void make_crc_table (void);
-ulg  update_crc (ulg crc, uch *buf, int len);
+ulg  update_crc (ulg crc, const uch *buf, int len);
 #endif
 ulg  getlong (FILE *fp, const char *fname, const char *where);
 void putlong (FILE *fpOut, ulg ul);
 void init_printbuf_state (printbuf_state *prbuf);
-void print_buffer (printbuf_state *prbuf, uch *buffer, int size, int indent);
-void report_printbuf (printbuf_state *prbuf, const char *fname, const char *chunkid);
-int  keywordlen (uch *buffer, int maxsize);
+void print_buffer (printbuf_state *prbuf, const uch *buffer, int size, int indent);
+void report_printbuf (const printbuf_state *prbuf, const char *fname, const char *chunkid);
+int  keywordlen (const uch *buffer, int maxsize);
 const char *getmonth (int m);
 int  ratio (ulg uc, ulg c);
 ulg  gcf (ulg a, ulg b);
 int  pngcheck (FILE *fp, const char *_fname, int searching, FILE *fpOut);
 int  pnginfile (FILE *fp, const char *fname, int ipng, int extracting);
 void pngsearch (FILE *fp, const char *fname, int extracting);
-int  check_magic (uch *magic, const char *fname, int which);
+int  check_magic (const uch *magic, const char *fname, int which);
 int  check_chunk_name (const char *chunk_name, const char *fname);
-int  check_keyword (uch *buffer, int maxsize, int *pKeylen,
+int  check_keyword (const uch *buffer, int maxsize, int *pKeylen,
                     const char *keyword_name, const char *chunkid, const char *fname);
-int  check_text (uch *buffer, int maxsize, const char *chunkid, const char *fname);
-int  check_ascii_float (uch *buffer, int len, const char *chunkid, const char *fname);
+int  check_text (const uch *buffer, int maxsize, const char *chunkid, const char *fname);
+int  check_ascii_float (const uch *buffer, int len, const char *chunkid, const char *fname);
 char const * u2name_helper(unsigned int value, const char **names,
                            size_t nnames);
 
@@ -816,10 +816,10 @@ void make_crc_table(void)
    initialized to all 1's, and the transmitted value is the 1's complement
    of the final running crc. */
 
-ulg update_crc(ulg crc, uch *buf, int len)
+ulg update_crc(ulg crc, const uch *buf, int len)
 {
   ulg c = crc;
-  uch *p = buf;
+  const uch *p = buf;
   int n = len;
 
   if (!crc_table_computed) {
@@ -885,7 +885,7 @@ void init_printbuf_state(printbuf_state *prbuf)
 
 
 /* GRR EBCDIC WARNING */
-void print_buffer(printbuf_state *prbuf, uch *buf, int size, int indent)
+void print_buffer(printbuf_state *prbuf, const uch *buf, int size, int indent)
 {
   if (size < 1)
     return;
@@ -925,7 +925,7 @@ void print_buffer(printbuf_state *prbuf, uch *buf, int size, int indent)
 
 
 
-void report_printbuf(printbuf_state *prbuf, const char *fname, const char *chunkid)
+void report_printbuf(const printbuf_state *prbuf, const char *fname, const char *chunkid)
 {
   if (prbuf->cr) {
     if (prbuf->lf) {
@@ -951,7 +951,7 @@ void report_printbuf(printbuf_state *prbuf, const char *fname, const char *chunk
 
 
 
-int keywordlen(uch *buf, int maxsize)
+int keywordlen(const uch *buf, int maxsize)
 {
   int j = 0;
 
@@ -4961,7 +4961,7 @@ void pngsearch(FILE *fp, const char *fname, int extracting)
  * without any restrictions.
  *
  */
-int check_magic(uch *magic, const char *fname, int which)
+int check_magic(const uch *magic, const char *fname, int which)
 {
   int i;
   const uch *good_magic = (which == 0)? good_PNG_magic :
@@ -5043,7 +5043,7 @@ int check_chunk_name(const char *chunk_name, const char *fname)
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
 /* keyword_name is "keyword" for most chunks, but it can instead be "name" or
  * "identifier" or whatever makes sense for the chunk in question */
-int check_keyword(uch *buffer, int maxsize, int *pKeylen,
+int check_keyword(const uch *buffer, int maxsize, int *pKeylen,
                   const char *keyword_name, const char *chunkid, const char *fname)
 {
   int j, prev_space = 0;
@@ -5104,7 +5104,7 @@ int check_keyword(uch *buffer, int maxsize, int *pKeylen,
 
 /* GRR 20070707 */
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
-int check_text(uch *buffer, int maxsize, const char *chunkid, const char *fname)
+int check_text(const uch *buffer, int maxsize, const char *chunkid, const char *fname)
 {
   int j, ctrlwarn = verbose? 1 : 0;  /* print message once, only if verbose */
 
@@ -5127,9 +5127,9 @@ int check_text(uch *buffer, int maxsize, const char *chunkid, const char *fname)
 
 /* GRR 20061203 (used only for sCAL) */
 /* caller must do set_err(kMinorError) based on return value (0 == OK) */
-int check_ascii_float(uch *buffer, int len, const char *chunkid, const char *fname)
+int check_ascii_float(const uch *buffer, int len, const char *chunkid, const char *fname)
 {
-  uch *qq = buffer, *bufEnd = buffer + len;
+  const uch *qq = buffer, *bufEnd = buffer + len;
   int /* have_sign = 0, */ have_integer = 0, have_dot = 0, have_fraction = 0;
   int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
   int have_nonzero = 0;
