@@ -1031,7 +1031,8 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   bool have_MHDR = false, have_MEND = false;
   bool /* have_DHDR = false, */ have_PLTE = false;
   bool have_JHDR = false, have_JSEP = false, need_JSEP = false;
-  int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
+  int have_IDAT = 0, have_JDAT = 0;
+  bool last_is_IDAT = false, last_is_JDAT = false;
   bool have_bKGD = false, have_cHRM = false, have_eXIf = false, have_gAMA = false, have_hIST = false;
   bool have_iCCP = false, have_oFFs = false, have_pCAL = false, have_pHYs = false, have_sBIT = false;
   bool have_sCAL = false, have_sRGB = false, have_sTER = false, have_tIME = false, have_tRNS = false;
@@ -1314,7 +1315,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       have_IHDR = true;
       if (mng)
         top_level = 0;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
@@ -1411,7 +1412,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       have_JHDR = true;
       if (mng)
         top_level = 0;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | MHDR |
@@ -1570,7 +1571,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_MHDR = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*================================================*
      * PNG chunks (with the exception of IHDR, above) *
@@ -1640,7 +1641,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_PLTE = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | IDAT |
@@ -1988,8 +1989,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
         set_err(kMajorError);
 #endif /* USE_ZLIB */
-      last_is_IDAT = 1;
-      last_is_JDAT = 0;
+      last_is_IDAT = true;
+      last_is_JDAT = false;
 
     /*------*
      | IEND |
@@ -2024,7 +2025,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("\n");
       }
       have_IEND = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | bKGD |
@@ -2079,7 +2080,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           break;
       }
       have_bKGD = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | cHRM |
@@ -2142,7 +2143,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_cHRM = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | eXIf |
@@ -2166,7 +2167,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_eXIf = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | fRAc |
@@ -2175,7 +2176,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (verbose)
         printf("\n    undefined fractal parameters (ancillary, safe to copy)\n"
           "    [contact Tim Wegner, twegner@phoenix.net, for specification]\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | gAMA |
@@ -2210,7 +2211,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
       have_gAMA = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | gIFg |
@@ -2230,7 +2231,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("\n    disposal method = %d, user input flag = %d, display time = %lf seconds\n",
           buffer[0], buffer[1], dtime);
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | gIFt |
@@ -2257,7 +2258,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("    %ld bytes of text data\n", sz-24);
         /* GRR:  print text according to grid size/cell size? */
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | gIFx |
@@ -2277,7 +2278,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           8, buffer, buffer[8], buffer[9], buffer[10]);
         printf("    %ld bytes of application data\n", sz-11);
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | hIST |
@@ -2324,7 +2325,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           printf("%s%3d:  %5u\n", spc, i, SH(buffer+j));
       }
       have_hIST = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | iCCP |
@@ -2382,7 +2383,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_iCCP = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | iTXt |
@@ -2448,7 +2449,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
         report_printbuf(&prbuf_state, fname, chunkid);   /* print CR/LF & NULLs info */
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | oFFs |
@@ -2475,7 +2476,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                (buffer[8] == 0)? "pixels":"micrometers");
       }
       have_oFFs = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | pCAL |
@@ -2579,7 +2580,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_pCAL = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | pHYs |
@@ -2617,7 +2618,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("\n");
       }
       have_pHYs = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | sBIT |
@@ -2725,7 +2726,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           break;
       }
       have_sBIT = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | sCAL |
@@ -2808,7 +2809,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                (unittype == 1)? "meters":"radians");
       }
       have_sCAL = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | sPLT |
@@ -2900,7 +2901,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | sRGB |
@@ -2935,7 +2936,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                U2NAME(buffer[0], rendering_intent));
       }
       have_sRGB = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | sTER |
@@ -2962,7 +2963,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                buffer[0]? "divergent (parallel)":"cross-eyed");
       }
       have_sTER = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*  *------*
      | tEXt |  | zTXt |
@@ -3023,7 +3024,7 @@ FIXME: add support for decompressing/printing zTXt
         }
         report_printbuf(&prbuf_state, fname, chunkid);
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | tIME |
@@ -3080,7 +3081,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       have_tIME = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | tRNS |
@@ -3157,7 +3158,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       have_tRNS = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*===========================================*/
     /* identifiable private chunks; guts unknown */
@@ -3169,7 +3170,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Microsoft Picture It private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | cmPP |   (guessing MS)
@@ -3178,7 +3179,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Microsoft Picture It(?) private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | cpIp |
@@ -3187,7 +3188,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Microsoft Picture It private, ancillary, safe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | mkBF |
@@ -3196,7 +3197,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | mkBS |
@@ -3205,7 +3206,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | mkBT |
@@ -3214,7 +3215,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | mkTS |
@@ -3223,7 +3224,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Macromedia Fireworks(?) private, ancillary, unsafe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /* msOG - Microsoft?  Macromedia? */
 
@@ -3234,7 +3235,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    "
           "Piclab(?) private, ancillary, safe-to-copy chunk\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | prVW |
@@ -3243,7 +3244,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    Macromedia Fireworks preview chunk"
           " (private, ancillary, unsafe to copy)\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | spAL |  intermediate sPLT test version (still had gamma field)
@@ -3253,7 +3254,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose)
         printf("\n    preliminary/test version of sPLT "
           "(private, ancillary, unsafe to copy)\n");
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*================================================*
      * JNG chunks (with the exception of JHDR, above) *
@@ -3282,8 +3283,8 @@ FIXME: add support for decompressing/printing zTXt
       } else if (verbose)
         printf("\n");
       have_JDAT = 1;
-      last_is_IDAT = 0;
-      last_is_JDAT = 1;   /* also true if last was JSEP (see below) */
+      last_is_IDAT = false;
+      last_is_JDAT = true;   /* also true if last was JSEP (see below) */
 
     /*------*
      | JSEP |
@@ -3311,8 +3312,8 @@ FIXME: add support for decompressing/printing zTXt
         printf("\n");
       }
       have_JSEP = true;
-      last_is_IDAT = 0;
-      last_is_JDAT = 1;   /* effectively... (GRR HACK) */
+      last_is_IDAT = false;
+      last_is_JDAT = true;   /* effectively... (GRR HACK) */
 
     /*===============================================================*
      * MNG chunks (with the exception of MHDR and JNG chunks, above) *
@@ -3358,7 +3359,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       //have_DHDR = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
@@ -3480,7 +3481,7 @@ FIXME: add support for decompressing/printing zTXt
  */
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | SAVE |
@@ -3577,7 +3578,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("\n");
       }
       have_SAVE = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | SEEK |
@@ -3603,7 +3604,7 @@ FIXME: add support for decompressing/printing zTXt
           printf("\n");
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | nEED |
@@ -3636,7 +3637,7 @@ FIXME: add support for decompressing/printing zTXt
         } while (++p < buffer + sz);
         printf("\n");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | DEFI |
@@ -3677,7 +3678,7 @@ FIXME: add support for decompressing/printing zTXt
             LG(buffer+12), LG(buffer+16), LG(buffer+20), LG(buffer+24));
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | BACK |
@@ -3702,7 +3703,7 @@ FIXME: add support for decompressing/printing zTXt
             (sz > 9 && (buffer[9] & 1))? "":"do not ");
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | MOVE |
@@ -3728,7 +3729,7 @@ FIXME: add support for decompressing/printing zTXt
           printf("    new position:  x = %ld, y = %ld\n",
             LG(buffer+5), LG(buffer+9));
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | CLON |
@@ -3773,7 +3774,7 @@ FIXME: add support for decompressing/printing zTXt
         else
           printf("    absolute position:  x = %ld, y = %ld\n", x, y);
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | SHOW |
@@ -3804,7 +3805,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("\n    first object = %u, last object = %u\n", first, last);
         printf("    %s\n", U2NAME(smode, show_mode));
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | CLIP |
@@ -3826,7 +3827,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("      left = %ld, right = %ld, top = %ld, bottom = %ld\n",
           LG(buffer+5), LG(buffer+9), LG(buffer+13), LG(buffer+17));
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | LOOP |
@@ -3867,7 +3868,7 @@ FIXME: add support for decompressing/printing zTXt
           printf("\n");
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | ENDL |
@@ -3884,7 +3885,7 @@ FIXME: add support for decompressing/printing zTXt
       }
       if (verbose && no_err(kMinorError))
         printf(":  nest level = %u\n", (unsigned)(buffer[0]));
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | PROM |
@@ -3924,7 +3925,7 @@ FIXME: add support for decompressing/printing zTXt
           buffer[2]? "zero fill" : "left bit replication");
           /* GRR:  not checking for valid buffer[2] values */
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | fPRI |
@@ -3942,7 +3943,7 @@ FIXME: add support for decompressing/printing zTXt
       if (verbose && no_err(kMinorError))
         printf(":  %spriority = %u\n", buffer[0]? "delta " : "",
           (unsigned)(buffer[1]));
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | eXPI |
@@ -3961,7 +3962,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("\n    snapshot ID = %u, snapshot name = %.*s\n", SH(buffer),
           (int)(sz-2), buffer+2);	/* GRR EBCDIC WARNING */
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | BASI |
@@ -4061,7 +4062,7 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | IPNG |    (empty stand-in for IHDR)
@@ -4078,7 +4079,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (verbose) {
         printf("\n");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | PPLT |
@@ -4163,7 +4164,7 @@ FIXME: add support for decompressing/printing zTXt
             npplt, (dtype & 1)? "delta" : "replacement", npplt== 1? "y":"ies",
             nblks, nblks== 1? "":"s");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | PAST |
@@ -4254,7 +4255,7 @@ FIXME: add support for decompressing/printing zTXt
           bytes_left -= 30;
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | TERM |
@@ -4301,7 +4302,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       have_TERM = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | DISC |
@@ -4337,7 +4338,7 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | pHYg |
@@ -4381,7 +4382,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       have_pHYg = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | DROP |
@@ -4422,7 +4423,7 @@ FIXME: add support for decompressing/printing zTXt
         if (verbose)
           printf("\n");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | DBYK |
@@ -4500,7 +4501,7 @@ FIXME: add support for decompressing/printing zTXt
         if (verbose)
           printf("\n");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | ORDR |
@@ -4548,7 +4549,7 @@ FIXME: add support for decompressing/printing zTXt
           bytes_left -= 5;
         }
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | MAGN |
@@ -4630,7 +4631,7 @@ FIXME: add support for decompressing/printing zTXt
         }
       }
       have_MAGN = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*------*
      | MEND |
@@ -4651,7 +4652,7 @@ FIXME: add support for decompressing/printing zTXt
         printf("\n");
       }
       have_MEND = true;
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
 
     /*===============*
      * unknown chunk *
@@ -4692,7 +4693,7 @@ FIXME: add support for decompressing/printing zTXt
                RESERVED(chunkid)  ? "reserved-bit-set, ":"",
                SAFECOPY(chunkid)  ? "":"un");
       }
-      last_is_IDAT = last_is_JDAT = 0;
+      last_is_IDAT = last_is_JDAT = false;
     }
 
     /*=======================================================================*/
