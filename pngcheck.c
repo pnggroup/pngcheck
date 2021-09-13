@@ -234,7 +234,6 @@ char const * u2name_helper(unsigned int value, const char **names,
 #define COLOR_WHITE_BOLD    "\033[40;37;1m"	/* filenames, filter seps */
 #define COLOR_WHITE         "\033[40;37m"
 
-#define isASCIIalpha(x)     (ascii_alpha_table[x] & 0x1)
 /* Map unsigned value to enumerated string name, safely with fallback */
 #define U2NAME(x, names) (u2name_helper(x, &names[0], \
                                         sizeof(names) / sizeof(names[0])))
@@ -302,19 +301,10 @@ static const uch good_PNG_magic[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 static const uch good_MNG_magic[8] = {138, 77, 78, 71, 13, 10, 26, 10};
 static const uch good_JNG_magic[8] = {139, 74, 78, 71, 13, 10, 26, 10};
 
-/* GRR FIXME:  could merge all three of these into single table (bit fields) */
-
-/* GRR 20061203:  for "isalpha()" that works even on EBCDIC machines */
-static const uch ascii_alpha_table[256] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-  0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
-};
+bool is_ascii_alpha(uch x) {
+  // ASCII character codes: 'A', 'Z', 'a', 'Z'
+  return (0x41 <= x && x <= 0x5A) || (0x61 <= x && x <= 0x7A);
+}
 
 /* GRR 20070707:  list of forbidden characters in various keywords */
 static const uch latin1_keyword_forbidden[256] = {
@@ -5046,10 +5036,10 @@ int check_magic(const uch *magic, const char *fname, int which)
 /* GRR 20061203:  now EBCDIC-safe */
 int check_chunk_name(const char *chunk_name, const char *fname)
 {
-  if (isASCIIalpha((int)(uch)chunk_name[0]) &&
-      isASCIIalpha((int)(uch)chunk_name[1]) &&
-      isASCIIalpha((int)(uch)chunk_name[2]) &&
-      isASCIIalpha((int)(uch)chunk_name[3]))
+  if (is_ascii_alpha((uch)chunk_name[0]) &&
+      is_ascii_alpha((uch)chunk_name[1]) &&
+      is_ascii_alpha((uch)chunk_name[2]) &&
+      is_ascii_alpha((uch)chunk_name[3]))
     return 0;
 
   printf("%s%s  invalid chunk name \"%.*s\" (%02x %02x %02x %02x)\n",
