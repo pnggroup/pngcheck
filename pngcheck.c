@@ -130,6 +130,7 @@
  * pngcheck sources:	http://www.libpng.org/pub/png/apps/pngcheck.html
  */
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -171,11 +172,11 @@ typedef unsigned long  ulg;
 
 /* printbuf state variables */
 typedef struct printbuf_state {
-  int cr;
-  int lf;
-  int nul;
-  int control;
-  int esc;
+  bool cr;
+  bool lf;
+  bool nul;
+  bool control;
+  bool esc;
 } printbuf_state;
 
 /* int  main (int argc, char *argv[]); */
@@ -875,11 +876,11 @@ void putlong(FILE *fpOut, ulg ul)
 
 void init_printbuf_state(printbuf_state *prbuf)
 {
-  prbuf->cr = 0;
-  prbuf->lf = 0;
-  prbuf->nul = 0;
-  prbuf->control = 0;
-  prbuf->esc = 0;
+  prbuf->cr = false;
+  prbuf->lf = false;
+  prbuf->nul = false;
+  prbuf->control = false;
+  prbuf->esc = false;
 }
 
 
@@ -908,17 +909,17 @@ void print_buffer(printbuf_state *prbuf, const uch *buf, int size, int indent)
 
     if (c < 32 || (c >= 127 && c < 160)) {
       if (c == '\n') {
-        prbuf->lf = 1;
+        prbuf->lf = true;
         if (indent && size > 0)
           printf("    ");
       } else if (c == '\r')
-        prbuf->cr = 1;
+        prbuf->cr = true;
       else if (c == '\0')
-        prbuf->nul = 1;
+        prbuf->nul = true;
       else
-        prbuf->control = 1;
+        prbuf->control = true;
       if (c == 27)
-        prbuf->esc = 1;
+        prbuf->esc = true;
     }
   }
 }
