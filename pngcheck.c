@@ -999,17 +999,12 @@ int ratio(ulg uc, ulg c)   /* GRR 19970621:  swiped from UnZip 5.31 list.c */
  */
 ulg gcf(ulg a, ulg b)
 {
-    ulg r;
-
-    if (b == 0)
-      return (a == 0)? 1 : a;
-
-    while ((r = a - (a/b)*b) != 0) {
-      a = b;
-      b = r;
-    }
-
-    return b;
+  while (b != 0) {
+    ulg c = a % b;
+    a = b;
+    b = c;
+  }
+  return (a != 0)? a : 1;
 }
 
 
