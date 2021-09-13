@@ -258,10 +258,6 @@ bool is_public(const char *chunkID) {
   return !is_private(chunkID);
 }
 
-#define set_err(x)  global_error = ((global_error < (x))? (x) : global_error)
-#define is_err(x)   (global_error >= (x))
-#define no_err(x)   (global_error < (x))
-
 enum Error {
   kOK = 0,
   kWarning,           /* could be an error in some circumstances but not all */
@@ -270,6 +266,12 @@ enum Error {
   kMajorError,        /* file corruption, invalid chunk length/layout, etc. */
   kCriticalError      /* unexpected EOF or other file(system) error */
 };
+
+enum Error global_error = kOK; /* the current error status */
+
+#define set_err(x)  global_error = ((global_error < (x))? (x) : global_error)
+#define is_err(x)   (global_error >= (x))
+#define no_err(x)   (global_error < (x))
 
 /* Command-line flag variables */
 int verbose = 0;	/* print chunk info */
@@ -286,7 +288,6 @@ bool png = false;		/* it's a PNG */
 bool mng = false;		/* it's a MNG instead of a PNG (won't work in pipe) */
 bool jng = false;		/* it's a JNG */
 
-enum Error global_error = kOK; /* the current error status */
 uch buffer[BS];
 
 /* what the PNG, MNG and JNG magic numbers should be */
