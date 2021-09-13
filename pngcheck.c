@@ -1027,15 +1027,15 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   char *and = "";
   int toread;
   int c;
-  int have_IHDR = 0, have_IEND = 0;
-  int have_MHDR = 0, have_MEND = 0;
-  int /* have_DHDR = 0, */ have_PLTE = 0;
-  int have_JHDR = 0, have_JSEP = 0, need_JSEP = 0;
+  bool have_IHDR = false, have_IEND = false;
+  bool have_MHDR = false, have_MEND = false;
+  bool /* have_DHDR = false, */ have_PLTE = false;
+  bool have_JHDR = false, have_JSEP = false, need_JSEP = false;
   int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
-  int have_bKGD = 0, have_cHRM = 0, have_eXIf = 0, have_gAMA = 0, have_hIST = 0;
-  int have_iCCP = 0, have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0;
-  int have_sCAL = 0, have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
-  int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
+  bool have_bKGD = false, have_cHRM = false, have_eXIf = false, have_gAMA = false, have_hIST = false;
+  bool have_iCCP = false, have_oFFs = false, have_pCAL = false, have_pHYs = false, have_sBIT = false;
+  bool have_sCAL = false, have_sRGB = false, have_sTER = false, have_tIME = false, have_tRNS = false;
+  bool have_SAVE = false, have_TERM = false, have_MAGN = false, have_pHYg = false;
   int top_level = 1;
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
   ulg crc, filecrc;
@@ -1311,7 +1311,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
             bitdepth, U2NAME(ityp, png_type), lace? "":"non-");
         }
       }
-      have_IHDR = 1;
+      have_IHDR = true;
       if (mng)
         top_level = 0;
       last_is_IDAT = last_is_JDAT = 0;
@@ -1382,7 +1382,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
             int a;
 
             if (bitdepth == 20) {
-              need_JSEP = 1;
+              need_JSEP = true;
               jbitd = 8;
               and = "and 12-bit ";
             } else
@@ -1408,7 +1408,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
           }
         }
       }
-      have_JHDR = 1;
+      have_JHDR = true;
       if (mng)
         top_level = 0;
       last_is_IDAT = last_is_JDAT = 0;
@@ -1569,7 +1569,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               profile? "invalid" : "unspecified");
         }
       }
-      have_MHDR = 1;
+      have_MHDR = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*================================================*
@@ -1639,7 +1639,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                    buffer[j], buffer[j + 1], buffer[j + 2]);
         }
       }
-      have_PLTE = 1;
+      have_PLTE = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2023,7 +2023,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       } else if (verbose) {
         printf("\n");
       }
-      have_IEND = 1;
+      have_IEND = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2078,7 +2078,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
           break;
       }
-      have_bKGD = 1;
+      have_bKGD = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2141,7 +2141,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                  gx, gy, bx, by);
         }
       }
-      have_cHRM = 1;
+      have_cHRM = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2165,7 +2165,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                  buffer[0], buffer[1], buffer[2], buffer[3]);
         }
       }
-      have_eXIf = 1;
+      have_eXIf = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2209,7 +2209,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (verbose && no_err(kMinorError)) {
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
-      have_gAMA = 1;
+      have_gAMA = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2323,7 +2323,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         for (i = j = 0;  j < sz;  ++i, j += 2)
           printf("%s%3d:  %5u\n", spc, i, SH(buffer+j));
       }
-      have_hIST = 1;
+      have_hIST = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2381,7 +2381,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                                       /* FIXME: should use remainder instead? */
         }
       }
-      have_iCCP = 1;
+      have_iCCP = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2474,7 +2474,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf(": %ldx%ld %s offset\n", LG(buffer), LG(buffer+4),
                (buffer[8] == 0)? "pixels":"micrometers");
       }
-      have_oFFs = 1;
+      have_oFFs = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2578,7 +2578,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
         }
       }
-      have_pCAL = 1;
+      have_pCAL = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2616,7 +2616,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
         printf("\n");
       }
-      have_pHYs = 1;
+      have_pHYs = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2724,7 +2724,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
           break;
       }
-      have_sBIT = 1;
+      have_sBIT = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2807,7 +2807,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf(": image size %s x %s %s\n", pPixwidth, pPixheight,
                (unittype == 1)? "meters":"radians");
       }
-      have_sCAL = 1;
+      have_sCAL = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2934,7 +2934,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("\n    rendering intent = %s\n",
                U2NAME(buffer[0], rendering_intent));
       }
-      have_sRGB = 1;
+      have_sRGB = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -2961,7 +2961,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         printf("\n    stereo subimage layout = %s\n",
                buffer[0]? "divergent (parallel)":"cross-eyed");
       }
-      have_sTER = 1;
+      have_sTER = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*  *------*
@@ -3079,7 +3079,7 @@ FIXME: add support for decompressing/printing zTXt
             hh, mm, ss);
         }
       }
-      have_tIME = 1;
+      have_tIME = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -3156,7 +3156,7 @@ FIXME: add support for decompressing/printing zTXt
             break;
         }
       }
-      have_tRNS = 1;
+      have_tRNS = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*===========================================*/
@@ -3310,7 +3310,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (verbose) {
         printf("\n");
       }
-      have_JSEP = 1;
+      have_JSEP = true;
       last_is_IDAT = 0;
       last_is_JDAT = 1;   /* effectively... (GRR HACK) */
 
@@ -3357,7 +3357,7 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      //have_DHDR = 1;
+      //have_DHDR = true;
       last_is_IDAT = last_is_JDAT = 0;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
@@ -3576,7 +3576,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (verbose) {
         printf("\n");
       }
-      have_SAVE = 1;
+      have_SAVE = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -4300,7 +4300,7 @@ FIXME: add support for decompressing/printing zTXt
             printf("%lu\n", val);
         }
       }
-      have_TERM = 1;
+      have_TERM = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -4380,7 +4380,7 @@ FIXME: add support for decompressing/printing zTXt
           printf("\n");
         }
       }
-      have_pHYg = 1;
+      have_pHYg = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -4629,7 +4629,7 @@ FIXME: add support for decompressing/printing zTXt
           }
         }
       }
-      have_MAGN = 1;
+      have_MAGN = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
@@ -4650,7 +4650,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (verbose) {
         printf("\n");
       }
-      have_MEND = 1;
+      have_MEND = true;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*===============*
