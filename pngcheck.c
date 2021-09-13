@@ -1037,7 +1037,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   bool have_iCCP = false, have_oFFs = false, have_pCAL = false, have_pHYs = false, have_sBIT = false;
   bool have_sCAL = false, have_sRGB = false, have_sTER = false, have_tIME = false, have_tRNS = false;
   bool have_SAVE = false, have_TERM = false, have_MAGN = false, have_pHYg = false;
-  int top_level = 1;
+  bool top_level = true;
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
   ulg crc, filecrc;
   ulg layers = 0L, frames = 0L;
@@ -1047,10 +1047,10 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   int vlc = -1, lc = -1;
   int bitdepth = 0, sampledepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
-  int did_stat = 0;
+  bool did_stat = false;
   printbuf_state prbuf_state;
   struct stat statbuf;
-  static int first_file = 1;
+  static bool first_file = true;
   const char *brief_warn  = color? brief_warn_color  : brief_warn_plain;
   const char *brief_OK    = color? brief_OK_color    : brief_OK_plain;
   const char *warnings_detected  = color? warnings_color : warnings_plain;
@@ -1066,13 +1066,13 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       printf("\n");
     } else {
       stat(fname, &statbuf);   /* know file exists => know stat() successful */
-      did_stat = 1;
+      did_stat = true;
       /* typecast long since off_t may be 64-bit (e.g., IRIX): */
       printf(" (%ld bytes)\n", (long)statbuf.st_size);
     }
   }
 
-  first_file = 0;
+  first_file = false;
   png = mng = jng = false;
 
   if (!searching) {
@@ -1314,7 +1314,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       }
       have_IHDR = true;
       if (mng)
-        top_level = 0;
+        top_level = false;
       last_is_IDAT = last_is_JDAT = false;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
@@ -1411,7 +1411,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       }
       have_JHDR = true;
       if (mng)
-        top_level = 0;
+        top_level = false;
       last_is_IDAT = last_is_JDAT = false;
 
     /*------*
@@ -3555,9 +3555,9 @@ FIXME: add support for decompressing/printing zTXt
             // name must match that in corresponding SEEK/FRAM/eXPI chunk, or
             // be omitted if unnamed segment (not checked!)
             if (bytes_left) {
-              int have_name = 0;
+              bool have_name = false;
               if (*p) {
-                have_name = 1;
+                have_name = true;
                 printf("    name = ");
               }
               do {
@@ -4459,7 +4459,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (no_err(kMinorError)) {
         uch *buf = buffer + 5;
         int bytes_left = sz - 5;
-        int first = 1;
+        bool first = true;
         int space_left = 75;
 
         if (verbose) {
@@ -4494,7 +4494,7 @@ FIXME: add support for decompressing/printing zTXt
             }
             printf("%s \"%.*s\"", sep, keylen, buf);
           }
-          first = 0;
+          first = false;
           buf += keylen+1;        /* no NULL separator for last keyword... */
           bytes_left -= keylen+1; /* ...but then bytes_left will be < 0:  NP */
         }
