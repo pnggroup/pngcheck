@@ -195,8 +195,8 @@ const char *getmonth (int m);
 int  ratio (ulg uc, ulg c);
 ulg  gcf (ulg a, ulg b);
 int  pngcheck (FILE *fp, const char *_fname, int searching, FILE *fpOut);
-int  pnginfile (FILE *fp, const char *fname, int ipng, int extracting);
-void pngsearch (FILE *fp, const char *fname, int extracting);
+int  pnginfile (FILE *fp, const char *fname, int ipng, bool extracting);
+void pngsearch (FILE *fp, const char *fname, bool extracting);
 int  check_magic (const uch *magic, const char *fname, int which);
 int  check_chunk_name (const char *chunk_name, const char *fname);
 int  check_keyword (const uch *buffer, int maxsize, int *pKeylen,
@@ -4861,7 +4861,7 @@ FIXME: add support for decompressing/printing zTXt
 
 
 
-int pnginfile(FILE *fp, const char *fname, int ipng, int extracting)
+int pnginfile(FILE *fp, const char *fname, int ipng, bool extracting)
 {
   char name[1024], *szdot;
   enum Error err = kOK;
@@ -4908,7 +4908,7 @@ int pnginfile(FILE *fp, const char *fname, int ipng, int extracting)
 
 
 
-void pngsearch(FILE *fp, const char *fname, int extracting)
+void pngsearch(FILE *fp, const char *fname, bool extracting)
 {
   /* Go through the file looking for a PNG magic number; if one is
      found, check the data to see if it is a PNG and validate the
