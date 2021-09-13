@@ -2745,7 +2745,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
                verbose? ":":fname, verbose? "":"sCAL ");
         set_err(kMinorError);
       } else if (sz > BS) {
-	/* FIXME: large sCAL chunks are unusual, but should be supported */
+        /* FIXME: large sCAL chunks are unusual, but should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"sCAL ");
         set_err(kMinorError);
@@ -2775,7 +2775,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (pPixheight == NULL) {
             /* missing pixel height, but -f was given */
             pPixheight = buffer+sz;
-	  }
+          }
           for (qq = pPixheight;  qq < buffer+sz;  ++qq) {
             if (*qq == 0)
               break;
@@ -2786,7 +2786,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             set_err(kWarning);
           }
           if (*pPixwidth == '-' ||
-	      (pPixheight != buffer+sz && *pPixheight == '-')) {
+              (pPixheight != buffer+sz && *pPixheight == '-')) {
             printf("%s  invalid negative %svalue(s)\n",
                    verbose? ":":fname, verbose? "":"sCAL ");
             set_err(kMinorError);
@@ -2876,7 +2876,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
             spc = "      ";
 
           /* TODO: Support larger sPLT contents with an input-reading loop */
-	  if (nsplt > (BS - j) / jstep) {
+          if (nsplt > (BS - j) / jstep) {
             printf("%s  printing truncated %scontents\n",
               verbose? ":":fname, verbose? "":"sPLT ");
             nsplt = (BS - j) / jstep;
@@ -3377,7 +3377,7 @@ FIXME: add support for decompressing/printing zTXt
       } else if (sz == 0 && verbose) {
         printf(":  empty\n");
       } else if (sz > BS) {
-	/* FIXME: large FRAM chunks are unusual, but should be supported */
+        /* FIXME: large FRAM chunks are unusual, but should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"FRAM ");
         set_err(kMinorError);
@@ -3497,7 +3497,7 @@ FIXME: add support for decompressing/printing zTXt
                verbose? ":":fname, verbose? "":"FRAM ");
         set_err(kMinorError);
       } else if (sz > BS) {
-	/* FIXME: large SAVE chunks should be supported */
+        /* FIXME: large SAVE chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
           verbose? ":":fname, verbose? "":"SAVE ");
         set_err(kMinorError);
@@ -3613,8 +3613,8 @@ FIXME: add support for decompressing/printing zTXt
           png? 'P':'J');
         set_err(kMinorError);
       } else if (sz > BS && verbose) {
-	/* FIXME: large nEED chunks are unusual, but should be supported */
-	printf(":  printing large chunk not currently supported\n");
+        /* FIXME: large nEED chunks are unusual, but should be supported */
+        printf(":  printing large chunk not currently supported\n");
       } else if (sz > 0 && verbose) {
         uch *p = buffer;
         uch *lastbreak = buffer;
@@ -3840,7 +3840,7 @@ FIXME: add support for decompressing/printing zTXt
           verbose? ":":fname, verbose? "":"LOOP ");
         set_err(kMajorError);
       } else if (sz > BS) {
-	/* FIXME: large LOOP chunks should be supported */
+        /* FIXME: large LOOP chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
           verbose? ":":fname, verbose? "":"LOOP ");
         set_err(kMinorError);
@@ -4177,7 +4177,7 @@ FIXME: add support for decompressing/printing zTXt
           verbose? ":":fname, verbose? "":"PAST ");
         set_err(kMajorError);
       } else if (sz > BS) {
-	/* FIXME: large PAST chunks should be supported */
+        /* FIXME: large PAST chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"PAST ");
         set_err(kMinorError);
@@ -4315,7 +4315,7 @@ FIXME: add support for decompressing/printing zTXt
           verbose? ":":fname, verbose? "":"DISC ");
         set_err(kMajorError);
       } else if (sz > BS) {
-	/* FIXME: large DISC chunks should be supported */
+        /* FIXME: large DISC chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"DISC ");
         set_err(kMinorError);
@@ -4395,7 +4395,7 @@ FIXME: add support for decompressing/printing zTXt
           verbose? ":":fname, verbose? "":"DROP ");
         set_err(kMajorError);
       } else if (sz > BS) {
-	/* FIXME: large DROP chunks should be supported */
+        /* FIXME: large DROP chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"DROP ");
         set_err(kMinorError);
@@ -4450,7 +4450,7 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMinorError);
       }
       if (sz > BS) {
-	/* FIXME: large DBYK chunks should be supported */
+        /* FIXME: large DBYK chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"DBYK ");
         set_err(kMinorError);
@@ -4515,7 +4515,7 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMajorError);
       }
       if (sz > BS) {
-	/* FIXME: large ORDR chunks should be supported */
+        /* FIXME: large ORDR chunks should be supported */
         printf("%s  checking large %schunk not currently supported\n",
                verbose? ":":fname, verbose? "":"ORDR ");
         set_err(kMinorError);
