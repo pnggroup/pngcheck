@@ -29,7 +29,11 @@ LIBS = $(ZLIB)
 CC = gcc
 LD = gcc
 RM = rm
-CFLAGS = -O -Wall $(INCS) -DUSE_ZLIB
+CERRORS=-Werror -Wall -Wextra -Wundef -Wpointer-arith\
+	-Wmissing-declarations -Wstrict-prototypes -Wmissing-prototypes\
+	-Wno-implicit-fallthrough -Wwrite-strings
+
+CFLAGS = -O ${CERRORS} $(INCS) -DUSE_ZLIB
 # [note that -Wall is a gcc-specific compilation flag ("all warnings on")]
 O = .o
 E =
