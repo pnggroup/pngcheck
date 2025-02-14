@@ -3619,10 +3619,14 @@ FIXME: add support for decompressing/printing zTXt
         set_err(kMajorError);
       }
       if (no_err(kMinorError)) {
+        ulg cll, fall;
         double maxCLL, maxFALL;
 
-        maxCLL  = (double)LG(buffer)/10000;
-        maxFALL = (double)LG(buffer+4)/10000;
+        cll = LG(buffer);
+        fall = LG(buffer+4);
+
+        maxCLL  = (double)cll/10000;
+        maxFALL = (double)fall/10000;
 
       if (maxCLL > 10000) {
           printf("%s  invalid %smaximum light level %0g\n",
@@ -3632,8 +3636,18 @@ FIXME: add support for decompressing/printing zTXt
           printf("\n");
       }
       if (verbose && no_err(kMinorError)) {
-          printf("    Maximum content light level = %0g cd/m^2\n", maxCLL);
-          printf("    Maximum frame average light level = %0g cd/m^2\n", maxFALL);
+          printf("    Maximum content light level ");
+          if (!cll) {
+            printf("unknown\n");
+          } else {
+            printf("= %0g cd/m^2\n", maxCLL);
+          }
+          printf("    Maximum frame average light level ");
+          if (!fall) {
+            printf("unknown\n");
+          } else {
+            printf("= %0g cd/m^2\n", maxFALL);
+          }
         }
       }
 
