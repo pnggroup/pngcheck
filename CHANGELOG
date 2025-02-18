@@ -6,6 +6,7 @@
  *   AL   -  Alexander Lehmann
  *   AED  -  Andreas Dilger
  *   BB   -  Ben Beasley (Fedora Linux)
+ *   CL   -  Chris Lilley
  *   GRP  -  Glenn Randers-Pehrson
  *   GRR  -  Greg Roelofs
  *   JB   -  John Bowler
@@ -264,3 +265,8 @@
  *               lab")
  * 20210425 GRR: released version 3.0.3
  *               ----------------------
+ * 20250106 CL:  Added basic cICP support, flagged uses of cLLi and mDCv
+ * 20250115 CL:  Add mDCV support. Add cLLI support
+ * 20250116 CL:  Fix narrow-range bug
+ * 20250123 CL:  Detect eXIf after IDAT for PNG Third Edition compliance
+ 

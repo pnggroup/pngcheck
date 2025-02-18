@@ -17,8 +17,9 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2021 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2025 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
+ *                          Chris Lilley <chris@w3.org>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
  *                          John Bowler <jbowler@acm.org>,
@@ -33,7 +34,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "3.0.3 of 25 April 2021"
+#define VERSION "unofficial of 24 Jan 2025"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -48,6 +49,10 @@
  *   bKGD cHRM eXIf fRAc gAMA gIFg gIFt gIFx	// ancillary PNG chunks
  *   hIST iCCP iTXt oFFs pCAL pHYs sBIT sCAL
  *   sPLT sRGB sTER tEXt zTXt tIME tRNS
+ *
+ *   acTL fcTL fdAT     // animated PNG
+ *
+ *   cICP mDCV cLLI                           // PNG 3e
  *
  *   cmOD cmPP cpIp mkBF mkBS mkBT mkTS pcLb	// known private PNG chunks
  *   prVW spAL					// [msOG = ??]
@@ -388,7 +393,7 @@ static const char *eqn_type[] = {			/* pCAL */
   "physical_value = p0 + p1 * sinh(p2 * (original_sample - p3) / (x1-x0))"
 };
 
-static const int eqn_params[] = { 2, 3, 3, 4 };		/* pCAL */
+static const unsigned int eqn_params[] = { 2, 3, 3, 4 };		/* pCAL */
 
 static const char *rendering_intent[] = {		/* sRGB */
   "perceptual",
@@ -1018,7 +1023,7 @@ ulg gcf(ulg a, ulg b)
 
 int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
 {
-  int i, j;
+  unsigned int i, j;
   long sz;  /* FIXME:  should be ulg (not using negative values as flags...) */
   uch magic[8];
   char chunkid[5] = {'\0', '\0', '\0', '\0', '\0'};
@@ -1034,15 +1039,27 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int have_iCCP = 0, have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0;
   int have_sCAL = 0, have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
   int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
+  int have_acTL = 0, have_fcTL = 0;
+  int have_cICP = 0, have_mDCV = 0, have_cLLI = 0;
   int top_level = 1;
+
+  // Animated PNG stuff
+  ulg num_frames = 0L, num_plays = 0L, num_fcTL = 0L;
+  int just_seen_fcTL = 0;
+  ulg sequence_number = 0L, frame_width = 0L, frame_height = 0L;
+  ulg x_offset = 0L, y_offset = 0L;
+  unsigned int delay_num = 0, delay_den = 0;
+  uch dispose_op = 0, blend_op = 0;
+  ulg next_sequence_number = 0L;
+
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
   ulg crc, filecrc;
   ulg layers = 0L, frames = 0L;
-  long num_chunks = 0L;
-  long w = 0L, h = 0L;
-  long mng_width = 0L, mng_height = 0L;
+  ulg num_chunks = 0L;
+  ulg w = 0L, h = 0L;
+  ulg mng_width = 0L, mng_height = 0L;
   int vlc = -1, lc = -1;
-  int bitdepth = 0, sampledepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
+  unsigned int bitdepth = 0, sampledepth = 0, ityp = 1, jtyp = 0, lace = 0, nplte = 0;
   int jbitd = 0, alphadepth = 0;
   int did_stat = 0;
   printbuf_state prbuf_state;
@@ -1728,11 +1745,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
 #ifdef USE_ZLIB
       if (check_zlib && !zlib_error) {
         static uch *p;   /* always points to next filter byte */
-        static int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
+        static unsigned int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
         static long cur_width, cur_linebytes;
         static long numfilt, numfilt_this_block, numfilt_total, numfilt_pass[7];
         uch *eod;
-        int err=Z_OK;
+        unsigned int err=Z_OK;
 
         zstrm.next_in = buffer;
         zstrm.avail_in = toread;
@@ -1759,7 +1776,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           numfilt = 0L;
           first_idat = 0;
           if (lace) {   /* loop through passes to calculate total filters */
-            int passm1, yskip=0, yoff=0, xoff=0;
+            unsigned int passm1, yskip=0, yoff=0, xoff=0;
 
             if (verbose)  /* GRR FIXME? could move this calc outside USE_ZLIB */
               printf("    rows per pass%s: ",
@@ -1986,6 +2003,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
         set_err(kMajorError);
 #endif /* USE_ZLIB */
+      just_seen_fcTL = 0;
       last_is_IDAT = 1;
       last_is_JDAT = 0;
 
@@ -2006,6 +2024,14 @@ FIXME: make sure bit 31 (0x80000000) is 0
       } else if (jng && have_JDAT <= 0) {
         printf("%s  no JDAT chunks\n", verbose? ":":fname);
         set_err(kMajorError);
+      } else if (have_acTL && (num_frames != num_fcTL)) {
+        printf("%s  Expected %lu frames, but found %lu\n", verbose? ":":fname, num_frames, num_fcTL);
+        set_err(kMinorError);
+      } else if (have_acTL && just_seen_fcTL) {
+        printf("%s  Missing fdAT after fcTL\n", verbose? ":":fname);
+        set_err(kMinorError);
+      
+      
 /*
  *    FIXME:  what's minimum valid JPEG/JFIF length?
  *    } else if (jng && have_JDAT < 10) {
@@ -2151,6 +2177,9 @@ FIXME: make sure bit 31 (0x80000000) is 0
         set_err(kMinorError);
       } else if (png && have_eXIf) {
         printf("%s  multiple eXIf not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (png && have_IDAT) {
+        printf("%s  eXIf after IDAT no longer allowed\n", verbose? ":":fname);
         set_err(kMinorError);
       }
       else if (verbose /* && no_err(kMinorError) */) {
@@ -2504,7 +2533,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           long x0 = LG(buffer+name_len+1);	/* already checked sz */
           long x1 = LG(buffer+name_len+5);
           int eqn_num = buffer[name_len+9];
-          int num_params = buffer[name_len+10];
+          unsigned int num_params = buffer[name_len+10];
 
           if (eqn_num < 0 || eqn_num > 3) {
             printf("%s  invalid %s equation type (%d)\n",
@@ -2829,7 +2858,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         int remainder = toread - name_len - 2;
         int bytes = (bps >> 3);
         int entry_sz = 4*bytes + 2;
-        int nsplt = remainder / entry_sz;
+        unsigned int nsplt = remainder / entry_sz;
 
         if (remainder < 0) {
           printf("%s  invalid %slength\n",  /* or input buffer too small */
@@ -2861,7 +2890,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
         if (printpal && no_err(kMinorError)) {
           char *spc;
-          int i, j = name_len+2, jstep = ((bytes == 1) ? 6 : 10);
+          unsigned int i, j = name_len+2, jstep = ((bytes == 1) ? 6 : 10);
 
           if (nsplt < 10)
             spc = "  ";
@@ -3156,6 +3185,496 @@ FIXME: add support for decompressing/printing zTXt
       }
       have_tRNS = 1;
       last_is_IDAT = last_is_JDAT = 0;
+
+    /*===========================================*/
+    /* Animated PNG chunks                       */
+
+     /*------*
+     | acTL |
+     *------*/
+    } else if (strcmp(chunkid, "acTL") == 0) {
+      if (have_IDAT) {
+        printf("%s  acTL must be before first IDAT\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (have_acTL) {
+        printf("%s  multiple acTL not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (sz != 8) {
+      printf("%s  invalid %slength\n",
+              verbose? ":":fname, verbose? "":"acTL ");
+      set_err(kMinorError);
+    }
+    if (no_err(kMinorError)) {
+        num_frames = LG(buffer);
+        num_plays  = LG(buffer+4);
+        // printf("  Animated PNG, %d frames, %d plays\n", num_frames, num_plays);
+      if (num_frames == 0) {
+        printf("%s  %snumber of frames cannot be zero \n",
+                verbose? ":":fname, verbose? "":"acTL ");
+        set_err(kMinorError);
+      } else if (verbose) {
+        if (num_plays == 0) {
+          printf("\n    Animated PNG, %lu frames, plays continuously\n", num_frames);
+        } else {
+          printf("\n    Animated PNG, %lu frames, plays %lu times\n", num_frames, num_plays);
+        }
+      }
+    }
+
+      have_acTL = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+     /*------*
+     | fcTL |
+     *------*/
+    } else if (strcmp(chunkid, "fcTL") == 0) {
+      if (sz != 26) {
+        printf("%s  invalid %slength \n",
+              verbose? ":":fname, verbose? "":"fcTL ");
+        set_err(kMinorError);
+      }
+
+      if (no_err(kMinorError)) {
+        sequence_number = LG(buffer);
+        frame_width = LG(buffer+4);
+        frame_height = LG(buffer+8);
+        x_offset = LG(buffer+12);
+        y_offset = LG(buffer+16);
+        delay_num = SH(buffer+20); 
+        delay_den = SH(buffer+22);
+        dispose_op = *(buffer+24);
+        blend_op = *(buffer+25);
+      }
+
+      // First frame is IDAT checks
+      if (!have_fcTL && !have_IDAT) {
+        if (x_offset > 0 || y_offset > 0) {
+          printf("%s  First frame is IDAT, so offsets must be zero\n", verbose? ":":fname);
+          set_err(kMinorError);
+        }
+        if (frame_height != h || frame_width != w) {
+          printf("%s  First frame is IDAT, so first frame must be same size as static image\n", verbose? ":":fname);
+          set_err(kMinorError);
+        }
+      }
+      // Missing fdAT check
+      if (just_seen_fcTL) {
+        printf("%s  At least one fdAT is required for each frame (except first, if IDAT)\n", verbose? ":":fname);
+        set_err(kMinorError);
+      }
+
+      // Sequence numbers
+      if (!have_fcTL && (sequence_number != 0)) {
+        // is this the first fcTL?
+        printf("%s  sequence numbers must start at zero\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (sequence_number != next_sequence_number){
+        // are sequence numbers increasing?
+        printf("%s  sequence numbers must be sequential\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else {
+        next_sequence_number++;
+      }
+
+      // Widths, heights, and offsets
+      if ((frame_width == 0) || (frame_height == 0)) {
+        printf("%s frame width and height must not be zero\n", verbose? ":":fname);
+        set_err(kMinorError);
+      }
+      if ((frame_width + x_offset > w) || (frame_height + y_offset > h)) {
+        printf("%s  frame must be rendered within image bounds\n", verbose? ":":fname);
+        set_err(kMinorError);
+      }
+
+      // Delays
+      if (delay_den == 0) {
+        // If the denominator is 0, it is to be treated as if it were 100 
+        delay_den = 100;
+      }
+
+      // Dispose
+      if (dispose_op > 2) {
+        printf("%s  invalid dispose operator %u\n", verbose? ":":fname, dispose_op);
+        set_err(kMinorError);
+      }
+
+      // Blend
+      if (blend_op > 1) {
+        printf("%s  invalid blend operator %u\n", verbose? ":":fname, blend_op);
+        set_err(kMinorError);
+      }
+
+      if (no_err(kMinorError) && verbose) {
+        printf("\n    Frame, sequence number %lu\n", sequence_number);
+        printf("    Width %lu, height %lu starting at (%lu, %lu)\n",
+          frame_width, frame_height, x_offset, y_offset);
+        printf("    Frame delay %u (%u / %u) sec\n", delay_num/delay_den, delay_num, delay_den);
+        if (dispose_op == 0) {
+          printf("    No disposal before next frame\n");
+        } else if (dispose_op == 1) {
+          printf("    Cleared to transparent black before next frame\n");
+        } else {
+          printf("    Reverts to previous contents before next frame\n");
+        }
+        if (blend_op == 0) {
+          printf("    Frame overwrites buffer\n");
+        } else {
+          printf("    Frame composites (source over) with buffer\n");
+        }
+      }
+
+      have_fcTL = 1;
+      just_seen_fcTL = 1;
+      num_fcTL++;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+     | fdAT |
+     *------*/
+    } else if (strcmp(chunkid, "fdAT") == 0) {
+      if (sz < 4) {
+        printf("%s  invalid %slength (must be at least 4 bytes)\n",
+              verbose? ":":fname, verbose? "":"fdAT ");
+        set_err(kMinorError);
+      }
+            
+      if (no_err(kMinorError)) {
+        sequence_number = LG(buffer);
+      }
+
+      if (sequence_number != next_sequence_number){
+        // are sequence numbers increasing?
+        printf("%s  sequence numbers must be sequential\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else {
+        next_sequence_number++;
+      }
+
+      if (no_err(kMinorError) && verbose) {
+        printf("\n    Frame data, sequence number %lu\n", sequence_number);
+      }
+
+      just_seen_fcTL = 0;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*===========================================*/
+    /* PNG Third Edition new chunks              */
+
+    /*------*
+    | cICP |
+    *------*/
+    /*  https://w3c.github.io/png/#cICP-chunk */
+
+    /* chunk ordering and chunk length tests */
+  } else if (strcmp(chunkid, "cICP") == 0) {
+    if (!mng && have_cICP) {
+      printf("%s  multiple cICP not allowed\n", verbose? ":":fname);
+      set_err(kMinorError);
+    } else if (!mng && have_PLTE) {
+      printf("%s  %smust precede PLTE\n",
+              verbose? ":":fname, verbose? "":"cICP ");
+      set_err(kMinorError);
+    } else if (!mng && (have_IDAT || have_JDAT)) {
+      printf("%s  %smust precede %cDAT\n",
+              verbose? ":":fname, verbose? "":"cICP ", have_IDAT? 'I':'J');
+      set_err(kMinorError);
+    } else if (sz != 4) {
+      printf("%s  invalid %slength\n",
+              verbose? ":":fname, verbose? "":"cICP ");
+      set_err(kMajorError);
+    }
+    if (no_err(kMinorError)) {
+      char primaries, transfer, fullrange;
+
+      /* check for obviously wrong values first */
+      if (buffer[2] > 0) {
+        printf("%s  %s matrix coefficients must be zero (RGB), found %d\n",
+                verbose? ":":fname, verbose? "":"cICP ", buffer[2]);
+        set_err(kMinorError);
+        } else if (buffer[3] > 1) {
+          printf("%s  %s invalid video full range flag, found %d\n",
+                verbose? ":":fname, verbose? "":"cICP ", buffer[3]);
+        set_err(kMinorError);
+        } else if (buffer[0] > 22) {
+          printf("%s %s reserved color primaries, found %d\n",
+                verbose? ":":fname, verbose? "":"cICP ", buffer[0]);
+        set_err(kMinorError);
+        } else if (buffer[1] > 18) {
+          printf("%s %s reserved transfer characteristics, found %d\n",
+                verbose? ":":fname, verbose? "":"cICP ", buffer[0]);
+        set_err(kMinorError);
+        } else {
+          primaries = buffer[0];
+          transfer = buffer[1];
+          fullrange = buffer [3];
+          double wx, wy, rx, ry, gx, gy, bx, by;
+
+          if (primaries == 1) {
+            if (transfer == 1) { // 709
+              printf("\n%s %s  Rec. ITU-R BT.709-6 \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else if (transfer == 8) { // linear
+              printf("\n%s %s  linear-light sRGB \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else if (transfer == 13) { // sRGB
+              printf("\n%s %s  IEC 61966-2-1 sRGB \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else { // unknown transfer function for these primaries
+              printf("\n%s %s  unknown sRGB-like \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+                set_err(kMinorError);
+            }
+            wx = 0.3127;
+            wy = 0.3290;
+            rx = 0.640;
+            ry = 0.330;
+            gx = 0.300;
+            gy = 0.600;
+            bx = 0.150;
+            by = 0.060;
+
+          } else if (primaries == 9) {
+            if (transfer == 14) { // 2020 10-bit
+              printf("\n%s  %s  Rec. ITU-R BT.2020-2 (10-bit system) \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else if (transfer == 15) { // 2020 12-bit 
+              printf("\n%s  %s  Rec. ITU-R BT.2020-2 (12-bit system) \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else if (transfer == 16) { // PQ
+              printf("\n%s %s  Rec. ITU-R BT.2100-2 perceptual quantization (PQ) system \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else if (transfer == 18) { // HLG
+              printf("\n%s %s  Rec. ITU-R BT.2100-2 hybrid log-gamma (HLG) system \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+            } else { // unknown transfer function for these primaries
+              printf("\n%s %s unknown rec2020-like \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+                set_err(kMinorError);
+          }
+            wx = 0.3127;
+            wy = 0.3290;
+            rx = 0.708;
+            ry = 0.292;
+            gx = 0.170;
+            gy = 0.797;
+            bx = 0.131;
+            by = 0.046;
+
+          } else if (primaries == 11) { // DCI P3
+            if (transfer == 17) { 
+              printf("\n%s %s  SMPTE RP 431-2 with SMPTE ST 428-1 D-Cinema Distribution Master (DCI-P3) \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+
+          } else { // unknown transfer function for these primaries
+              printf("\n%s %s  unknown DCI-P3-like \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+                set_err(kMinorError);
+          }
+            wx = 0.314;
+            wy = 0.351;
+            rx = 0.680;
+            ry = 0.320;
+            gx = 0.265;
+            gy = 0.690;
+            bx = 0.150;
+            by = 0.060;
+
+          } else if (primaries == 12) { // P3D65
+            if (transfer == 13) { // Display P3 uses the sRGB transfer function
+              printf("\n%s %s  Display P3 \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+          } else { // unknown transfer function for these primaries
+              printf("\n%s %s  unknown D65 P3-like \n",
+                verbose? ":":fname, verbose? "":"cICP ");
+                set_err(kMinorError);
+              }
+            wx = 0.3127;
+            wy = 0.3290;
+            rx = 0.680;
+            ry = 0.320;
+            gx = 0.265;
+            gy = 0.690;
+            bx = 0.150;
+            by = 0.060;
+
+          } else { // mystery meat
+            if (verbose) {
+              printf("unrecognised (reserved or historical)\n");
+              printf("primaries: %d \n", primaries);
+              printf("transfer function: %d \n", transfer);
+              printf(fullrange? "    Narrow range \n" : "    Full range \n");
+              set_err(kMinorError);
+            }
+          }
+
+          if (verbose && no_err(kMinorError)) {
+            printf("    White x = %0g y = %0g,  Red x = %0g y = %0g\n",
+                  wx, wy, rx, ry);
+            printf("    Green x = %0g y = %0g,  Blue x = %0g y = %0g\n",
+                  gx, gy, bx, by);
+            // printf(fullrange? "    Narrow range \n" : "    Full range \n");
+            if (fullrange == 0) printf("    Narrow range \n");
+            if (fullrange == 1) printf("    Full range \n");
+          }
+
+          have_cICP = 1;
+          last_is_IDAT = last_is_JDAT = 0;
+        }
+    }
+
+    /*------*
+    | mDCV |
+    *------*/
+    /* https://w3c.github.io/png/#mDCV-chunk */
+    } else if (strcmp(chunkid, "mDCV") == 0) {
+      if (!mng && have_mDCV) {
+        printf("%s  multiple mDCV not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (!mng && have_PLTE) {
+        printf("%s  %smust precede PLTE\n",
+               verbose? ":":fname, verbose? "":"mDCV ");
+        set_err(kMinorError);
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"mDCV ", have_IDAT? 'I':'J');
+        set_err(kMinorError);
+      } else if (sz != 24) {
+        printf("%s  invalid %slength\n",
+               verbose? ":":fname, verbose? "":"mDCV ");
+        set_err(kMajorError);
+      }
+      if (no_err(kMinorError)) {
+        double rx, ry, gx, gy, bx, by, wx, wy, maxlum, minlum;
+
+        /* notice different order, length, and divisor, compared to cHRM */
+        rx = (double)SH(buffer)/50000;
+        ry = (double)SH(buffer+2)/50000;
+        gx = (double)SH(buffer+4)/50000;
+        gy = (double)SH(buffer+6)/50000;
+        bx = (double)SH(buffer+8)/50000;
+        by = (double)SH(buffer+10)/50000;
+        wx = (double)SH(buffer+12)/50000;
+        wy = (double)SH(buffer+14)/50000;
+        maxlum = (double)LG(buffer+16)/10000;
+        minlum = (double)LG(buffer+20)/10000;
+
+        if (wx < 0 || wx > 0.8 || wy < 0 || wy > 0.8 || wx + wy > 1.0) {
+          printf("%s  invalid mastering %swhite point %0g %0g\n",
+                 verbose? ":":fname, verbose? "":"mDCV ", wx, wy);
+          set_err(kMinorError);
+        } else if (rx < 0 || rx > 0.8 || ry < 0 || ry > 0.8 || rx + ry > 1.0) {
+          printf("%s  invalid mastering %sred point %0g %0g\n",
+                 verbose? ":":fname, verbose? "":"mDCV ", rx, ry);
+          set_err(kMinorError);
+        } else if (gx < 0 || gx > 0.8 || gy < 0 || gy > 0.8 || gx + gy > 1.0) {
+          printf("%s  invalid mastering %sgreen point %0g %0g\n",
+                 verbose? ":":fname, verbose? "":"mDCV ", gx, gy);
+          set_err(kMinorError);
+        } else if (bx < 0 || bx > 0.8 || by < 0 || by > 0.8 || bx + by > 1.0) {
+          printf("%s  invalid mastering %sblue point %0g %0g\n",
+                 verbose? ":":fname, verbose? "":"mDCV ", bx, by);
+          set_err(kMinorError);
+        } else if (maxlum > 10000) {
+          printf("%s  invalid mastering %smax luminance %0g cd/m^2\n",
+                verbose? ":":fname, verbose? "":"mDCV ", maxlum);
+        } else if (minlum > 10) {
+          printf("%s  invalid mastering %smin luminance %0g cd/m^2\n",
+                verbose? ":":fname, verbose? "":"mDCV ", minlum);
+        }
+        else if (verbose) {
+          printf("\n    Mastering Display\n");
+        }
+
+        if (verbose && no_err(kMinorError)) {
+          printf("    White x = %0g y = %0g,  Red x = %0g y = %0g\n",
+                 wx, wy, rx, ry);
+          printf("    Green x = %0g y = %0g,  Blue x = %0g y = %0g\n",
+                 gx, gy, bx, by);
+          printf("    Maximum luminance = %0g cd/m^2\n", maxlum);
+          printf("    Minimum luminance = %0g cd/m^2\n", minlum);
+        }
+      }
+      have_mDCV = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+    | cLLI |
+    *------*/
+    /* https://w3c.github.io/png/#cLLI-chunk */
+    } else if (strcmp(chunkid, "cLLI") == 0) {
+      if (!mng && have_cLLI) {
+        printf("%s  multiple cLLI not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (!mng && have_PLTE) {
+        printf("%s  %smust precede PLTE\n",
+               verbose? ":":fname, verbose? "":"cLLI ");
+        set_err(kMinorError);
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"cLLI ", have_IDAT? 'I':'J');
+        set_err(kMinorError);
+      } else if (sz != 8) {
+        printf("%s  invalid %slength\n",
+               verbose? ":":fname, verbose? "":"cLLI ");
+        set_err(kMajorError);
+      }
+      if (no_err(kMinorError)) {
+        ulg cll, fall;
+        double maxCLL, maxFALL;
+
+        cll = LG(buffer);
+        fall = LG(buffer+4);
+
+        maxCLL  = (double)cll/10000;
+        maxFALL = (double)fall/10000;
+
+      if (maxCLL > 10000) {
+          printf("%s  invalid %smaximum light level %0g\n",
+                 verbose? ":":fname, verbose? "":"cLLI ", maxCLL);
+          set_err(kMinorError);
+      } else if (verbose) {
+          printf("\n");
+      }
+      if (verbose && no_err(kMinorError)) {
+          printf("    Maximum content light level ");
+          if (!cll) {
+            printf("unknown\n");
+          } else {
+            printf("= %0g cd/m^2\n", maxCLL);
+          }
+          printf("    Maximum frame average light level ");
+          if (!fall) {
+            printf("unknown\n");
+          } else {
+            printf("= %0g cd/m^2\n", maxFALL);
+          }
+        }
+      }
+
+      have_cLLI = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+
+
+    /*------*
+    | cLLi |
+    *------*/
+    } else if (strcmp(chunkid, "cLLi") == 0) {
+            if (verbose)
+        printf("\n    "
+          "Old version of CLLI, do not use\n");
+        set_err(kMinorError);
+        last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+    | mDCv |
+    *------*/
+    } else if (strcmp(chunkid, "mDCv") == 0) {
+            if (verbose)
+        printf("\n    "
+          "Old version of mDCV, do not use\n");
+        set_err(kMinorError);
+        last_is_IDAT = last_is_JDAT = 0;
 
     /*===========================================*/
     /* identifiable private chunks; guts unknown */
@@ -4204,8 +4723,8 @@ FIXME: add support for decompressing/printing zTXt
           uch comp_mode     = buf[2];
           uch orient        = buf[3];
           uch offset_origin = buf[4];
-          long xoff         = LG(buf+5);
-          long yoff         = LG(buf+9);
+          ulg xoff         = LG(buf+5);
+          ulg yoff         = LG(buf+9);
           uch bdry_origin   = buf[13];
           long left_clip    = LG(buf+14);
           long right_clip   = LG(buf+18);
@@ -4841,12 +5360,21 @@ FIXME: add support for decompressing/printing zTXt
           global_error? warnings_detected : no_errors_detected, fname,
           num_chunks, sgn, cfactor/10, cfactor%10);
       } else if (!quiet) {
-        printf("%s: %s%s%s (%ldx%ld, %d-bit %s%s, %sinterlaced, %s%d.%d%%).\n",
+        printf("%s: %s%s%s (%ldx%ld, %d-bit %s%s, %sinterlaced, ",
           global_error? brief_warn : brief_OK,
           color? COLOR_YELLOW:"", fname, color? COLOR_NORMAL:"",
           w, h, bitdepth, (ityp > 6)? png_type[1] : U2NAME(ityp, png_type),
           (ityp == 3 && have_tRNS)? "+trns" : "",
-          lace? "" : "non-", sgn, cfactor/10, cfactor%10);
+          lace? "" : "non-");
+
+        if (have_acTL) {
+          printf("animated (%lu frame%s), ", num_frames, (num_frames>1)? "s" : "");
+        } else {
+          printf("static, ");
+        }
+
+        printf("%s%d.%d%%).\n",
+          sgn, cfactor/10, cfactor%10);
       }
     }
 
