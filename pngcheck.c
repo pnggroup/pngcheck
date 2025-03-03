@@ -3485,11 +3485,14 @@ FIXME: add support for decompressing/printing zTXt
             if (transfer == 13) { // Display P3 uses the sRGB transfer function
               printf("\n%s %s  Display P3 \n",
                 verbose? ":":fname, verbose? "":"cICP ");
-          } else { // unknown transfer function for these primaries
+            } else if (transfer == 16) { //P3D65-PQ
+              printf("\n%s %s  P3D65-PQ \n",
+                verbose? ":":fname, verbose? "":"cICP ");  
+            } else { // unknown transfer function for these primaries
               printf("\n%s %s  unknown D65 P3-like \n",
                 verbose? ":":fname, verbose? "":"cICP ");
                 set_err(kMinorError);
-              }
+            }
             wx = 0.3127;
             wy = 0.3290;
             rx = 0.680;
