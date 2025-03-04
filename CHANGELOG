@@ -269,4 +269,4 @@
  * 20250115 CL:  Add mDCV support. Add cLLI support
  * 20250116 CL:  Fix narrow-range bug
  * 20250123 CL:  Detect eXIf after IDAT for PNG Third Edition compliance
- 
+ * 20250304 CT:  Added a CMake file and an installation instructions file
