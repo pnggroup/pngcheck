@@ -40,10 +40,7 @@ O = .o
 E = .win32.exe
 
 PROG  = pngcheck
-PROG2 = pngsplit
-PROG3 = png-fix-IDAT-windowsize
-
-EXES  = $(PROG)$(E) $(PROG2)$(E) $(PROG3)$(E)
+EXES  = $(PROG)$(E)
 
 
 # implicit make rules -------------------------------------------------------
@@ -58,13 +55,6 @@ all:  $(EXES)
 
 $(PROG)$(E): $(PROG).c
 	$(CC) $(CFLAGS) -o $@ $(PROG).c $(LIBS)
-
-# both of these require zlib, too (for crc32() function)
-$(PROG2)$(E): gpl/$(PROG2).c
-	$(CC) $(CFLAGS) -o $@ gpl/$(PROG2).c $(LIBS)
-
-$(PROG3)$(E): gpl/$(PROG3).c
-	$(CC) $(CFLAGS) -o $@ gpl/$(PROG3).c $(LIBS)
 
 
 # maintenance ---------------------------------------------------------------
