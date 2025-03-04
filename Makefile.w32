@@ -47,21 +47,14 @@ E = .exe
 LDFLAGS = -nologo
 
 PROG  = pngcheck
-PROG2 = pngsplit
-PROG3 = png-fix-IDAT-windowsize
 
 OBJS  = $(PROG)$(O)
-OBJS2 = $(PROG2)$(O)
-OBJS3 = $(PROG3)$(O)
 
-EXES = $(PROG)$(E) $(PROG2)$(E) $(PROG3)$(E)
+EXES = $(PROG)$(E)
 
 
 # implicit make rules -------------------------------------------------------
 
-# GRR 20060617:  Can't remember if this dumps objects in current dir or in
-#   same dir as source.  If latter, will need to modify PROG2/PROG3 targets
-#   below (and/or OBJS* macros above) to include "gpl/" prefix on objects.
 .c$(O):
 	$(CC) -c $(CFLAGS) $<
 
@@ -75,16 +68,6 @@ all:  $(EXES)
 $(PROG)$(E): $(OBJS)
 	$(LD) $(LDFLAGS) -out:$@ $(OBJS) setargv.obj $(LIBS)
 
-$(PROG2)$(E): $(OBJS2)
-	$(CC) $(CFLAGS) -out:$@ $(OBJS2) setargv.obj $(LIBS)
-
-$(PROG3)$(E): $(OBJS3)
-	$(CC) $(CFLAGS) -out:$@ $(OBJS3) setargv.obj $(LIBS)
-
-$(PROG)$(O):	gpl/$(PROG).c
-$(PROG2)$(O):	gpl/$(PROG2).c
-$(PROG3)$(O):	gpl/$(PROG3).c
-
 
 # maintenance ---------------------------------------------------------------
 
@@ -94,7 +77,3 @@ clean:
 #	...but the Windows "DEL" command is none too bright, so:
 	$(RM) $(PROG)$(E)
 	$(RM) $(PROG)$(O)
-	$(RM) $(PROG2)$(E)
-	$(RM) $(PROG2)$(O)
-	$(RM) $(PROG3)$(E)
-	$(RM) $(PROG3)$(O)
