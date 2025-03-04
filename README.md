@@ -1,12 +1,13 @@
-# pngcheck unofficial of 03 Feb 2025
+# pngcheck 4.0.0
 
-pngcheck is a command-line utility to check PNG image files for validity 
+pngcheck is a command-line utility to check PNG image files,
+including animated PNG, for validity
 and to give information about metadate inside the file
 (apart from the actual image data).
 
-This unofficial version is forked from pngcheck 3.0.3
-(see [3.0.3 README](./README-303)) and adds the following new 
-features:
+This version was derived from pngcheck 3.0.3
+(see [3.0.3 README](./README-303)) and adds the following new
+features from [PNG Third Edition](https://w3c.github.io/png/):
 
 - Coding Independent Code Points [`cICP`](https://w3c.github.io/png/#cICP-chunk)
 - Mastering Display Color Volume [`mDCV`](https://w3c.github.io/png/#mDCV-chunk)
