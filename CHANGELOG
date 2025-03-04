@@ -7,6 +7,7 @@
  *   AED  -  Andreas Dilger
  *   BB   -  Ben Beasley (Fedora Linux)
  *   CL   -  Chris Lilley
+ *   CT   -  Cosmin Truta
  *   GRP  -  Glenn Randers-Pehrson
  *   GRR  -  Greg Roelofs
  *   JB   -  John Bowler
@@ -269,4 +270,15 @@
  * 20250115 CL:  Add mDCV support. Add cLLI support
  * 20250116 CL:  Fix narrow-range bug
  * 20250123 CL:  Detect eXIf after IDAT for PNG Third Edition compliance
+ * 20250124 CL:  Added APNG support
+ * 20250203 CL:  Test for fdAT after each fcTL (except first)
+ * 20250204 CL:  Either IDAT or fdAT needed after fcTL
+ * 20250207 CL:  Fix (almost) all warnings about signed vs unsigned comparisons
+ * 20250218 CL:  Detect unknown (zero) in cLLI
+ * 20250218 CT:  Merge git history (to 3.0.3) and unofficial fork
+ * 20250221 JB:  CLEANUP: Add warnings, add const to char *
+ * 20250303 CL:  Add P3D65-PQ to known cICP color spaces
+ * 20250303 CL:  released version 4.0.0
+ *               ----------------------
+
  
