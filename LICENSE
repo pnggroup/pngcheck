@@ -14,10 +14,7 @@
 
 
 [This license applies to pngcheck.c and its associated makefiles and
- documentation in the main directory.  The files in the "gpl" subdirectory--
- specifically, pngsplit.c and png-fix-IDAT-windowsize.c--are licensed under the
- GNU General Public License.  The files in "amiga" subdirectory are Copyright
- 2003 Simon Goodwin and were contributed without an explicit license statement,
- but insofar as the "gpl" subdirectory didn't exist at the time, it's safe to
- assume their intended license was similar to pngcheck's, just with Simon's
- copyright replacing the one above.]
+ documentation in the main directory.  The files in "amiga" subdirectory are
+ Copyright 2003 Simon Goodwin and were contributed without an explicit license
+ statement, but we assume assume that their intended license was the same as
+ pngcheck's, just with Simon's copyright replacing the one above.]

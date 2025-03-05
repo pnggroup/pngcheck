@@ -281,4 +281,5 @@
  * 20250304 CT:  Added a CMake file and an installation instructions file
  * 20250304 CL:  released version 4.0.0
  *               ----------------------
-
+ * 20250305 CT:  Removed gpl/pngsplit and gpl/png-fix-IDAT-windowsize from this
+                 project; we're moving them to a new home
