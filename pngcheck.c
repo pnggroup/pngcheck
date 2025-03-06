@@ -3073,18 +3073,30 @@ FIXME: add support for decompressing/printing zTXt
         int mm = buffer[5];
         int ss = buffer[6];
 
+        /* zero-based; tIME month is 1-based */
+        int daysInMonth[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+        /* leap year check, if needed */
+        if (mo == 2) {
+          if (yr % 400 == 0)
+            daysInMonth[1] = 29;
+          else if (yr % 100 != 0) {
+            if (yr % 4 == 0)
+              daysInMonth[1] = 29;
+          }
+        }
+
         if (yr < 1995) {
           /* conversion to PNG format counts as modification... */
           /* FIXME:  also test for future dates? (may allow current year + 1) */
-          printf("%s  invalid %syear (%d)\n",
+          printf("%s  invalid %syear (before PNG existed!) (%d)\n",
             verbose? ":":fname, verbose? "":"tIME ", yr);
           set_err(kMinorError);
         } else if (mo < 1 || mo > 12) {
           printf("%s  invalid %smonth (%d)\n",
             verbose? ":":fname, verbose? "":"tIME ", mo);
           set_err(kMinorError);
-        } else if (dy < 1 || dy > 31) {
-          /* FIXME:  also validate day given specified month? */
+        } else if (dy < 1 || dy > daysInMonth[mo - 1]) {
           printf("%s  invalid %sday (%d)\n",
             verbose? ":":fname, verbose? "":"tIME ", dy);
           set_err(kMinorError);
@@ -3102,6 +3114,7 @@ FIXME: add support for decompressing/printing zTXt
           set_err(kMinorError);
         }
         /* print the date in RFC 1123 format, rather than stored order */
+        /* FIXME: PNG Third Edition prefers RFC 3339 format*/
         /* FIXME:  change to ISO-whatever format, i.e., yyyy-mm-dd hh:mm:ss? */
         if (verbose && no_err(kMinorError)) {
           printf(": %2d %s %4d %02d:%02d:%02d UTC\n", dy, getmonth(mo), yr,
