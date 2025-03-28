@@ -3427,16 +3427,16 @@ FIXME: add support for decompressing/printing zTXt
           if (primaries == 1) {
             if (transfer == 1) { // 709
               printf("\n%s %s  Rec. ITU-R BT.709-6 \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 8) { // linear
               printf("\n%s %s  linear-light sRGB \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 13) { // sRGB
               printf("\n%s %s  IEC 61966-2-1 sRGB \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else { // unknown transfer function for these primaries
               printf("\n%s %s  unknown sRGB-like \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
                 set_err(kMinorError);
             }
             wx = 0.3127;
@@ -3448,22 +3448,61 @@ FIXME: add support for decompressing/printing zTXt
             bx = 0.150;
             by = 0.060;
 
+          } else if (primaries == 5) {
+            if (transfer == 4) { // SECAM
+              printf("\n%s  %s  Rec. ITU-R BT.1700-0 625 (SECAM) \n",
+                verbose? "":fname, verbose? "":"cICP ");
+              } else if (transfer == 6) { // PAL
+                printf("\n%s  %s  Rec. ITU-R BT.601-7 625 (PAL) \n",
+                verbose? "":fname, verbose? "":"cICP ");
+              } else { // unknown transfer function for these primaries
+                printf("\n%s %s  unknown 625-line PAL-like \n",
+                  verbose? "":fname, verbose? "":"cICP ");
+                  set_err(kMinorError);
+              }
+              wx = 0.3127;
+              wy = 0.3290;
+              rx = 0.640;
+              ry = 0.330;
+              gx = 0.290;
+              gy = 0.600;
+              bx = 0.150;
+              by = 0.060;
+
+          } else if (primaries == 6) {
+            if (transfer == 6) { // NTSC
+              printf("\n%s  %s  Rec. ITU-R BT.601-7 525 (NTSC) \n",
+                verbose? "":fname, verbose? "":"cICP ");
+              } else { // unknown transfer function for these primaries
+                printf("\n%s %s  unknown 525-line NTSC-like \n",
+                  verbose? "":fname, verbose? "":"cICP ");
+                  set_err(kMinorError);
+              }
+              wx = 0.3127;
+              wy = 0.3290;
+              rx = 0.630;
+              ry = 0.340;
+              gx = 0.310;
+              gy = 0.595;
+              bx = 0.155;
+              by = 0.070;
+
           } else if (primaries == 9) {
             if (transfer == 14) { // 2020 10-bit
               printf("\n%s  %s  Rec. ITU-R BT.2020-2 (10-bit system) \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 15) { // 2020 12-bit 
               printf("\n%s  %s  Rec. ITU-R BT.2020-2 (12-bit system) \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 16) { // PQ
               printf("\n%s %s  Rec. ITU-R BT.2100-2 perceptual quantization (PQ) system \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 18) { // HLG
               printf("\n%s %s  Rec. ITU-R BT.2100-2 hybrid log-gamma (HLG) system \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else { // unknown transfer function for these primaries
               printf("\n%s %s unknown rec2020-like \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
                 set_err(kMinorError);
           }
             wx = 0.3127;
@@ -3478,11 +3517,11 @@ FIXME: add support for decompressing/printing zTXt
           } else if (primaries == 11) { // DCI P3
             if (transfer == 17) { 
               printf("\n%s %s  SMPTE RP 431-2 with SMPTE ST 428-1 D-Cinema Distribution Master (DCI-P3) \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
 
           } else { // unknown transfer function for these primaries
               printf("\n%s %s  unknown DCI-P3-like \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
                 set_err(kMinorError);
           }
             wx = 0.314;
@@ -3497,13 +3536,13 @@ FIXME: add support for decompressing/printing zTXt
           } else if (primaries == 12) { // P3D65
             if (transfer == 13) { // Display P3 uses the sRGB transfer function
               printf("\n%s %s  Display P3 \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
             } else if (transfer == 16) { //P3D65-PQ
               printf("\n%s %s  P3D65-PQ \n",
-                verbose? ":":fname, verbose? "":"cICP ");  
+                verbose? "":fname, verbose? "":"cICP ");  
             } else { // unknown transfer function for these primaries
               printf("\n%s %s  unknown D65 P3-like \n",
-                verbose? ":":fname, verbose? "":"cICP ");
+                verbose? "":fname, verbose? "":"cICP ");
                 set_err(kMinorError);
             }
             wx = 0.3127;
@@ -3517,9 +3556,9 @@ FIXME: add support for decompressing/printing zTXt
 
           } else { // mystery meat
             if (verbose) {
-              printf("unrecognised (reserved or historical)\n");
-              printf("primaries: %d \n", primaries);
-              printf("transfer function: %d \n", transfer);
+              printf("\n    unrecognised (reserved or historical)\n");
+              printf("    primaries: %d \n", primaries);
+              printf("    transfer function: %d \n", transfer);
               printf(fullrange? "    Narrow range \n" : "    Full range \n");
               set_err(kMinorError);
             }
