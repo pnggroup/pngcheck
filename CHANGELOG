@@ -283,3 +283,5 @@
  *               ----------------------
  * 20250305 CT:  Removed gpl/pngsplit and gpl/png-fix-IDAT-windowsize from this
                  project; we're moving them to a new home
+ * 20250307 CL:  test for tIME valid day in month
+ * 20250328 CL:  Add cICP autodetect for BT.601 PAL, SECAM and NTSC
