@@ -14,7 +14,7 @@ features from [PNG Third Edition](https://w3c.github.io/png/):
 - Content Light Level Information [`cLLI`](https://w3c.github.io/png/#cLLI-chunk)
 - Animated PNG [`acTL`](https://w3c.github.io/png/#acTL-chunk), [`fcTL`](https://w3c.github.io/png/#fcTL-chunk) and [`fdAT`](https://w3c.github.io/png/#fdAT-chunk)
 
-It also warns if [`eXIf`](https://w3c.github.io/png/#eXIf) is found after the image data [`IDAT`](https://w3c.github.io/png/#11IDAT), 
+It also warns if [`eXIf`](https://w3c.github.io/png/#eXIf) is found after the image data [`IDAT`](https://w3c.github.io/png/#11IDAT),
 which will be ignored by web browsers
 and is [no longer valid](https://w3c.github.io/png/#5ChunkOrdering) in PNG Third Edition.
 
