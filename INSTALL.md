@@ -46,21 +46,20 @@
 * Without zlib:
 
   ```sh
-  make -f Makefile.unx CPPFLAGS="" LDFLAGS="" LIBS=""
+  make CPPFLAGS="" LDFLAGS="" LIBS=""
   ```
 
 * With zlib (recommended):
 
   ```sh
-  make -f Makefile.unx
+  make
   ```
 
 * With zlib installed in a non-standard location, using dynamic linking,
   forcing compilation with gcc:
 
   ```sh
-  make -f Makefile.unx \
-       CC="gcc" \
+  make CC="gcc" \
        CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
        LDFLAGS="-L/path/to/zlib"
   ```
@@ -69,8 +68,7 @@
   forcing compilation with clang at the highest optimization level targeting the local machine:
 
   ```sh
-  make -f Makefile.unx \
-       CC="clang" \
+  make CC="clang" \
        CFLAGS="-O3 -march=native -mtune=native" \
        CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
        LIBS="/path/to/zlib/libz.a"
