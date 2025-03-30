@@ -1,9 +1,4 @@
-# Makefile for pngcheck.
-# Greg Roelofs et al.
-#
-# Invoke via:
-#
-#	make -f Makefile.unx
+# Makefile for pngcheck by Greg Roelofs et al.
 #
 # This makefile assumes zlib has either been built in a subdirectory at the
 # same level as the current subdirectory (as indicated by the ZLIB_PATH macro
