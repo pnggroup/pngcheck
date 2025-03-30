@@ -41,32 +41,67 @@
    sudo cmake --install .
    ```
 
-### Using Make (traditional method)
-
-#### Unix/Linux/macOS
+### Using Make (the traditional method)
 
 * Without zlib:
 
   ```sh
-  gcc -Wall -O -o pngcheck pngcheck.c
+  make -f Makefile.unx CPPFLAGS="" LDFLAGS="" LIBS=""
   ```
 
 * With zlib (recommended):
 
   ```sh
-  gcc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
+  make -f Makefile.unx
+  ```
+
+* With zlib installed in a non-standard location, using dynamic linking,
+  forcing compilation with gcc:
+
+  ```sh
+  make -f Makefile.unx \
+       CC="gcc" \
+       CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
+       LDFLAGS="-L/path/to/zlib"
+  ```
+
+* With zlib installed in a non-standard location, using static linking,
+  forcing compilation with clang at the highest optimization level targeting the local machine:
+
+  ```sh
+  make -f Makefile.unx \
+       CC="clang" \
+       CFLAGS="-O3 -march=native -mtune=native" \
+       CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
+       LIBS="/path/to/zlib/libz.a"
+  ```
+
+### Using the compiler and linker directly (the "hard" method)
+
+#### Unix/Linux/etc.
+
+* Without zlib:
+
+  ```sh
+  cc -Wall -O -o pngcheck pngcheck.c
+  ```
+
+* With zlib (recommended):
+
+  ```sh
+  cc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
   ```
 
 * With zlib installed in a non-standard location, using dynamic linking:
 
   ```sh
-  gcc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c -L/path/to/zlib -lz
+  cc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c -L/path/to/zlib -lz
   ```
 
 * With zlib installed in a non-standard location, using static linking:
 
   ```sh
-  gcc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c /path/to/zlib/libz.a
+  cc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c /path/to/zlib/libz.a
   ```
 
 #### Windows (MSVC)

@@ -1,68 +1,64 @@
-# gcc/gmake makefile for pngcheck.
-# Greg Roelofs
-# Last modified:  17 October 2020
+# Makefile for pngcheck.
+# Greg Roelofs et al.
 #
 # Invoke via:
 #
 #	make -f Makefile.unx
 #
-# This makefile assumes zlib has already been built or downloaded and is in
-# a subdirectory at the same level as the current subdirectory (as indicated
-# by the ZPATH macro below).  Edit as appropriate.
-#
-# Note that the names of the dynamic and static zlib libraries used below may
-# change in later releases of the library.  This makefile builds statically
-# linked executables, but that can be changed by uncommenting the appropriate
-# ZLIB lines.
+# This makefile assumes zlib has either been built in a subdirectory at the
+# same level as the current subdirectory (as indicated by the ZLIB_PATH macro
+# below), or installed system-wide.  Edit the ZLIB_* macros as appropriate.
 
 
 # macros --------------------------------------------------------------------
 
-ZPATH = ../zlib
-ZINC = -I$(ZPATH)
-ZLIB = -L$(ZPATH) -lz
-#ZLIB = $(ZPATH)/libz.a
+ZLIB_PATH = ../zlib
+ZLIB_INCPATH = $(ZLIB_PATH)
+ZLIB_LIBPATH = $(ZLIB_PATH)
+ZLIB_LIB = -lz
 
-INCS = $(ZINC)
-LIBS = $(ZLIB)
+CC = cc # gcc or clang
+LD = $(CC)
+RM_F = rm -f
 
-CC = gcc
-LD = gcc
-RM = rm
-CERRORS=-Werror -Wall -Wextra -Wundef -Wpointer-arith\
-	-Wmissing-declarations -Wstrict-prototypes -Wmissing-prototypes\
-	-Wno-implicit-fallthrough -Wwrite-strings
+STDC = -pedantic-errors # -std=c99 or -std=c11 or -std=c17 etc.
+WARN = -Wall -Wextra -Wundef
+WARNMORE = -Wcast-align -Wconversion -Wpointer-arith -Wwrite-strings \
+           -Wmissing-declarations -Wmissing-prototypes -Wstrict-prototypes \
+           -Wno-implicit-fallthrough
+LOCAL_CPPFLAGS =
+LOCAL_CFLAGS = $(STDC) $(WARN) # $(WARNMORE)
+LOCAL_LDFLAGS =
 
-CFLAGS = -O ${CERRORS} $(INCS) -DUSE_ZLIB
-# [note that -Wall is a gcc-specific compilation flag ("all warnings on")]
-O = .o
-E =
+CPPFLAGS = -I$(ZLIB_INCPATH) -DUSE_ZLIB
+CFLAGS = -O2 # -g
+LDFLAGS = -L$(ZLIB_LIBPATH) # -g
+LIBS = $(ZLIB_LIB)
 
-LDFLAGS =
+ALL_CPPFLAGS = $(LOCAL_CPPFLAGS) $(CPPFLAGS)
+ALL_CFLAGS = $(LOCAL_CFLAGS) $(CFLAGS)
+ALL_LDFLAGS = $(LOCAL_LDFLAGS) $(LDFLAGS)
 
-PROG = pngcheck
-
-#OBJS  = $(PROG)$(O)
-OBJS =
-
-EXES = $(PROG)$(E)
+EXEEXT = # .exe
+EXES = pngcheck$(EXEEXT)
+OBJS = pngcheck.o
 
 
 # implicit make rules -------------------------------------------------------
 
-.c$(O):
-	$(CC) -c $(CFLAGS) $<
+.c.o:
+	$(CC) -c $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ $*.c
 
 
 # dependencies --------------------------------------------------------------
 
-all:  $(EXES)
+all: $(EXES)
 
-$(PROG)$(E): $(PROG).c
-	$(CC) $(CFLAGS) -o $@ $(PROG).c $(LIBS)
+pngcheck$(EXEEXT): pngcheck.o
+	$(LD) $(ALL_LDFLAGS) -o $@ pngcheck.c $(LIBS)
 
 
 # maintenance ---------------------------------------------------------------
 
 clean:
-	$(RM) -f $(EXES) $(OBJS)
+	$(RM_F) $(EXES) $(OBJS)
