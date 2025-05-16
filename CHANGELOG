@@ -285,3 +285,5 @@
                  project; we're moving them to a new home
  * 20250307 CL:  test for tIME valid day in month
  * 20250328 CL:  Add cICP autodetect for BT.601 PAL, SECAM and NTSC
+ * 20250516 CL:  Add test for missing cICP, if mDCV is present
+
