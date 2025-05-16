@@ -5323,6 +5323,12 @@ FIXME: add support for decompressing/printing zTXt
       printf("%s  file doesn't end with a%sEND chunk\n", verbose? "":fname,
         mng? " M":"n I");
       set_err(kMinorError);
+    } else {
+      if (have_mDCV && !have_cICP) {
+        printf("%s  file has %smDCV%s, but does not have %scICP%s\n", verbose? "":fname,
+        color? COLOR_YELLOW:"", color? COLOR_NORMAL:"", color? COLOR_YELLOW:"", color? COLOR_NORMAL:"");
+      set_err(kMinorError);
+      }
     }
   }
 
