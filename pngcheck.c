@@ -1960,12 +1960,12 @@ FIXME: make sure bit 31 (0x80000000) is 0
                   eod-p);		// ptrdiff_t
                 printf("\n     ");
                 fflush(stdout);
-                i = inflateEnd(&zstrm);	/* we're all done */
-                if (i == Z_OK || i == Z_STREAM_ERROR)
+				int r = inflateEnd(&zstrm);	/* we're all done */
+                if (r == Z_OK || r == Z_STREAM_ERROR)
                   printf(" inflateEnd() returns %s\n     ",
-                    i == Z_OK? "Z_OK" : "Z_STREAM_ERROR");
+                    r == Z_OK? "Z_OK" : "Z_STREAM_ERROR");
                 else
-                  printf(" inflateEnd() returns %d\n     ", i);
+                  printf(" inflateEnd() returns %d\n     ", r);
                 fflush(stdout);
               } else
                 inflateEnd(&zstrm);	/* we're all done */
