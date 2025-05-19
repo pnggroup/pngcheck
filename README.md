@@ -2,7 +2,7 @@
 
 pngcheck is a command-line utility to check PNG image files,
 including animated PNG, for validity
-and to give information about metadate inside the file
+and to give information about metadata inside the file
 (apart from the actual image data).
 
 This version was derived from pngcheck 3.0.3
