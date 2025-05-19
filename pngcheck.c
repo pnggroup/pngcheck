@@ -5327,7 +5327,7 @@ FIXME: add support for decompressing/printing zTXt
       if (have_mDCV && !have_cICP) {
         printf("%s  file has %smDCV%s, but does not have %scICP%s\n", verbose? "":fname,
         color? COLOR_YELLOW:"", color? COLOR_NORMAL:"", color? COLOR_YELLOW:"", color? COLOR_NORMAL:"");
-      set_err(kMinorError);
+        set_err(kMinorError);
       }
     }
   }
