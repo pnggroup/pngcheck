@@ -777,6 +777,10 @@ void usage(FILE *fpMsg)
 #endif
     "   -x  search for PNGs within another file and extract them when found\n"
     "\n"
+#ifndef USE_ZLIB
+    "Note:  The functionality provided by the zlib library is currently missing.\n"
+    "\n"
+#endif
     "Note:  MNG support is more informational than conformance-oriented.\n"
   );
 
