@@ -1,6 +1,6 @@
 CC = cc
 LD = link
-CFLAGS = -c -Otime -Ospace -fa -IC:,Zlib: -DUSE_ZLIB -DCHAR_IS_UNSIGNED -DENGLISH -throwback -depend !Depend
+CFLAGS = -c -Otime -Ospace -fa -IC:,Zlib: -DCHAR_IS_UNSIGNED -DENGLISH -throwback -depend !Depend
 LDFLAGS =
 
 LIBS = zlib:o.zlib C:o.gststubs
