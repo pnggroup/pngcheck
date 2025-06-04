@@ -107,14 +107,14 @@
 * Without zlib:
 
   ```cmd
-  cl -nologo -O -W3 -DWIN32 -c pngcheck.c
+  cl -nologo -O2 -W3 -c pngcheck.c
   link -nologo pngcheck.obj setargv.obj
   ```
 
 * With zlib:
 
   ```cmd
-  cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/path/to/zlib -c pngcheck.c
+  cl -nologo -O2 -W3 -DUSE_ZLIB -I\path\to\zlib -c pngcheck.c
   link -nologo pngcheck.obj setargv.obj \path\to\zlib\zlib.lib
   ```
 
@@ -122,10 +122,14 @@ Note: Copy pngcheck.exe and zlib.dll to the installation directory.
 
 ## Notes
 
-- CMake build is recommended as it handles dependencies and platform differences automatically.
+- CMake build is recommended as it handles dependencies and platform
+  differences automatically.
 - zlib support is recommended and enabled by default.
-- On Windows with MSVC, setargv.obj is included to handle file wildcards.
-- For MinGW/gcc on Windows or emx/gcc on OS/2, wildcard handling is built-in.
+- On Windows with MSVC, `setargv.obj` is included to handle file wildcards.
+- For MinGW/gcc and Cygwin/gcc on Windows, as well as EMX/gcc on OS/2,
+  wildcard argument handling is built-in.
+- For other non-Unix compilers such as Borland C or Watcom C, wildcard
+  argument handling is not currently supported.
 
 ## More Information
 

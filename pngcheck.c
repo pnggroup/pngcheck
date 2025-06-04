@@ -110,10 +110,10 @@
  * whatever has been run):
  *
  *    without zlib:
- *       cl -nologo -O -W3 -DWIN32 -c pngcheck.c
+ *       cl -nologo -O2 -W3 -c pngcheck.c
  *       link -nologo pngcheck.obj setargv.obj
  *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
- *       cl -nologo -O -W3 -DWIN32 -DUSE_ZLIB -I/zlibpath -c pngcheck.c
+ *       cl -nologo -O2 -W3 -DUSE_ZLIB -I\zlibpath -c pngcheck.c
  *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
  *       [copy pngcheck.exe and zlib.dll to installation directory]
  *
@@ -161,7 +161,7 @@
 #if defined(unix) || (defined(__MWERKS__) && defined(macintosh))  /* pxm */
 #  include <unistd.h>	/* isatty() */
 #endif
-#ifdef WIN32
+#if defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #  include <io.h>
 #endif
 
