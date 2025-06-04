@@ -80,9 +80,8 @@
  *   * add MNG profile report based on actual chunks found
  *   - REFACTOR THE WHOLE THING!  split out each chunk's code into a separate
  *       XXXX() function (e.g., IDAT(), tRNS())
- *   * with USE_ZLIB, print zTXt and compressed iTXt chunks if -t option
+ *   * print zTXt, compressed iTXt and iCCP chunks if -t option
  *       (break out zlib decoder into separate function and reuse)
- *       (also iCCP?)
  *   ? DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   ? EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
@@ -97,25 +96,24 @@
 /*
  * Compilation example (GNU C, command line; replace "/zlibpath" appropriately):
  *
- *    without zlib:
- *       gcc -Wall -O -o pngcheck pngcheck.c
- *    with zlib support (recommended):
- *       gcc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
- *    or (if zlib lives in non-standard location):
- *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
- *    or (static zlib):
- *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
+ *    with the system-installed zlib (where available):
+ *       gcc -Wall -O2 -o pngcheck pngcheck.c -lz
+ *    or, if zlib lives in non-standard location:
+ *       gcc -Wall -O2 -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
+ *    or, if zlib has been compiled as a static library:
+ *       gcc -Wall -O2 -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
  * whatever has been run):
  *
- *    without zlib:
- *       cl -nologo -O2 -W3 -c pngcheck.c
- *       link -nologo pngcheck.obj setargv.obj
- *    with zlib support (note that Win32 zlib is compiled as a DLL by default):
- *       cl -nologo -O2 -W3 -DUSE_ZLIB -I\zlibpath -c pngcheck.c
+ *    with zlib compiled as a Windows DLL:
+ *       cl -nologo -O2 -W3 -I\zlibpath -c pngcheck.c
+ *       link -nologo pngcheck.obj setargv.obj \zlibpath\zdll.lib
+ *       [copy pngcheck.exe and zlib1.dll to the installation directory]
+ *    or, with zlib compiled as a static library:
+ *       cl -nologo -O2 -W3 -I\zlibpath -c pngcheck.c
  *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
- *       [copy pngcheck.exe and zlib.dll to installation directory]
+ *       [copy pngcheck.exe to the installation directory]
  *
  * "setargv.obj" is included with MSVC and will be found if the batch file has
  * been run.  Either Borland or Watcom (both?) may use "wildargs.obj" instead.
@@ -165,9 +163,7 @@
 #  include <io.h>
 #endif
 
-#ifdef USE_ZLIB
-#  include <zlib.h>
-#endif
+#include <zlib.h>
 
 typedef unsigned char  uch;
 typedef unsigned short ush;
@@ -184,10 +180,6 @@ typedef struct printbuf_state {
 
 /* int  main (int argc, const char *argv[]); */
 void usage (FILE *fpMsg);
-#ifndef USE_ZLIB
-void make_crc_table (void);
-ulg  update_crc (ulg crc, uch *buf, int len);
-#endif
 ulg  getlong (FILE *fp, const char *fname, const char *where);
 void putlong (FILE *fpOut, ulg ul);
 void init_printbuf_state (printbuf_state *prbuf);
@@ -325,19 +317,15 @@ static const uch latin1_text_discouraged[256] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
 };
 
-#ifdef USE_ZLIB
-   int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
-   int zlib_error = 0;           /* gets reset in IHDR section; used for IDAT */
-   int check_zlib = 1;           /* validate zlib stream (just IDATs for now) */
-   unsigned zlib_windowbits = 15;
-   uch outbuf[BS];
-   z_stream zstrm;
-   const char **pass_color;
-   const char *color_off;
-#else
-   ulg crc_table[256];           /* table of CRCs of all 8-bit messages */
-   int crc_table_computed = 0;   /* flag:  has the table been computed? */
-#endif
+/* zlib stream processing variables */
+int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
+int zlib_error = 0;           /* gets reset in IHDR section; used for IDAT */
+int check_zlib = 1;           /* validate zlib stream (just IDATs for now) */
+unsigned zlib_windowbits = 15;
+uch outbuf[BS];
+z_stream zstrm;
+const char **pass_color;
+const char *color_off;
 
 
 static const char *inv = "INVALID";
@@ -362,7 +350,6 @@ static const char *deflate_type[] = {			/* IDAT */
   "maximum"
 };
 
-#ifdef USE_ZLIB
 static const char *zlib_error_type[] = {		/* IDAT */
   "filesystem error",
   "stream error",
@@ -386,7 +373,6 @@ static const char *pass_color_enabled[] = {		/* IDAT */
 static const char *pass_color_disabled[] = {		/* IDAT */
   "", "", "", "", "", "", "", ""
 };
-#endif /* USE_ZLIB */
 
 static const char *eqn_type[] = {			/* pCAL */
   "physical_value = p0 + p1 * original_sample / (x1-x0)",
@@ -638,17 +624,13 @@ int main(int argc, const char *argv[])
   if (color) {
     brief_error = brief_error_color;
     errors_detected = errors_color;
-#ifdef USE_ZLIB
     pass_color = pass_color_enabled;
     color_off = pass_color_enabled[0];
-#endif
   } else {
     brief_error = brief_error_plain;
     errors_detected = errors_plain;
-#ifdef USE_ZLIB
     pass_color = pass_color_disabled;
     color_off = pass_color_disabled[0];
-#endif
   }
 
   if (argc == 1) {
@@ -674,7 +656,6 @@ int main(int argc, const char *argv[])
       }
     }
   } else {
-#ifdef USE_ZLIB
     /* make sure we're using the zlib version we were compiled to use */
     if (zlib_version[0] != ZLIB_VERSION[0]) {
       fprintf(stderr, "zlib error:  incompatible version (expected %s,"
@@ -686,7 +667,6 @@ int main(int argc, const char *argv[])
       fprintf(stderr, "zlib warning:  different version (expected %s,"
         " using %s)\n\n", ZLIB_VERSION, zlib_version);
     }
-#endif /* USE_ZLIB */
 
     /* main loop over files listed on command line */
     for (i = 1; i < argc; ++i) {
@@ -751,10 +731,8 @@ void usage(FILE *fpMsg)
 {
   fprintf(fpMsg, "PNGcheck, version %s,\n", VERSION);
   fprintf(fpMsg, "   by Alexander Lehmann, Andreas Dilger and Greg Roelofs.\n");
-#ifdef USE_ZLIB
   fprintf(fpMsg, "   Compiled with zlib %s; using zlib %s.\n",
     ZLIB_VERSION, zlib_version);
-#endif
 
   fprintf(fpMsg, "\n"
     "Test PNG, JNG or MNG image files for corruption, and print size/type info."
@@ -771,16 +749,10 @@ void usage(FILE *fpMsg)
     "   -s  search for PNGs within another file\n"
     "   -t  print contents of tEXt chunks (can be used with -q)\n"
     "   -v  test verbosely (print most chunk data)\n"
-#ifdef USE_ZLIB
     "   -vv test very verbosely (decode & print line filters)\n"
     "   -w  suppress windowBits test (a more-stringent compression check)\n"
-#endif
     "   -x  search for PNGs within another file and extract them when found\n"
     "\n"
-#ifndef USE_ZLIB
-    "Note:  The functionality provided by the zlib library is currently missing.\n"
-    "\n"
-#endif
     "Note:  MNG support is more informational than conformance-oriented.\n"
   );
 
@@ -789,60 +761,9 @@ void usage(FILE *fpMsg)
 
 
 
-#ifdef USE_ZLIB
-
 #  define CRCCOMPL(c) c
 #  define CRCINIT (0)
 #  define update_crc crc32
-
-#else /* !USE_ZLIB */
-
-   /* use these instead of ~crc and -1, since that doesn't work on machines
-    * that have 64-bit longs */
-#  define CRCCOMPL(c) ((c)^0xffffffff)
-#  define CRCINIT (CRCCOMPL(0))
-
-/* make the table for a fast crc */
-void make_crc_table(void)
-{
-  int n;
-
-  for (n = 0; n < 256; ++n) {
-    ulg c;
-    int k;
-
-    c = (ulg)n;
-    for (k = 0; k < 8; ++k)
-      c = c & 1 ? 0xedb88320L ^ (c >> 1):c >> 1;
-
-    crc_table[n] = c;
-  }
-  crc_table_computed = 1;
-}
-
-
-
-/* update a running crc with the bytes buf[0..len-1]--the crc should be
-   initialized to all 1's, and the transmitted value is the 1's complement
-   of the final running crc. */
-
-ulg update_crc(ulg crc, uch *buf, int len)
-{
-  ulg c = crc;
-  uch *p = buf;
-  int n = len;
-
-  if (!crc_table_computed) {
-    make_crc_table();
-  }
-
-  if (n > 0) do {
-    c = crc_table[(c ^ (*p++)) & 0xff] ^ (c >> 8);
-  } while (--n);
-  return c;
-}
-
-#endif /* ?USE_ZLIB */
 
 
 
@@ -1336,13 +1257,11 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
       if (mng)
         top_level = 0;
       last_is_IDAT = last_is_JDAT = 0;
-#ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
       /* GRR 20000304:  data dump not yet compatible with interlaced images: */
       if (lace && verbose > 3)  /* (FIXME eventually...or move to pngcrunch) */
         verbose = 2;
-#endif
 
     /*------*
      | JHDR |
@@ -1671,10 +1590,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (have_IDAT && !last_is_IDAT) {
         if (mng) {  /* reset things (SEMI-HACK; check for segments instead!) */
           have_IDAT = 0;
-#ifdef USE_ZLIB
           zlib_error = 0;
           zlib_windowbits = 15;
-#endif
           zhead = 1;
           if (verbose)
             printf("\n");
@@ -1716,10 +1633,8 @@ FIXME: make sure bit 31 (0x80000000) is 0
              taken, verbatim, from the RFC. */
           unsigned int CINFO = (zhead & 0xf000) >> 12;
 
-#ifdef USE_ZLIB
           if (check_windowbits)   /* check for libpng 1.2.6 windowBits bug */
             zlib_windowbits = CINFO + 8;
-#endif
           if (verbose) {
             unsigned int CM = (zhead & 0xf00) >> 8;
             unsigned int FDICT = (zhead & 0x20) >> 5;
@@ -1748,7 +1663,6 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
 
-#ifdef USE_ZLIB
       if (check_zlib && !zlib_error) {
         static uch *p;   /* always points to next filter byte */
         static unsigned int cur_y, cur_pass, cur_xoff, cur_yoff, cur_xskip, cur_yskip;
@@ -1784,7 +1698,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           if (lace) {   /* loop through passes to calculate total filters */
             unsigned int passm1, yskip=0, yoff=0, xoff=0;
 
-            if (verbose)  /* GRR FIXME? could move this calc outside USE_ZLIB */
+            if (verbose)
               printf("    rows per pass%s: ",
                 (lace > 1)? " (assuming Adam7-like interlacing)":"");
             for (passm1 = 0;  passm1 < 7;  ++passm1) {
@@ -2008,7 +1922,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
       }
       if (zlib_error > 0)  /* our flag, not zlib's (-1 means normal exit) */
         set_err(kMajorError);
-#endif /* USE_ZLIB */
+
       just_seen_fcTL = 0;
       last_is_IDAT = 1;
       last_is_JDAT = 0;
@@ -3937,13 +3851,11 @@ FIXME: add support for decompressing/printing zTXt
       }
       //have_DHDR = 1;
       last_is_IDAT = last_is_JDAT = 0;
-#ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
       zlib_error = 0;  /* flag:  no zlib errors yet in this file */
       /* GRR 20000304:  data dump not yet compatible with interlaced images: */
       if (lace && verbose > 3)  /* (FIXME eventually...or move to pngcrunch) */
         verbose = 2;
-#endif
 
     /*------*
      | FRAM |

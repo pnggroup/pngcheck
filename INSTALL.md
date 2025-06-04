@@ -4,7 +4,7 @@
 
 - Standard C compiler
 - CMake 3.14 or later
-- zlib library (optional but recommended)
+- zlib library or compatible (e.g. zlib-ng)
 
 ## Build Instructions
 
@@ -19,13 +19,10 @@
 2. Configure with one of these options:
 
    ```sh
-   # Default build with system zlib
+   # Default build with the system-installed zlib (if available)
    cmake ..
 
-   # Build without zlib support
-   cmake -DPNGCHECK_USE_ZLIB=OFF ..
-
-   # Build with downloaded zlib
+   # Build with a locally-downloaded zlib
    cmake -DPNGCHECK_USE_SYSTEM_ZLIB=OFF ..
    ```
 
@@ -38,18 +35,13 @@
 4. Install (optional):
 
    ```sh
-   sudo cmake --install .
+   # Depending your system setup, you might need to use 'sudo'
+   cmake --install .
    ```
 
 ### Using Make (the traditional method)
 
-* Without zlib:
-
-  ```sh
-  make CPPFLAGS="" LDFLAGS="" LIBS=""
-  ```
-
-* With zlib (recommended):
+* With the system-installed zlib (if available):
 
   ```sh
   make
@@ -60,7 +52,7 @@
 
   ```sh
   make CC="gcc" \
-       CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
+       CPPFLAGS="-I/path/to/zlib" \
        LDFLAGS="-L/path/to/zlib"
   ```
 
@@ -70,7 +62,7 @@
   ```sh
   make CC="clang" \
        CFLAGS="-O3 -march=native -mtune=native" \
-       CPPFLAGS="-DUSE_ZLIB -I/path/to/zlib" \
+       CPPFLAGS="-I/path/to/zlib" \
        LIBS="/path/to/zlib/libz.a"
   ```
 
@@ -78,53 +70,49 @@
 
 #### Unix/Linux/etc.
 
-* Without zlib:
+* With the system-installed zlib (if available):
 
   ```sh
-  cc -Wall -O -o pngcheck pngcheck.c
-  ```
-
-* With zlib (recommended):
-
-  ```sh
-  cc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
+  cc -Wall -O -o pngcheck pngcheck.c -lz
   ```
 
 * With zlib installed in a non-standard location, using dynamic linking:
 
   ```sh
-  cc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c -L/path/to/zlib -lz
+  cc -Wall -O -I/path/to/zlib -o pngcheck pngcheck.c -L/path/to/zlib -lz
   ```
 
 * With zlib installed in a non-standard location, using static linking:
 
   ```sh
-  cc -Wall -O -DUSE_ZLIB -I/path/to/zlib -o pngcheck pngcheck.c /path/to/zlib/libz.a
+  cc -Wall -O -I/path/to/zlib -o pngcheck pngcheck.c /path/to/zlib/libz.a
   ```
 
 #### Windows (MSVC)
 
-* Without zlib:
+* With zlib compiled as a Windows DLL (typically distributed as `zlib1.dll`):
 
   ```cmd
-  cl -nologo -O2 -W3 -c pngcheck.c
-  link -nologo pngcheck.obj setargv.obj
+  cl -nologo -O2 -W3 -I\path\to\zlib -c pngcheck.c
+  link -nologo pngcheck.obj setargv.obj \path\to\zlib\zdll.lib
   ```
 
-* With zlib:
+  Copy `pngcheck.exe` and `zlib1.dll` to the installation directory.
+
+* With zlib compiled as a static library:
 
   ```cmd
-  cl -nologo -O2 -W3 -DUSE_ZLIB -I\path\to\zlib -c pngcheck.c
+  cl -nologo -O2 -W3 -I\path\to\zlib -c pngcheck.c
   link -nologo pngcheck.obj setargv.obj \path\to\zlib\zlib.lib
   ```
 
-Note: Copy pngcheck.exe and zlib.dll to the installation directory.
+  Copy `pngcheck.exe` to the installation directory.
 
 ## Notes
 
 - CMake build is recommended as it handles dependencies and platform
   differences automatically.
-- zlib support is recommended and enabled by default.
+- zlib support used to be optional, but now it is mandatory.
 - On Windows with MSVC, `setargv.obj` is included to handle file wildcards.
 - For MinGW/gcc and Cygwin/gcc on Windows, as well as EMX/gcc on OS/2,
   wildcard argument handling is built-in.

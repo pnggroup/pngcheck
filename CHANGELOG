@@ -287,3 +287,5 @@
  * 20250328 CL:  Add cICP autodetect for BT.601 PAL, SECAM and NTSC
  * 20250516 CL:  Add test for missing cICP, if mDCV is present
  * 20250604 CT:  Removed the need to define the WIN32 macro for Windows builds
+ * 20250604 CT:  Required the zlib library as a non-optional dependency, and
+                 removed the need to define the USE_ZLIB macro externally
