@@ -9,7 +9,7 @@
 **      gcc -Wall -O2 -I../zlib pngsplit.c -o pngsplit -L../zlib -lz
 **
 **
-**  Copyright 2005-2006 Greg Roelofs
+**  Copyright 2005-2020 Greg Roelofs
 **
 **  This program is free software; you can redistribute it and/or modify
 **  it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 **
 */
 
-#define VERSION "0.60 BETA of 11 February 2007"
+#define VERSION "1.0 of 31 October 2020"
 
 /*
  * TO DO:
@@ -78,18 +78,18 @@ typedef unsigned char  uch;
                   ((ulg)(((uch *)(x))[2]) <<  8) |  \
                   ((ulg)(((uch *)(x))[3])      ) )
 
-static const char *pngsplit_hdr = "\
+#define PNGSPLIT_HDR "\
 pngsplit, version " VERSION ", by Greg Roelofs.\n\
   This software is licensed under the GNU General Public License.\n\
-  There is NO warranty.\n\n";
+  There is NO warranty.\n\n"
 
-static const char *pngsplit_usage = "\
+#define PNGSPLIT_USAGE "\
    usage:  pngsplit [options] pngfile [pngfile [...]]\n\
    options:\n\
       -force         overwrite existing output files\n\
       -verbose       print more status messages (synonym:  -noquiet)\n\n\
    Split a PNG, MNG or JNG file into individual, numbered chunks (filenames\n\
-   \"foo.png.0000.sig\", \"foo.png.0001.IHDR\", etc.).\n";
+   \"foo.png.0000.sig\", \"foo.png.0001.IHDR\", etc.).\n"
 
 static const uch pngsig[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 static const uch mngsig[8] = {138, 77, 78, 71, 13, 10, 26, 10};
@@ -141,8 +141,8 @@ int main(int argc, char *argv[])
                   0 == strncmp( argv[argn], "-quiet", 2 ) )
             verbose = 0;
         else {
-            fprintf(stderr, pngsplit_hdr);
-            fprintf(stderr, pngsplit_usage);
+            fprintf(stderr, PNGSPLIT_HDR);
+            fprintf(stderr, PNGSPLIT_USAGE);
             fflush(stderr);
             return 1;
         }
@@ -150,8 +150,8 @@ int main(int argc, char *argv[])
     }
 
     if ( argn == argc ) {
-        fprintf(stderr, pngsplit_hdr);
-        fprintf(stderr, pngsplit_usage);
+        fprintf(stderr, PNGSPLIT_HDR);
+        fprintf(stderr, PNGSPLIT_USAGE);
         fflush(stderr);
         return 5;
     } else {
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
 
     /*=============================  MAIN LOOP  =============================*/
 
-    fprintf(stdout, pngsplit_hdr);
+    fprintf(stdout, PNGSPLIT_HDR);
     fflush(stdout);
 
     while (argn <= argc) {

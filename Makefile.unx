@@ -1,6 +1,6 @@
 # gcc/gmake makefile for pngcheck.
 # Greg Roelofs
-# Last modified:  17 June 2006
+# Last modified:  17 October 2020
 #
 # Invoke via:
 #
@@ -20,8 +20,8 @@
 
 ZPATH = ../zlib
 ZINC = -I$(ZPATH)
-#ZLIB = -L$(ZPATH) -lz
-ZLIB = $(ZPATH)/libz.a
+ZLIB = -L$(ZPATH) -lz
+#ZLIB = $(ZPATH)/libz.a
 
 INCS = $(ZINC)
 LIBS = $(ZLIB)

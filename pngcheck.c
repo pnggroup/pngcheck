@@ -17,7 +17,7 @@
 
 /*============================================================================
  *
- *   Copyright 1995-2017 by Alexander Lehmann <lehmann@usa.net>,
+ *   Copyright 1995-2020 by Alexander Lehmann <lehmann@usa.net>,
  *                          Andreas Dilger <adilger@enel.ucalgary.ca>,
  *                          Glenn Randers-Pehrson <randeg@alum.rpi.edu>,
  *                          Greg Roelofs <newt@pobox.com>,
@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "2.4.0-beta09 of 9 January 2017"
+#define VERSION "2.4.0 of 31 October 2020"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -45,9 +45,9 @@
  *
  *   PLTE IDAT IEND				// critical PNG chunks
  *
- *   bKGD cHRM fRAc gAMA gIFg gIFt gIFx hIST	// ancillary PNG chunks
- *   iCCP iTXt oFFs pCAL pHYs sBIT sCAL sPLT
- *   sRGB tEXt zTXt tIME tRNS
+ *   bKGD cHRM eXIf fRAc gAMA gIFg gIFt gIFx	// ancillary PNG chunks
+ *   hIST iCCP iTXt oFFs pCAL pHYs sBIT sCAL
+ *   sPLT sRGB sTER tEXt zTXt tIME tRNS
  *
  *   cmOD cmPP cpIp mkBF mkBS mkBT mkTS pcLb	// known private PNG chunks
  *   prVW spAL					// [msOG = ??]
@@ -73,9 +73,13 @@
  *   - add JNG restrictions to bKGD
  *   - allow top-level ancillary PNGs in MNG (i.e., subsequent ones may be NULL)
  *   * add MNG profile report based on actual chunks found
- *   - split out each chunk's code into XXXX() function (e.g., IDAT(), tRNS())
- *   - DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
- *   - EBCDIC support (minimal?)
+ *   - REFACTOR THE WHOLE THING!  split out each chunk's code into a separate
+ *       XXXX() function (e.g., IDAT(), tRNS())
+ *   * with USE_ZLIB, print zTXt and compressed iTXt chunks if -t option
+ *       (break out zlib decoder into separate function and reuse)
+ *       (also iCCP?)
+ *   ? DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
+ *   ? EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
  *
  *
@@ -89,11 +93,13 @@
  * Compilation example (GNU C, command line; replace "/zlibpath" appropriately):
  *
  *    without zlib:
- *       gcc -O -o pngcheck pngcheck.c
+ *       gcc -Wall -O -o pngcheck pngcheck.c
  *    with zlib support (recommended):
- *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
+ *       gcc -Wall -O -DUSE_ZLIB -o pngcheck pngcheck.c -lz
+ *    or (if zlib lives in non-standard location):
+ *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
  *    or (static zlib):
- *       gcc -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
+ *       gcc -Wall -O -DUSE_ZLIB -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
  *
  * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
  * whatever has been run):
@@ -1186,12 +1192,12 @@ int pngcheck(FILE *fp, char *fname, int searching, FILE *fpOut)
   int c;
   int have_IHDR = 0, have_IEND = 0;
   int have_MHDR = 0, have_MEND = 0;
-  int have_PLTE = 0;
+  int /* have_DHDR = 0, */ have_PLTE = 0;
   int have_JHDR = 0, have_JSEP = 0, need_JSEP = 0;
   int have_IDAT = 0, have_JDAT = 0, last_is_IDAT = 0, last_is_JDAT = 0;
-  int have_bKGD = 0, have_cHRM = 0, have_gAMA = 0, have_hIST = 0, have_iCCP = 0;
-  int have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0, have_sCAL = 0;
-  int have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
+  int have_bKGD = 0, have_cHRM = 0, have_eXIf = 0, have_gAMA = 0, have_hIST = 0;
+  int have_iCCP = 0, have_oFFs = 0, have_pCAL = 0, have_pHYs = 0, have_sBIT = 0;
+  int have_sCAL = 0, have_sRGB = 0, have_sTER = 0, have_tIME = 0, have_tRNS = 0;
   int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
   int top_level = 1;
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
@@ -2308,6 +2314,30 @@ FIXME: make sure bit 31 (0x80000000) is 0
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
+     | eXIf |
+     *------*/
+    } else if (strcmp(chunkid, "eXIf") == 0) {
+      if (jng) {
+        printf("%s  eXIf not defined in JNG\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (png && have_eXIf) {
+        printf("%s  multiple eXIf not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      }
+      else if (verbose /* && no_err(kMinorError) */) {
+        if (SH(buffer) == 0x4d4d && buffer[2] == 0 && buffer[3] == 0x2a) {
+          printf(": EXIF metadata, big-endian (MM) format\n");
+        } else if (SH(buffer) == 0x4949 && buffer[2] == 0x2a && buffer[3] == 0) {
+          printf(": EXIF metadata, little-endian (II) format\n");
+        } else {
+          printf(": EXIF metadata, unrecognized format: 0x%02x 0x%02x 0x%02x 0x%02x\n",
+                 buffer[0], buffer[1], buffer[2], buffer[3]);
+        }
+      }
+      have_eXIf = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
      | fRAc |
      *------*/
     } else if (strcmp(chunkid, "fRAc") == 0) {
@@ -2340,6 +2370,11 @@ FIXME: make sure bit 31 (0x80000000) is 0
                verbose? ":":fname, verbose? "":"gAMA ");
         set_err(kMinorError);
       }
+      // FIXME?  probably need to distinguish from minor errors in this chunk
+      // (no need for new line) and those in previous chunks (need newline for
+      // verbose mode, and no real harm in printing gAMA info, too); likely
+      // applies to many other chunks as well, but need to create an appropriate
+      // test PNG to verify
       if (verbose && no_err(kMinorError)) {
         printf(": %#0.5g\n", (double)LG(buffer)/100000);
       }
@@ -3334,8 +3369,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
               printf("%s  invalid %slength for %s image\n",
                 verbose? ":":fname, verbose? "":"tRNS ", png_type[ityp]);
               set_err(kMajorError);
-            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError))
-            {
+            } else if ((verbose || (printpal && !quiet)) && no_err(kMinorError)) {
               if (!verbose && printpal && !quiet)
                 printf("  tRNS chunk");
               printf(": %ld transparency entr%s\n", sz, sz == 1? "y":"ies");
@@ -3563,6 +3597,7 @@ FIXME: make sure bit 31 (0x80000000) is 0
           }
         }
       }
+      //have_DHDR = 1;
       last_is_IDAT = last_is_JDAT = 0;
 #ifdef USE_ZLIB
       first_idat = 1;  /* flag:  next IDAT will be the first in this subimage */
@@ -5301,7 +5336,7 @@ int check_text(uch *buffer, int maxsize, char *chunkid, char *fname)
 int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
 {
   uch *qq = buffer, *bufEnd = buffer + len;
-  int have_integer = 0, have_dot = 0, have_fraction = 0;
+  int /* have_sign = 0, */ have_integer = 0, have_dot = 0, have_fraction = 0;
   int have_E = 0, have_Esign = 0, have_exponent = 0, in_digits = 0;
   int have_nonzero = 0;
   int rc = 0;
@@ -5311,6 +5346,7 @@ int check_ascii_float(uch *buffer, int len, char *chunkid, char *fname)
       case '+':
       case '-':
         if (qq == buffer) {
+          //have_sign = 1;
           in_digits = 0;
         } else if (have_E && !have_Esign) {
           have_Esign = 1;

@@ -222,3 +222,13 @@
  *               with white/light backgrounds
  * 20070712 GRR: added Makefile.mingw32
  * 20100504 GRR: fixed DHDR (pre-MNG-1.0) bug identified by Winfried <szukw000@arcor.de>
+ * 20170713 GRP: added eXIf support (GRR: added check for II/MM/unknown format)
+ * 20201012 BB:  converted static const help/usage-related strings to macros so
+ *               -Werror=format-security doesn't trigger (Ben Beasley)
+ * 20201015 BB:  added (help2man-generated) man pages for all three utils
+ * 20201017 GRR: added top-level LICENSE file; fixed various compiler warnings
+ * 20201031 GRR: replaced gpl/COPYING (outdated address, references to Library
+ *               GPL) with https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+ *               (thanks to Ben Beasley for catching that)
+ * 20201031 GRR: released version 2.4.0
+ *               ----------------------

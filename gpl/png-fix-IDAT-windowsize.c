@@ -3,7 +3,7 @@
 **
 ** Downloads:
 **
-**      http://pobox.com/~newt/greg_software.html
+**      http://gregroelofs.com/greg_software.html
 **
 ** To compile:
 **
@@ -11,7 +11,7 @@
           -o png-fix-IDAT-windowsize -L/path-to-zlib -lz
 **
 **
-**  Copyright 2005-2006 Greg Roelofs
+**  Copyright 2005-2020 Greg Roelofs
 **
 **  This program is free software; you can redistribute it and/or modify
 **  it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 **  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
-#define VERSION "0.5 of 1 August 2005"
+#define VERSION "1.0 of 31 October 2020"
 
 /*
  * TO DO:
@@ -50,7 +50,7 @@ typedef unsigned long  ulg;
 typedef unsigned short ush;
 typedef unsigned char  uch;
 
-#define PNGCRUNCH_USAGE "\
+#define PNG_FIX_IDAT_WINDOWSIZE_USAGE "\
    usage:  png-fix-IDAT-windowsize [options] pngfile [pngfile ...]\n\
    options:\n\
       -force         overwrite existing output files\n\
@@ -90,7 +90,6 @@ static char *chunkstr (ulg typ);
 
 int main(int argc, char *argv[])
 {
-    char *png_fix_IDAT_windowsize_usage = PNGCRUNCH_USAGE;
     char *filename;
     int argn;
     int force = FALSE;
@@ -127,7 +126,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "  Compiled with zlib %s; using zlib %s.\n",
               ZLIB_VERSION, zlib_version);
             fprintf(stderr, "\n");
-            fprintf(stderr, png_fix_IDAT_windowsize_usage);
+            fprintf(stderr, PNG_FIX_IDAT_WINDOWSIZE_USAGE);
             fflush(stderr);
             return 1;
         }
@@ -143,7 +142,7 @@ int main(int argc, char *argv[])
     fflush(stdout);
 
     if ( argn == argc ) {
-        fprintf(stderr, png_fix_IDAT_windowsize_usage);
+        fprintf(stderr, PNG_FIX_IDAT_WINDOWSIZE_USAGE);
         fflush(stderr);
         return 5;
     } else {
@@ -211,12 +210,12 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
         "gray+alpha", "[INVALID]", "RGBA"
     };
     int fnlen, incnt;
-    int depth, colortype, compress_method, filter_method, interlaced;
+    int depth, colortype, /* compress_method, filter_method, */ interlaced;
     int channels, bitsperpixel, error;
     int haveIDAT, haveEOF;
     long width, height, bitwidth, bytewidth;
-    long chunklen, numfilters, ucsize;
-    long csize, csize_orig;
+    long chunklen, /* numfilters, */ ucsize;
+    //long csize, csize_orig;
     ulg chunktyp, chunkcrc, calc_crc;
     ulg file_offset, file_offset_IDATs=0L;
     ulg bytes_remaining;
@@ -300,8 +299,8 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
     inptr += 4;
     depth = *inptr++;
     colortype = *inptr++;
-    compress_method = *inptr++;
-    filter_method = *inptr++;
+    ++inptr; //compress_method = *inptr++;
+    ++inptr; //filter_method = *inptr++;
     interlaced = *inptr++;
     inptr += 4;  // skip over IHDR CRC
     incnt = endptr - inptr;
@@ -380,7 +379,7 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
     bitwidth = width * bitsperpixel;
     bytewidth = 1 + (bitwidth + 7) / 8;   // 1 -> row-filter byte
     ucsize = bytewidth * height;
-    numfilters = height;
+    //numfilters = height;
 
     if (bitwidth/width != bitsperpixel || bytewidth <= 0 ||
         ucsize/bytewidth != height)
@@ -434,7 +433,7 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
 
 //inptr currently points at "length" bytes of first chunk after IHDR
 
-    csize_orig = 0L;
+    //csize_orig = 0L;
     error = haveEOF = haveIDAT = FALSE;
 
     while (!error && !haveEOF) {
@@ -455,7 +454,7 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
         if (chunktyp == IDAT) {
             haveIDAT = TRUE;
             file_offset_IDATs = file_offset - 8;     // start of chunklen
-            csize_orig += chunklen;
+            //csize_orig += chunklen;
             break;
         }
 
@@ -530,9 +529,9 @@ static int png_fix_IDAT_windowsize(char *filename, int force, int verbose)
 
     file_offset = file_offset_IDATs;
     cptr = cbuf;
-    csize = csize_orig;
+    //csize = csize_orig;
 
-    fread(cbuf, 1, chunklen+12, infile);
+    incnt = fread(cbuf, 1, chunklen+12, infile);
 
     calc_crc = crc32(0L, Z_NULL, 0);
     calc_crc = crc32(calc_crc, cbuf+4, chunklen+4);
