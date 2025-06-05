@@ -1,8 +1,19 @@
-pngcheck version 2.4.0 of 31 October 2020
+pngcheck version 3.0.0 of 12 December 2020
 
-This version adds basic eXIf-chunk support (for EXIF metadata), plus some
-extremely simple man pages (essentially identical to the corresponding usage
-screens) kindly provided by Ben Beasley of the Fedora Linux project.
+This version gets a major-version bump not because of a huge new feature but
+because an existing feature was removed.  Specifically, the implementation of
+the -f ("force continuation after major errors") option was lacking--largely
+because it's difficult to properly reason about program state after continuing
+beyond one or more critical errors--and had resulted in a growing number of
+security vulnerabilities being reported.  (The combinatorial issues surrounding
+the force option, various verbosity levels, multiple chunk-printing and
+character-set options, and optional zlib decoding only exacerbate the problem.)
+
+That said, a number of the recently reported vulnerabilities were fixed by
+Ben Beasley of the Fedora Linux project, for which I am most grateful.  (He
+found a number of them himself, as did "giantbranch of NSFOCUS Security Team.")
+Thanks also to Lucy Phipps for tracking down an off-by-one error in PNG/MNG/JNG
+signature validation and for forwarding another small patch from github.
 
 Here's a list of the major enhancements since version 1.98, which was the
 last release before I took over maintenance:
@@ -26,8 +37,9 @@ last release before I took over maintenance:
 There are also many fixes, of course, including ones from Tom Lane, Glenn
 Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John Bowler, and
 others.  Thanks also to Chris Nokleberg (brokensuite), Tim Pritlove, Bob
-Friesenhahn, the GraalOnline folks, and others for test images.  See the
-included CHANGELOG file for the complete, detailed list of who did what.
+Friesenhahn, the GraalOnline folks, giantbranch, Ben Beasley, and others for
+test images.  See the included CHANGELOG file for the complete, detailed list
+of who did what.
 
 Note that while MNG support is now complete in the sense of covering all
 registered chunk types, there are still numerous error conditions that
@@ -50,9 +62,9 @@ etc., but given the pace of recent years ("nonexistent" would be fair), folks
 should definitely not hold their breath.  Similarly, the code could also do a
 better job with chunks whose data exceed the buffer size, and in general,
 immense if-else blocks (e.g., > 3000 lines) are extremely nasty and should be
-rewritten, but...yeah.  The gap between this release and the previous one
-(2.3.0) was bigger than that between the previous one and the creation of the
-PNG format itself. :-/
+rewritten, but...yeah.  The gap between 2.3.0 and 2.4.0 (the two previous
+releases) was bigger than that between 2.3.0 and the creation of the PNG format
+itself. :-/  (Did we mention that PNG turned 25 this year?)
 
 But if there ever are additional updates, you might find them here:
 
