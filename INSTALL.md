@@ -94,7 +94,8 @@
 
   ```cmd
   cl -nologo -O2 -W3 -I\path\to\zlib -c pngcheck.c
-  link -nologo pngcheck.obj setargv.obj \path\to\zlib\zdll.lib
+  cl -nologo -O2 -W3 -c third_party\wildargs\wildargs.c
+  link -nologo pngcheck.obj wildargs.obj \path\to\zlib\zdll.lib
   ```
 
   Copy `pngcheck.exe` and `zlib1.dll` to the installation directory.
@@ -103,7 +104,8 @@
 
   ```cmd
   cl -nologo -O2 -W3 -I\path\to\zlib -c pngcheck.c
-  link -nologo pngcheck.obj setargv.obj \path\to\zlib\zlib.lib
+  cl -nologo -O2 -W3 -c third_party\wildargs\wildargs.c
+  link -nologo pngcheck.obj wildargs.obj \path\to\zlib\zlib.lib
   ```
 
   Copy `pngcheck.exe` to the installation directory.
@@ -113,11 +115,10 @@
 - CMake build is recommended as it handles dependencies and platform
   differences automatically.
 - zlib support used to be optional, but now it is mandatory.
-- On Windows with MSVC, `setargv.obj` is included to handle file wildcards.
-- For MinGW/gcc and Cygwin/gcc on Windows, as well as EMX/gcc on OS/2,
-  wildcard argument handling is built-in.
-- For other non-Unix compilers such as Borland C or Watcom C, wildcard
-  argument handling is not currently supported.
+- Automatic wildcard argument expansion is supported on select non-Unix
+  compilers and platforms. We currently support EMX/GCC on OS2, as well
+  as Microsoft Visual C, Embarcadero Borland C, MinGW/GCC and Clang on
+  Windows.
 
 ## More Information
 
