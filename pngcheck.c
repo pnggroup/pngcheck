@@ -82,7 +82,6 @@
  *       XXXX() function (e.g., IDAT(), tRNS())
  *   * print zTXt, compressed iTXt and iCCP chunks if -t option
  *       (break out zlib decoder into separate function and reuse)
- *   ? DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   ? EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
  *
@@ -94,37 +93,6 @@
  */
 
 /*
- * Compilation example (GNU C, command line; replace "/zlibpath" appropriately):
- *
- *    with the system-installed zlib (where available):
- *       gcc -Wall -O2 -o pngcheck pngcheck.c -lz
- *    or, if zlib lives in non-standard location:
- *       gcc -Wall -O2 -I/zlibpath -o pngcheck pngcheck.c -L/zlibpath -lz
- *    or, if zlib has been compiled as a static library:
- *       gcc -Wall -O2 -I/zlibpath -o pngcheck pngcheck.c /zlibpath/libz.a
- *
- * Windows compilation example (MSVC, command line, assuming VCVARS32.BAT or
- * whatever has been run):
- *
- *    with zlib compiled as a Windows DLL:
- *       cl -nologo -O2 -W3 -I\zlibpath -c pngcheck.c
- *       link -nologo pngcheck.obj setargv.obj \zlibpath\zdll.lib
- *       [copy pngcheck.exe and zlib1.dll to the installation directory]
- *    or, with zlib compiled as a static library:
- *       cl -nologo -O2 -W3 -I\zlibpath -c pngcheck.c
- *       link -nologo pngcheck.obj setargv.obj \zlibpath\zlib.lib
- *       [copy pngcheck.exe to the installation directory]
- *
- * "setargv.obj" is included with MSVC and will be found if the batch file has
- * been run.  Either Borland or Watcom (both?) may use "wildargs.obj" instead.
- * Both object files serve the same purpose:  they expand wildcard arguments
- * into a list of files on the local file system, just as Unix shells do by
- * default ("globbing").  Note that mingw32 + gcc (Unix-like compilation
- * environment for Windows) apparently expands wildcards on its own, so no
- * special object files are necessary for it.  emx + gcc for OS/2 (and possibly
- * rsxnt + gcc for Windows NT) has a special _wildcard() function call, which
- * is already included at the top of main() below.
- *
  * zlib info:		http://www.zlib.net/
  * PNG/MNG/JNG info:	http://www.libpng.org/pub/png/
  *			http://www.libpng.org/pub/mng/  and

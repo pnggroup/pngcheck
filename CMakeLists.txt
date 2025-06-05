@@ -14,6 +14,9 @@ endif()
 
 # Source files
 set(PNGCHECK_SOURCES pngcheck.c)
+if(NOT UNIX)
+  list(APPEND PNGCHECK_SOURCES third_party/wildargs/wildargs.c)
+endif()
 
 # Executables
 add_executable(pngcheck ${PNGCHECK_SOURCES})
