@@ -33,7 +33,7 @@
  *
  *===========================================================================*/
 
-#define VERSION "3.0.2 of 31 January 2021"
+#define VERSION "3.0.3 of 25 April 2021"
 
 /*
  * NOTE:  current MNG support is informational; error-checking is MINIMAL!
@@ -320,7 +320,7 @@ static const uch latin1_text_discouraged[256] = {
 
 #ifdef USE_ZLIB
    int first_idat = 1;           /* flag:  is this the first IDAT chunk? */
-   int zlib_error = 0;           /* reset in IHDR section; used for IDAT */
+   int zlib_error = 0;           /* gets reset in IHDR section; used for IDAT */
    int check_zlib = 1;           /* validate zlib stream (just IDATs for now) */
    unsigned zlib_windowbits = 15;
    uch outbuf[BS];
@@ -1991,15 +1991,23 @@ FIXME: make sure bit 31 (0x80000000) is 0
           err = inflate(&zstrm, Z_SYNC_FLUSH);
           if (err != Z_OK && err != Z_STREAM_END) {
             printf("%s  zlib: inflate error = %d (%s)\n",
-              verbose > 1? "\n  " : (verbose == 1? "  ":fname), err,
+              verbose > 1? "\n  " : (verbose == 1? "  " : fname), err,
               (-err < 1 || -err > 6)? "unknown":zlib_error_type[-err-1]);
             zlib_error = 1;		/* fatal error only for this PNG */
-            break;			/* kill inner loop */
+            break;			/* kill zlib loop */
           }
 
           /* now have uncompressed, filtered image data in outbuf */
           eod = outbuf + BS - zstrm.avail_out;
           while (p < eod) {
+            /* GRR 20210425: protect against run-on data, intentional or otherwise */
+            if ((lace && cur_pass > 7) || (!lace && cur_y > h)) {
+              printf("%s  extra data beyond end of image: possible exploit attempt\n",
+                verbose > 1? "\n  " : (verbose == 1? "  " : fname));
+              zlib_error = 1;		/* fatal error only for this PNG */
+              err = Z_STREAM_END;	/* kill middle loop */
+              break;			/* kill "innermost" loop (not counting short-image interlace one) */
+            }
 
             if (cur_linebytes) {	/* GRP 20000727:  bugfix */
               int filttype = p[0];
@@ -2099,11 +2107,22 @@ FIXME: make sure bit 31 (0x80000000) is 0
                   cur_yoff = 0;
                 }
                 cur_y = cur_yoff;
+                /* 20210416: fix by Ben Beasley for bug found by chiba of topsec alpha lab */
+                if (cur_xskip == 0) {
+                  printf("%s  invalid interlacing state (zero xskip) in image data\n",
+                    verbose > 1? "\n  " : (verbose == 1? "  " : fname));
+                  zlib_error = 1;	/* fatal error only for this PNG */
+                  break;
+                }
                 /* effective width is reduced if even pass: subtract cur_xoff */
                 cur_width = (w - cur_xoff + cur_xskip - 1) / cur_xskip;
                 cur_linebytes = ((cur_width*bitdepth + 7) >> 3) + 1;
                 if (cur_linebytes == 1)	/* just the filter byte?  no can do */
                     cur_linebytes = 0;	/* GRP 20000727:  added fix */
+              }
+              if (zlib_error) {		/* GRR 20210425: propagate error out of remaining loops */
+                err = Z_STREAM_END;	/* kill middle loop */
+                break;			/* kill "innermost" loop (not counting short-image interlace one) */
               }
             } else if (cur_y >= h) {
               if (verbose > 3) {	/* GRR 20000304:  bad code */
@@ -2120,33 +2139,37 @@ FIXME: make sure bit 31 (0x80000000) is 0
                 fflush(stdout);
               } else
                 inflateEnd(&zstrm);	/* we're all done */
-              zlib_error = -1;		/* kill outermost loop (over chunks) */
+              zlib_error = -1;		/* kill outermost loop (over consecutive PNG-mode IDAT chunks) */
               err = Z_STREAM_END;	/* kill middle loop */
-              break;			/* kill innermost loop */
+              break;			/* kill "innermost" loop (not counting short-image interlace one) */
+            }
+          } /* end of byte-loop over uncompressed data */
+
+          if (!zlib_error && no_err(kMinorError)) {
+            p -= (eod - outbuf);	/* wrap p back into outbuf region */
+            zstrm.next_out = outbuf;
+            zstrm.avail_out = BS;
+
+            /* get more input (waiting until buffer empties is not necessary best
+             * zlib strategy, but simpler than shifting leftover data around) */
+            if (zstrm.avail_in == 0 && sz > toread) {
+              int data_read;
+
+              sz -= toread;
+              toread = (sz > BS)? BS:sz;
+              if ((data_read = fread(buffer, 1, toread, fp)) != toread) {
+                printf("\n%s  EOF while reading %s data\n", verbose? ":":fname,
+                  chunkid);
+                set_err(kCriticalError);
+                return global_error;
+              }
+              crc = update_crc(crc, buffer, toread);
+              zstrm.next_in = buffer;
+              zstrm.avail_in = toread;
             }
           }
-          p -= (eod - outbuf);		/* wrap p back into outbuf region */
-          zstrm.next_out = outbuf;
-          zstrm.avail_out = BS;
+        } /* end of zlib decoding loop */
 
-          /* get more input (waiting until buffer empties is not necessary best
-           * zlib strategy, but simpler than shifting leftover data around) */
-          if (zstrm.avail_in == 0 && sz > toread) {
-            int data_read;
-
-            sz -= toread;
-            toread = (sz > BS)? BS:sz;
-            if ((data_read = fread(buffer, 1, toread, fp)) != toread) {
-              printf("\n%s  EOF while reading %s data\n", verbose? ":":fname,
-		chunkid);
-              set_err(kCriticalError);
-              return global_error;
-            }
-            crc = update_crc(crc, buffer, toread);
-            zstrm.next_in = buffer;
-            zstrm.avail_in = toread;
-          }
-        }
         if (verbose > 1 && no_err(kMinorError))
           printf("%s (%ld out of %ld)\n", color_off, numfilt, numfilt_total);
       }

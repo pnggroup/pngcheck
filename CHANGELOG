@@ -5,6 +5,7 @@
  *
  *   AL   -  Alexander Lehmann
  *   AED  -  Andreas Dilger
+ *   BB   -  Ben Beasley (Fedora Linux)
  *   GRP  -  Glenn Randers-Pehrson
  *   GRR  -  Greg Roelofs
  *   JB   -  John Bowler
@@ -256,4 +257,10 @@
  *               Makefile.mingw64 (targets Win64); both are essentially
  *               UNTESTED, however!
  * 20210131 GRR: released version 3.0.2
+ *               ----------------------
+ * 20210416 BB:  fixed a divide-by-zero crash bug (and probable vulnerability)
+ *               in interlaced images with extra compressed data beyond the
+ *               nominal end of the image data (found by "chiba of topsec alpha
+ *               lab")
+ * 20210425 GRR: released version 3.0.3
  *               ----------------------

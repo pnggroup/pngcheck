@@ -1,8 +1,11 @@
-pngcheck version 3.0.2 of 31 January 2021
+pngcheck version 3.0.3 of 25 April 2021
 
-This version fixes one more (probable) security vulnerability discovered by
-Ben Beasley of the Fedora Linux project (who also supplied the fix last month,
-oops...).  Again, our thanks!
+This version fixes another (probable) security vulnerability discovered by
+"chiba of topsec alpha lab".  Ben Beasley of the Fedora Linux project fixed
+it, and I generalized it a bit to forestall other attempts by the code to
+keep decoding beyond the declared image dimensions.  As always, many thanks
+to Ben and to the various security researchers who continue to ferret out
+problematic code.
 
 I've also updated the MinGW32 cross-compiler makefile for both Win32 and Win64
 targets (i.e., there are two such makefiles now), but other than verifying
@@ -38,9 +41,9 @@ Also, this "anti-enhancement" occurred in version 3.0.0 for security reasons:
 There are also many fixes, of course, including ones from Tom Lane, Glenn
 Randers-Pehrson, Tom Zerucha, Paul Matzke, Darren Salt, John Bowler, and
 others.  Thanks also to Chris Nokleberg (brokensuite), Tim Pritlove, Bob
-Friesenhahn, the GraalOnline folks, giantbranch, Ben Beasley, and others for
-test images.  See the included CHANGELOG file for the complete, detailed list
-of who did what.
+Friesenhahn, the GraalOnline folks, giantbranch, chiba, Ben Beasley, and
+others for test images.  See the included CHANGELOG file for the complete,
+detailed list of who did what.
 
 Note that while MNG support is now complete in the sense of covering all
 registered chunk types, there are still numerous error conditions that
