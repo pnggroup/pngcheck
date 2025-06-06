@@ -82,7 +82,6 @@
  *       XXXX() function (e.g., IDAT(), tRNS())
  *   * print zTXt, compressed iTXt and iCCP chunks if -t option
  *       (break out zlib decoder into separate function and reuse)
- *   ? DOS/Win32 wildcard support beyond emx+gcc, MSVC (Borland wildargs.obj?)
  *   ? EBCDIC support (minimal?)
  *   - go back and make sure validation checks not dependent on verbosity level
  *
@@ -116,14 +115,15 @@
  *       [copy pngcheck.exe to the installation directory]
  *
  * "setargv.obj" is included with MSVC and will be found if the batch file has
- * been run.  Either Borland or Watcom (both?) may use "wildargs.obj" instead.
- * Both object files serve the same purpose:  they expand wildcard arguments
- * into a list of files on the local file system, just as Unix shells do by
- * default ("globbing").  Note that mingw32 + gcc (Unix-like compilation
- * environment for Windows) apparently expands wildcards on its own, so no
- * special object files are necessary for it.  emx + gcc for OS/2 (and possibly
- * rsxnt + gcc for Windows NT) has a special _wildcard() function call, which
- * is already included at the top of main() below.
+ * been run.  Similarly, Borland C has "wildargs.obj", while Watcom C has (in
+ * source code form) "wildargv.c".
+ * All these files serve the same purpose: they expand wildcard arguments into
+ * a list of files on the local file system, just as Unix shells do by default
+ * ("globbing").  Note that mingw32 + gcc (Unix-like compilation environment
+ * for Windows) apparently expands wildcards on its own, so no special object
+ * files are necessary for it.  emx + gcc for OS/2 (and possibly  rsxnt + gcc
+ * for Windows NT) has a special _wildcard() function, which is already called
+ * at the top of the main() function below.
  *
  * zlib info:		http://www.zlib.net/
  * PNG/MNG/JNG info:	http://www.libpng.org/pub/png/

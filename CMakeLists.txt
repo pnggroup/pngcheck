@@ -44,6 +44,37 @@ if(NOT PNGCHECK_USE_SYSTEM_ZLIB)
   target_link_libraries(pngcheck PRIVATE zlibstatic)
 endif()
 
+# Compiler-specific options: enable commonly-used warning options
+if(CMAKE_C_COMPILER_ID MATCHES "(GNU|Clang)$")
+  set(CMAKE_C_FLAGS "-Wall -Wextra -Wundef ${CMAKE_C_FLAGS}")
+elseif(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+  set(CMAKE_C_FLAGS "/W3 ${CMAKE_C_FLAGS}")
+endif()
+
+# Compiler-specific options: disable function deprecation warnings on Windows
+if(WIN32 AND (CMAKE_C_COMPILER_ID MATCHES "MSVC|Intel|Clang"))
+  add_definitions(-D_CRT_NONSTDC_NO_DEPRECATE)
+  add_definitions(-D_CRT_SECURE_NO_DEPRECATE)
+endif()
+
+# Compiler-specific options: auto-expand the wildcard arguments on Windows
+if(WIN32 AND (CMAKE_C_COMPILER_ID STREQUAL "MSVC"))
+  # FIXME(clang):
+  # This should also work with Clang on Windows when using the MSVC runtime,
+  # but detection of the availability of setargv.obj is currently missing.
+  set(PNGCHECK_EXTRA_LINKER_FILES setargv.obj)
+elseif(WIN32 AND (CMAKE_C_COMPILER_ID MATCHES "(Borland|Embarcadero)$"))
+  if(CMAKE_C_COMPILER MATCHES "bcc64(\.exe)?$")
+    set(PNGCHECK_EXTRA_LINKER_FILES wildargs.o)
+  else()
+    set(PNGCHECK_EXTRA_LINKER_FILES wildargs.obj)
+  endif()
+endif()
+if(PNGCHECK_EXTRA_LINKER_FILES)
+  message(STATUS "Linking to ${PNGCHECK_EXTRA_LINKER_FILES}")
+  set(CMAKE_EXE_LINKER_FLAGS "${PNGCHECK_EXTRA_LINKER_FILES} ${CMAKE_EXE_LINKER_FLAGS}")
+endif()
+
 # Installation rules
 include(GNUInstallDirs)
 install(TARGETS pngcheck

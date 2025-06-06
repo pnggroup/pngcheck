@@ -110,14 +110,13 @@
 
 ## Notes
 
-- CMake build is recommended as it handles dependencies and platform
+- The CMake build is recommended, as it handles dependencies and platform
   differences automatically.
 - zlib support used to be optional, but now it is mandatory.
-- On Windows with MSVC, `setargv.obj` is included to handle file wildcards.
-- For MinGW/gcc and Cygwin/gcc on Windows, as well as EMX/gcc on OS/2,
-  wildcard argument handling is built-in.
-- For other non-Unix compilers such as Borland C or Watcom C, wildcard
-  argument handling is not currently supported.
+- The MSVC compiler on Windows provides `setargv.obj`, a module whose purpose
+  is to auto-expand the file wildcards in the command line at program startup.
+  Other compilers may provide similar modules, in C source form or in compiled
+  object code form; please consult your compiler's documentation.
 
 ## More Information
 
