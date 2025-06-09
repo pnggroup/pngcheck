@@ -1,36 +1,35 @@
 wildargs
 ========
 
-Automatic command-line wildcard expansion for C and C++
+Automatic command-line wildcard expansion for platforms and
 environments that aren't based on the Un\*x shell.
 
 
 Usage
 -----
 
-Simply compile and link the wildargs.c module to the rest
-of the program modules, as in the following example:
+Simply compile and link the `wildargs.c` module to the rest of
+the program:
 
-    cc -O2 -o wildargs_test wildargs_test.c wildargs.c
+    cl -O2 wildargs_test.c wildargs.c
 
-Check the output to ensure that the wildcards are expanded.
-In this example, expect to see a listing of the `*.c` files:
+Run the program and check the expansion of wildcard arguments.
+In this example, you should see a listing of the `*.c` files:
 
-    ./wildargs_test *.c
+    wildargs_test *.c
 
 
 Compatibility
 -------------
 
-The following runtimes are recognized and supported on
-Windows:
+The following compilers and runtimes are currently supported
+on Windows:
 
- * Microsoft Universal C Runtime (UCRT)
- * Microsoft Visual C/C++ Runtime (MSVCRT)
- * Borland (Embarcadero) C/C++ Runtime Library (RTL)
+ * Microsoft Visual C++, supporting MSVCRT and UCRT+VCRUNTIME;
+ * MinGW/MinGW32 and MinGW-w64, supporting MSVCRT and UCRT;
+ * Borland (Embarcadero) C/C++, supporting Borland RTL.
 
-On Unix and Unix-like systems, the wildargs module is,
-conventionally, a no-op.
+On Unix and Unix-like systems, the wildargs module is a no-op.
 
-Supporting other compilers and runtimes, on systems and
-platforms not necessarily restricted to Windows, is TODO.
+Supporting other compilers, runtimes, and even platforms other
+than Windows, is TODO.
