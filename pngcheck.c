@@ -136,6 +136,9 @@
 typedef unsigned char  uch;
 typedef unsigned short ush;
 typedef unsigned long  ulg;
+typedef signed char  sch;
+typedef signed short ssh;
+typedef signed long  slg;
 
 /* printbuf state variables */
 typedef struct printbuf_state {
@@ -176,6 +179,9 @@ char const * u2name_helper(unsigned int value, const char **names,
 /* Mark's macros to extract big-endian short and long ints: */
 #define SH(p) ((ush)(uch)((p)[1]) | ((ush)(uch)((p)[0]) << 8))
 #define LG(p) ((ulg)(SH((p)+2)) | ((ulg)(SH(p)) << 16))
+
+#define SSH(p) ((ssh)(uch)((p)[1]) | ((ssh)(sch)((p)[0]) << 8))
+#define SLG(p) ((slg)(SH((p)+2)) | ((slg)(SSH(p)) << 16))
 
 /* for check_magic(): */
 #define DO_PNG  0
@@ -2016,40 +2022,23 @@ FIXME: make sure bit 31 (0x80000000) is 0
       if (no_err(kMinorError)) {
         double wx, wy, rx, ry, gx, gy, bx, by;
 
-        wx = (double)LG(buffer)/100000;
-        wy = (double)LG(buffer+4)/100000;
-        rx = (double)LG(buffer+8)/100000;
-        ry = (double)LG(buffer+12)/100000;
-        gx = (double)LG(buffer+16)/100000;
-        gy = (double)LG(buffer+20)/100000;
-        bx = (double)LG(buffer+24)/100000;
-        by = (double)LG(buffer+28)/100000;
+        wx = (double)SLG(buffer)/100000;
+        wy = (double)SLG(buffer+4)/100000;
+        rx = (double)SLG(buffer+8)/100000;
+        ry = (double)SLG(buffer+12)/100000;
+        gx = (double)SLG(buffer+16)/100000;
+        gy = (double)SLG(buffer+20)/100000;
+        bx = (double)SLG(buffer+24)/100000;
+        by = (double)SLG(buffer+28)/100000;
 
-        if (wx < 0 || wx > 0.8 || wy < 0 || wy > 0.8 || wx + wy > 1.0) {
-          printf("%s  invalid %swhite point %0g %0g\n",
-                 verbose? ":":fname, verbose? "":"cHRM ", wx, wy);
-          set_err(kMinorError);
-        } else if (rx < 0 || rx > 0.8 || ry < 0 || ry > 0.8 || rx + ry > 1.0) {
-          printf("%s  invalid %sred point %0g %0g\n",
-                 verbose? ":":fname, verbose? "":"cHRM ", rx, ry);
-          set_err(kMinorError);
-        } else if (gx < 0 || gx > 0.8 || gy < 0 || gy > 0.8 || gx + gy > 1.0) {
-          printf("%s  invalid %sgreen point %0g %0g\n",
-                 verbose? ":":fname, verbose? "":"cHRM ", gx, gy);
-          set_err(kMinorError);
-        } else if (bx < 0 || bx > 0.8 || by < 0 || by > 0.8 || bx + by > 1.0) {
-          printf("%s  invalid %sblue point %0g %0g\n",
-                 verbose? ":":fname, verbose? "":"cHRM ", bx, by);
-          set_err(kMinorError);
-        }
-        else if (verbose) {
+       if (verbose) {
           printf("\n");
         }
 
         if (verbose && no_err(kMinorError)) {
-          printf("    White x = %0g y = %0g,  Red x = %0g y = %0g\n",
+          printf("    White x = %#6.5f y = %#6.5f,  Red x = %#6.5f y = %#6.5f\n",
                  wx, wy, rx, ry);
-          printf("    Green x = %0g y = %0g,  Blue x = %0g y = %0g\n",
+          printf("    Green x = %#6.5f y = %#6.5f,  Blue x = %#6.5f y = %#6.5f\n",
                  gx, gy, bx, by);
         }
       }
