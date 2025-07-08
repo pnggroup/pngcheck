@@ -1,0 +1,59 @@
+[
+  {
+    "runner": "ubuntu-22.04",
+    "os": "ubuntu",
+    "name": "ubuntu-22.04"
+  },
+  {
+    "runner": "ubuntu-24.04",
+    "os": "ubuntu",
+    "name": "ubuntu-24.04"
+  },
+  {
+    "runner": "ubuntu-22.04-arm",
+    "os": "ubuntu",
+    "name": "ubuntu-22.04-arm"
+  },
+  {
+    "runner": "ubuntu-24.04-arm",
+    "os": "ubuntu",
+    "name": "ubuntu-24.04-arm"
+  },
+  {
+    "runner": "macos-13",
+    "os": "macos",
+    "name": "macos-13"
+  },
+  {
+    "runner": "macos-14",
+    "os": "macos",
+    "name": "macos-14"
+  },
+  {
+    "runner": "macos-15",
+    "os": "macos",
+    "name": "macos-15"
+  },
+  {
+    "runner": "windows-2022",
+    "os": "windows",
+    "name": "windows-2022"
+  },
+  {
+    "runner": "windows-11-arm",
+    "os": "windows",
+    "name": "windows-11-arm"
+  },
+  {
+    "runner": "windows-latest",
+    "os": "windows-msys2",
+    "msys": "mingw32",
+    "name": "mingw32"
+  },
+  {
+    "runner": "windows-latest",
+    "os": "windows-msys2",
+    "msys": "mingw64",
+    "name": "mingw64"
+  }
+]

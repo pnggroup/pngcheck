@@ -1,0 +1,90 @@
+# Makefile for pngcheck using MSVC/Visual Studio
+# Greg Roelofs et al.
+# Last modified: 8 July 2025
+#
+# This makefile assumes zlib has either been built in a subdirectory at the
+# same level as the current subdirectory (as indicated by the ZLIB_PATH macro
+# below), or installed system-wide. Edit the ZLIB_* macros as appropriate.
+#
+# Invoke this makefile from a DOS prompt window via:
+#	%devstudio%\vc\bin\vcvars32.bat
+#	nmake -nologo -f Makefile.w32
+#
+# where %devstudio% is the installation directory for MSVC / DevStudio.
+
+#!include <ntwin32.mak>
+
+
+# macros --------------------------------------------------------------------
+
+
+# Use vcpkg-installed zlib if VCPKG_ROOT is set, otherwise use local paths
+!IF "$(VCPKG_ROOT)" != ""
+# Use immediate expansion to avoid space issues
+VCPKG_BASE = $(VCPKG_ROOT)\installed\$(VCPKG_TARGET_TRIPLET)
+ZLIB_INCPATH = $(VCPKG_BASE)\include
+ZLIB_LIBPATH = $(VCPKG_BASE)\lib
+ZLIB_LIB = $(VCPKG_BASE)\lib\zlib.lib
+!MESSAGE Using vcpkg zlib from: $(VCPKG_BASE)
+!ELSE
+ZLIB_PATH = ../zlib
+ZLIB_INCPATH = $(ZLIB_PATH)
+ZLIB_LIBPATH = $(ZLIB_PATH)
+ZLIB_LIB = $(ZLIB_PATH)\zlibstat.lib
+!MESSAGE Using local zlib from: $(ZLIB_PATH)
+!ENDIF
+
+CC = cl
+LD = link
+RM_F = del
+
+STDC = # /std:c11 or /std:c17 (MSVC 2019+)
+WARN = /W3
+WARNMORE = /Wall
+LOCAL_CPPFLAGS = /DUSE_ZLIB
+LOCAL_CFLAGS = /nologo $(STDC) $(WARN) $(cvars) # $(WARNMORE)
+LOCAL_LDFLAGS = /nologo
+
+CPPFLAGS = $(LOCAL_CPPFLAGS) /I"$(ZLIB_INCPATH)"
+CFLAGS = /O2 # /Zi for debug
+LDFLAGS = # /DEBUG for debug
+LIBS = "$(ZLIB_LIB)"
+
+ALL_CPPFLAGS = $(CPPFLAGS)
+ALL_CFLAGS = $(LOCAL_CFLAGS) $(CFLAGS)
+ALL_LDFLAGS = $(LOCAL_LDFLAGS) $(LDFLAGS)
+
+EXEEXT = .exe
+OBJEXT = .obj
+EXES = pngcheck$(EXEEXT)
+OBJS = pngcheck$(OBJEXT)
+
+
+# implicit make rules -------------------------------------------------------
+
+.c$(OBJEXT):
+	$(CC) /c $(ALL_CPPFLAGS) $(ALL_CFLAGS) /Fo$@ $<
+
+
+# dependencies --------------------------------------------------------------
+
+all: $(EXES)
+
+# setargv.obj expands wildcards and is included as part of MSVC; may be called
+# "wildargs.obj" (or similar) for Borland or Watcom compilers
+pngcheck$(EXEEXT): $(OBJS)
+	$(LD) $(ALL_LDFLAGS) /out:$@ $(OBJS) setargv.obj $(LIBS)
+
+pngcheck$(OBJEXT): pngcheck.c
+
+
+# maintenance ---------------------------------------------------------------
+
+clean:
+#	ideally we could just do this:
+#	$(RM_F) $(EXES) $(OBJS)
+#	...but the Windows "DEL" command is none too bright, so:
+	$(RM_F) $(EXES)
+	$(RM_F) $(OBJS)
+
+.PHONY: all clean
