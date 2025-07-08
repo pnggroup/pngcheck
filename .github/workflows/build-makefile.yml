@@ -1,0 +1,181 @@
+name: build-makefile
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
+  cancel-in-progress: true
+
+jobs:
+  load-matrix:
+    name: Load Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set matrix outputs
+        id: set-matrix
+        run: |
+          echo "matrix=$(jq -c '.' matrix.json)" >> $GITHUB_OUTPUT
+
+  build-makefile:
+    name: ${{ matrix.name }}-makefile
+    runs-on: ${{ matrix.runner }}
+    needs: load-matrix
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # MSYS2 setup
+    - name: Setup MSYS2
+      if: matrix.os == 'windows-msys2'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.msys }}
+        path-type: minimal
+        update: true
+        install: >-
+          git
+          make
+        pacboy: >-
+          toolchain:p
+          zlib:p
+
+    # Ubuntu dependencies
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev
+
+    # macOS dependencies
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos'
+      run: |
+        # Check if zlib is available (either system or Homebrew)
+        if ! pkg-config --exists zlib 2>/dev/null && ! brew list zlib >/dev/null 2>&1; then
+          echo "Installing zlib via Homebrew..."
+          brew install zlib
+        else
+          echo "zlib is already available (system or Homebrew)"
+        fi
+
+    # Windows MSVC dependencies
+    - name: Setup MSVC (Windows)
+      if: matrix.os == 'windows'
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Install vcpkg dependencies (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "arm64" } else { "x64" }
+        vcpkg install zlib:$arch-windows
+
+    # Makefile builds
+    - name: Build with Makefile (Ubuntu/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        make
+
+    - name: Build with Makefile (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        # Set up MSVC environment
+        $vsPath = "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise"
+        if (-not (Test-Path $vsPath)) {
+          $vsPath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools"
+        }
+
+        $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
+        $triplet = "x64-windows"
+        if ("${{ matrix.runner }}" -eq "windows-11-arm") {
+          $vcvarsPath = "$vsPath\VC\Auxiliary\Build\vcvarsamd64_arm64.bat"
+          $triplet = "arm64-windows"
+        }
+
+        # Build with nmake - explicitly set environment variables in cmd
+        cmd /c "`"$vcvarsPath`" && set `"VCPKG_ROOT=C:\vcpkg`" && set `"VCPKG_TARGET_TRIPLET=$triplet`" && nmake -f Makefile.w32"
+
+    - name: Build with Makefile (Windows MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        if [[ "${{ matrix.msys }}" == "mingw32" ]]; then
+          make -f Makefile.mingw ARCH=32
+        else
+          make -f Makefile.mingw ARCH=64
+        fi
+
+    # Testing Makefile builds
+    - name: Test Makefile build (MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        if [[ "${{ matrix.msys }}" == "mingw32" ]]; then
+          ./pngcheck.win32.exe -h
+        else
+          ./pngcheck.win64.exe -h
+        fi
+
+    - name: Test Makefile build (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        .\pngcheck.exe -h
+
+    - name: Test Makefile build (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        ./pngcheck -h
+
+    # Artifacts
+    - name: Prepare artifacts (MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        mkdir -p artifacts
+        if [[ "${{ matrix.msys }}" == "mingw32" ]]; then
+          cp pngcheck.win32.exe artifacts/pngcheck-${{ matrix.name }}-makefile.exe
+        else
+          cp pngcheck.win64.exe artifacts/pngcheck-${{ matrix.name }}-makefile.exe
+        fi
+        cd artifacts
+        sha256sum * > checksums.txt
+
+    - name: Prepare artifacts (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        mkdir -p artifacts
+        cp pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-makefile.exe
+        cd artifacts
+        Get-FileHash -Algorithm SHA256 *.exe | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } > checksums.txt
+
+    - name: Prepare artifacts (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        mkdir -p artifacts
+        cp pngcheck artifacts/pngcheck-${{ matrix.name }}-makefile
+        cd artifacts
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum * > checksums.txt
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 * > checksums.txt
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pngcheck-${{ matrix.name }}-makefile
+        path: artifacts/
+        retention-days: 30

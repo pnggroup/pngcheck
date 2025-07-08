@@ -1,0 +1,86 @@
+# Makefile for pngcheck using MinGW (native or cross-compilation)
+# Greg Roelofs et al.
+# Last modified: 8 July 2025
+#
+# This makefile assumes zlib has either been built in a subdirectory at the
+# same level as the current subdirectory (as indicated by the ZLIB_PATH macro
+# below), or installed system-wide. Edit the ZLIB_* macros as appropriate.
+#
+# Invoke this makefile via:
+#	make -f Makefile.mingw                   # defaults to 64-bit
+#	make -f Makefile.mingw ARCH=32           # for 32-bit
+#	make -f Makefile.mingw ARCH=64           # for 64-bit (explicit)
+
+
+# macros --------------------------------------------------------------------
+
+# Architecture selection (default to 64-bit)
+ARCH ?= 64
+
+# Set architecture-specific variables
+ifeq ($(ARCH),32)
+    EXEEXT = .win32.exe
+    ARCH_FLAGS = -m32
+else
+    EXEEXT = .win64.exe
+    ARCH_FLAGS = -m64
+endif
+
+ZLIB_PATH = ../zlib
+ZLIB_INCPATH = $(ZLIB_PATH)
+ZLIB_LIBPATH = $(ZLIB_PATH)
+ZLIB_LIB = -l:libz.a
+
+CC = gcc
+LD = $(CC)
+RM_F = rm -f
+
+STDC = -std=c99
+WARN = -Wall -Wextra -Wundef
+WARNMORE = -Wcast-align -Wconversion -Wpointer-arith -Wwrite-strings \
+           -Wmissing-declarations -Wmissing-prototypes -Wstrict-prototypes \
+           -Wno-implicit-fallthrough
+LOCAL_CPPFLAGS = -DUSE_ZLIB
+LOCAL_CFLAGS = $(STDC) $(WARN) $(ARCH_FLAGS) # $(WARNMORE)
+LOCAL_LDFLAGS = $(ARCH_FLAGS)
+
+CPPFLAGS = -I$(ZLIB_INCPATH)
+CFLAGS = -O2 # -g
+LDFLAGS = -L$(ZLIB_LIBPATH) # -g
+LIBS = $(ZLIB_LIB)
+
+ALL_CPPFLAGS = $(LOCAL_CPPFLAGS) $(CPPFLAGS)
+ALL_CFLAGS = $(LOCAL_CFLAGS) $(CFLAGS)
+ALL_LDFLAGS = $(LOCAL_LDFLAGS) $(LDFLAGS)
+
+EXES = pngcheck$(EXEEXT)
+OBJS = pngcheck.o
+
+
+# implicit make rules -------------------------------------------------------
+
+.c.o:
+	$(CC) -c $(ALL_CPPFLAGS) $(ALL_CFLAGS) -o $@ $*.c
+
+
+# dependencies --------------------------------------------------------------
+
+all: $(EXES)
+
+pngcheck$(EXEEXT): pngcheck.o
+	$(LD) $(ALL_LDFLAGS) -o $@ pngcheck.o $(LIBS)
+
+
+# maintenance ---------------------------------------------------------------
+
+clean:
+	$(RM_F) $(EXES) $(OBJS)
+
+# convenience targets
+win32:
+	$(MAKE) -f Makefile.mingw ARCH=32
+
+win64:
+	$(MAKE) -f Makefile.mingw ARCH=64
+
+.PHONY: all clean win32 win64
