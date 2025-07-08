@@ -5126,14 +5126,32 @@ FIXME: add support for decompressing/printing zTXt
         printf("%s  illegal reserved-bit-set chunk%s%s\n",
                verbose? ":":fname, verbose? "":" ", verbose? "":chunkid);
         set_err(kMajorError);
-      } else if (PUBLIC(chunkid)) {
+      } else if (PUBLIC(chunkid) && CRITICAL(chunkid)) {
+
         /* GRR 20050725:  all registered (public) PNG/MNG/JNG chunks are now
          *  known to pngcheck, so any unknown public ones are invalid (or have
          *  been proposed and approved since the last release of pngcheck) */
+
+        /* https://www.w3.org/TR/2003/REC-PNG-20031110/#11Chunks
+         * 15.2.3 Conformance of PNG decoders
+         * A PNG decoder conforms to this International Standard if it satisfies the following conditions.
+         *  a. It is able to read any PNG datastream that conforms to this International Standard, including both public
+         *    and private chunks whose types may not be recognized.
+         *   ...
+         *  b. Unknown chunk types are handled as described in 5.4 Chunk naming conventions. An unknown chunk type is not
+         *    treated as an error unless it is a critical chunk.
+            ... */
+
         printf("%s  illegal (unless recently approved) unknown, public "
                "chunk%s%s\n", verbose? ":":fname, verbose? "":" ",
                verbose? "":chunkid);
         set_err(kMajorError);
+      } else if (PUBLIC(chunkid) /*&& !CRITICAL(chunkid)*/ &&
+                 !suppress_warnings) {
+        printf("%s  illegal (unless recently approved) unknown, public "
+               "chunk%s%s\n", verbose? ":":fname, verbose? "":" ",
+               verbose? "":chunkid);
+        set_err(kWarning);
       } else if (/* !PUBLIC(chunkid) && */ CRITICAL(chunkid) &&
                  !suppress_warnings)
       {
