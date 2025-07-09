@@ -1,1 +1,8 @@
 build/
+build/
+
+# Test fixtures (downloaded dynamically)
+tests/fixtures/pngsuite
+
+# Test expectations (generated during tests)
+tests/expectations/pngcheck
