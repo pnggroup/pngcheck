@@ -1,8 +1,44 @@
 build/
-build/
 
 # Test fixtures (downloaded dynamically)
-tests/fixtures/pngsuite
+test/fixtures/pngsuite
 
 # Test expectations (generated during tests)
-tests/expectations/pngcheck
+test/expectations/pngsuite
+
+# Unity/Ceedling build artifacts
+test/build/
+test/unity/build/
+test/unity/*.o
+test/unity/test_pngcheck
+test/unity/test_pngcheck_suite
+vendor/
+.ceedling/
+*.gcno
+*.gcda
+*.gcov
+
+# C build artifacts
+*.o
+*.ko
+*.obj
+*.elf
+*.exe
+*.out
+*.app
+*.hex
+*.d
+*.gch
+*.pch
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+*.dSYM/
+*.su
+*.idb
+*.pdb

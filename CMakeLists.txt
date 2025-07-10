@@ -61,6 +61,12 @@ install(FILES pngcheck.1
         COMPONENT Documentation
 )
 
+# Testing
+option(PNGCHECK_BUILD_TESTS "Build tests" OFF)
+if(PNGCHECK_BUILD_TESTS)
+  add_subdirectory(test)
+endif()
+
 # Package generation
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})

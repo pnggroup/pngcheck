@@ -1,0 +1,92 @@
+---
+
+# Notes:
+# Sample project C code is not presently written to produce a release artifact.
+# As such, release build options are disabled.
+# This sample, therefore, only demonstrates running a collection of unit tests.
+
+:project:
+  :use_exceptions: FALSE
+  :use_test_preprocessor: :none
+  :use_auxiliary_dependencies: TRUE
+  :build_root: build
+  :release_build: FALSE
+  :test_file_prefix: test_
+  :which_ceedling: gem
+  :ceedling_version: '>= 1.0.0'
+
+:test_build:
+  :graceful_fail: FALSE  # Ensure proper exit codes for CI (exit 1 on test failures)
+
+:environment:
+  - PNGCHECK_EXE: ../pngcheck
+  - PNGSUITE_PATH: fixtures/pngsuite
+  - EXPECTATIONS_PATH: expectations
+
+:extension:
+  :executable: .out
+
+:paths:
+  :test:
+    - +:test/**
+    - -:test/support
+  :source:
+    - test/support
+    - ..
+  :include:
+    - .
+    - ..
+    - test/support
+  :libraries: []
+
+:defines:
+  # in order to add common defines:
+  #  1) remove the trailing [] from the :common: section
+  #  2) add entries to the :common: section (e.g. :test: has TEST defined)
+  :common: &common_defines []
+  :test:
+    - *common_defines
+    - TEST
+  :test_preprocess:
+    - *common_defines
+    - TEST
+
+:cmock:
+  :mock_prefix: mock_
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :callback
+  :treat_as:
+    uint8:    HEX8
+    uint16:   HEX16
+    uint32:   UINT32
+    int8:     INT8
+    bool:     UINT8
+
+# Add -gcov to the plugins list to make sure of the gcov plugin
+# You will need to have gcov and gcovr both installed to make it work.
+# For more information on these options, see docs in plugins/gcov
+:gcov:
+  :reports:
+    - HtmlDetailed
+  :gcovr:
+    :html_medium_threshold: 75
+    :html_high_threshold: 90
+
+# Configure report factory for CI-friendly output formats
+:report_tests_log_factory:
+  :reports:
+    - json        # JSON format for programmatic processing
+    - junit       # JUnit XML format for CI systems
+    - cppunit     # CppUnit XML format alternative
+
+:plugins:
+  :enabled:
+    - module_generator
+    - report_tests_gtestlike_stdout   # Google Test-like output for CI tools
+    - report_tests_log_factory        # Generate JSON/JUnit/CppUnit reports for CI
+    - report_build_warnings_log       # Collect build warnings
+    - gcov                            # Code coverage analysis
+    # - compile_commands_json_db        # Generate compile_commands.json for IDEs

@@ -20,7 +20,7 @@ and is [no longer valid](https://w3c.github.io/png/#5ChunkOrdering) in PNG Third
 
 Sample usage:
 
-```text
+```sh
 $ pngcheck -c -v test_pattern-PQ.png
 File: test_pattern-PQ.png (12033 bytes)
   chunk IHDR at offset 0x0000c, length 13
@@ -41,50 +41,10 @@ File: test_pattern-PQ.png (12033 bytes)
 ERRORS DETECTED in test_pattern-PQ.png
 ```
 
-## Testing
+## Topics
 
-This project includes a test suite covering CLI functionality and PNG validation
-using PngSuite, the official suite of PNG test images.
-
-### Running tests
-
-```bash
-# Install bats testing framework
-# Ubuntu/Debian:
-sudo apt-get install bats
-
-# macOS:
-brew install bats-core
-
-# Run all tests (CLI + PNG suite)
-./tests/run_tests.sh
-
-# Run only CLI tests (fast, 22 tests)
-./tests/run_tests.sh --cli-only
-
-# Run only PNG suite tests (comprehensive, 176 tests)
-./tests/run_tests.sh --suite-only
-
-# Verbose output for debugging
-./tests/run_tests.sh --verbose
-```
-
-### Continuous integration
-
-The project uses GitHub Actions for automated testing across multiple platforms:
-
-- **build.yml**: CMake builds with comprehensive test execution
-- **build-makefile.yml**: Makefile builds with comprehensive test execution
-- **Platforms**: Ubuntu (22.04, 24.04), macOS (13, 14, 15), Windows (MSVC, MSYS2/MinGW)
-
-Both build workflows automatically:
-- Install test dependencies (bats, curl)
-- Download PNG test suite fixtures
-- Run the complete test suite (198 tests)
-- Cache test data for performance
-- Upload test results on failure for debugging
-
-See [tests/README.md](tests/README.md) for detailed testing documentation.
+- [Installation](INSTALL.md)
+- [Testing](test/README.md)
 
 ## Copyright and license
 

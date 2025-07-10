@@ -141,74 +141,133 @@ jobs:
       run: |
         ./pngcheck -h
 
-    # Setup test dependencies
-    - name: Setup test dependencies (Ubuntu)
+    # Setup Ruby 3.4 for Ceedling
+    - name: Setup Ruby 3.4 (Ubuntu)
       if: matrix.os == 'ubuntu'
-      run: |
-        sudo apt-get install -y bats curl
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
 
-    - name: Setup test dependencies (macOS)
+    - name: Setup Ruby 3.4 (macOS)
       if: matrix.os == 'macos'
-      run: |
-        brew install bats-core
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
 
-    - name: Setup test dependencies (Windows MSYS2)
+    - name: Setup Ruby 3.4 (Windows MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
-        # Install dependencies for bats
-        pacman -S --noconfirm curl unzip
+        # Install Ruby and dependencies
+        pacman -S --noconfirm ruby curl
+        gem install bundler
 
-        # Download and install bats manually
-        curl -L https://github.com/bats-core/bats-core/archive/v1.10.0.tar.gz -o bats.tar.gz
-        tar -xzf bats.tar.gz
-        cd bats-core-1.10.0
-        ./install.sh /usr/local
-        cd ..
-        rm -rf bats-core-1.10.0 bats.tar.gz
-
-        # Verify bats installation
-        bats --version
-
-    - name: Setup test dependencies (Windows MSVC)
+    - name: Setup Ruby 3.4 (Windows MSVC)
       if: matrix.os == 'windows'
-      run: |
-        npm install -g bats
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
 
     # Cache test fixtures to speed up subsequent runs
     - name: Cache PngSuite test fixtures
       uses: actions/cache@v4
       with:
-        path: tests/fixtures/pngsuite
-        key: pngsuite-fixtures-${{ hashFiles('tests/generate_expectations.sh') }}
+        path: test/fixtures/pngsuite
+        key: pngsuite-fixtures-${{ hashFiles('test/generate_expectations.sh') }}
         restore-keys: |
           pngsuite-fixtures-
 
-    # Download test fixtures and run comprehensive tests
-    - name: Run pngcheck test suite (Ubuntu/macOS)
+    # Install Ruby dependencies for Ceedling
+    - name: Install Ruby dependencies (Ubuntu/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        bundle install
+
+    - name: Install Ruby dependencies (Windows MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        bundle install
+
+    - name: Install Ruby dependencies (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        bundle install
+
+    # Download test fixtures and run comprehensive tests with Ceedling
+    - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       env:
-        PNGCHECK_EXECUTABLE: ../pngcheck
+        PNGCHECK_EXE: ../pngcheck
+        PNGSUITE_PATH: fixtures/pngsuite
+        EXPECTATIONS_PATH: expectations
       run: |
-        ./tests/run_tests.sh
+        # Setup test suite if needed
+        bundle exec test/bin/pngcheck-test setup
 
-    - name: Run pngcheck test suite (Windows MSYS2)
+        # Run Ceedling tests
+        cd test && bundle exec ceedling test:all
+
+    - name: Run pngcheck test suite with Ceedling (Windows MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       env:
-        PNGCHECK_EXECUTABLE: ../pngcheck.win64.exe
+        PNGCHECK_EXE: ../pngcheck.win64.exe
+        PNGSUITE_PATH: fixtures/pngsuite
+        EXPECTATIONS_PATH: expectations
       run: |
         if [[ "${{ matrix.msys }}" == "mingw32" ]]; then
-          export PNGCHECK_EXECUTABLE=../pngcheck.win32.exe
+          export PNGCHECK_EXE=../pngcheck.win32.exe
         fi
-        ./tests/run_tests.sh
 
-    - name: Run pngcheck test suite (Windows MSVC)
+        # Setup test suite if needed
+        bundle exec test/bin/pngcheck-test setup
+
+        # Run Ceedling tests
+        cd test && bundle exec ceedling test:all
+
+    - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows'
       env:
-        PNGCHECK_EXECUTABLE: ../pngcheck.exe
+        PNGCHECK_EXE: ../pngcheck.exe
+        PNGSUITE_PATH: fixtures/pngsuite
+        EXPECTATIONS_PATH: expectations
       run: |
-        bash ./tests/run_tests.sh
+        # Setup test suite if needed
+        bundle exec test/bin/pngcheck-test setup
+
+        # Run Ceedling tests
+        cd test
+        bundle exec ceedling test:all
+
+    # Upload test reports as artifacts
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ matrix.name }}-makefile
+        path: |
+          test/build/artifacts/test/
+          test/build/logs/
+          test/build/artifacts/test/junit_tests_report.xml
+          test/build/artifacts/test/cppunit_tests_report.xml
+          test/build/artifacts/test/tests_report.json
+          *.xml
+          *.json
+        retention-days: 30
+
+    # Upload test results for GitHub's test reporting
+    - name: Publish Test Results
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: Unity Tests (${{ matrix.name }}, Makefile)
+        path: 'test/build/artifacts/test/junit_tests_report.xml'
+        reporter: java-junit
+        fail-on-error: false
 
     # Upload test results on failure for debugging
     - name: Upload test results on failure
@@ -217,8 +276,8 @@ jobs:
       with:
         name: test-results-${{ matrix.name }}-makefile
         path: |
-          tests/fixtures/
-          tests/expectations/
+          test/fixtures/
+          test/expectations/
           *.log
         retention-days: 7
 
