@@ -37,8 +37,8 @@ endif()
 add_executable(pngcheck ${PNGCHECK_SOURCES})
 
 # Compiler flags for release build
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2 -Wall -Wextra")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -Wall -Wextra")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2 -Wall")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -Wall")
 
 # Dependency handling
 if(PNGCHECK_USE_SYSTEM_ZLIB)
