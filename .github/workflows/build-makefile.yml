@@ -142,22 +142,8 @@ jobs:
         ./pngcheck -h
 
     # Setup Ruby 3.4 for Ceedling (skip MSYS2 due to installation issues)
-    - name: Setup Ruby 3.4 (Ubuntu)
-      if: matrix.os == 'ubuntu'
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.4'
-        bundler-cache: true
-
-    - name: Setup Ruby 3.4 (macOS)
-      if: matrix.os == 'macos'
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.4'
-        bundler-cache: true
-
-    - name: Setup Ruby 3.4 (Windows MSVC)
-      if: matrix.os == 'windows'
+    - name: Setup Ruby 3.4
+      if: matrix.os != 'windows-msys2'
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.4'
@@ -174,13 +160,8 @@ jobs:
           pngsuite-fixtures-
 
     # Install Ruby dependencies for Ceedling (skip MSYS2 due to installation issues)
-    - name: Install Ruby dependencies (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
-      run: |
-        bundle install
-
-    - name: Install Ruby dependencies (Windows MSVC)
-      if: matrix.os == 'windows'
+    - name: Install Ruby dependencies (Ubuntu/macOS/Windows MSVC)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos' || matrix.os == 'windows'
       run: |
         bundle install
 
@@ -202,14 +183,21 @@ jobs:
       if: matrix.os == 'windows'
       env:
         PNGCHECK_EXECUTABLE: ${{ github.workspace }}\pngcheck.exe
-        PNGSUITE_PATH: fixtures/pngsuite
+        PNGSUITE_PATH: fixtures\pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         # Setup test suite if needed
-        bundle exec ruby test/bin/pngcheck-test setup
+        bundle exec ruby test\bin\pngcheck-test setup
 
         # Run Ceedling tests
         bundle exec ceedling test:all
+
+    - name: List out all files in directory
+      shell: bash
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -laR || echo "No files found"
 
     # Upload test reports as artifacts (skip MSYS2 since no tests run)
     - name: Upload test reports
@@ -218,11 +206,8 @@ jobs:
       with:
         name: test-reports-${{ matrix.name }}-makefile
         path: |
-          test/build/artifacts/test/
-          test/build/logs/
-          test/build/artifacts/test/junit_tests_report.xml
-          test/build/artifacts/test/cppunit_tests_report.xml
-          test/build/artifacts/test/tests_report.json
+          build/artifacts/test/
+          build/logs/
           *.xml
           *.json
         retention-days: 30
@@ -233,7 +218,7 @@ jobs:
       uses: dorny/test-reporter@v1
       with:
         name: Unity Tests (${{ matrix.name }}, Makefile)
-        path: 'test/build/artifacts/test/junit_tests_report.xml'
+        path: 'build/artifacts/test/junit_tests_report.xml'
         reporter: java-junit
         fail-on-error: true
 

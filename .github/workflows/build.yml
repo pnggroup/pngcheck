@@ -86,33 +86,23 @@ jobs:
         vcpkg install zlib:$arch-windows
 
     # CMake builds
-    - name: Build with CMake (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+    - name: Build with CMake (macOS)
+      if: matrix.os == 'macos'
       run: |
-        # Set architecture for macOS builds
-        if [[ "${{ matrix.runner }}" == "macos-13" ]]; then
-          # macOS-13 is Intel-based
-          export CMAKE_OSX_ARCHITECTURES="x86_64"
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-            -DBUILD_STRATEGY=RELEASE
-        elif [[ "${{ matrix.runner }}" == "macos-14" ]] || [[ "${{ matrix.runner }}" == "macos-15" ]]; then
-          # macOS-14 and macOS-15 are ARM64-based
-          export CMAKE_OSX_ARCHITECTURES="arm64"
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-            -DBUILD_STRATEGY=RELEASE
-        else
-          # Ubuntu builds
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-            -DBUILD_STRATEGY=RELEASE
-        fi
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.runner == 'macos-13' && 'x86_64' || 'arm64' }} \
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+          -DBUILD_STRATEGY=RELEASE
+        cmake --build build --config Release
+
+    - name: Build with CMake (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+          -DBUILD_STRATEGY=RELEASE
         cmake --build build --config Release
 
     - name: Build with CMake (Windows MSVC)
@@ -151,30 +141,16 @@ jobs:
         ./build/pngcheck -h
 
     # Setup Ruby 3.4 for Ceedling (skip MSYS2 due to installation issues)
-    - name: Setup Ruby 3.4 (Ubuntu)
-      if: matrix.os == 'ubuntu'
+    - name: Setup Ruby 3.4
+      if: matrix.os != 'windows-msys2'
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.4'
         bundler-cache: true
 
-    - name: Setup Ruby 3.4 (macOS)
-      if: matrix.os == 'macos'
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.4'
-        bundler-cache: true
-
-    - name: Setup Ruby 3.4 (Windows MSVC)
-      if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.4'
-        bundler-cache: true
-
-    # Cache test fixtures to speed up subsequent runs (skip MSYS2 and Windows ARM64 since no tests run)
+    # Cache test fixtures to speed up subsequent runs (skip MSYS2 since no tests run)
     - name: Cache PngSuite test fixtures
-      if: matrix.os != 'windows-msys2' && matrix.runner != 'windows-11-arm'
+      if: matrix.os != 'windows-msys2'
       uses: actions/cache@v4
       with:
         path: test/fixtures/pngsuite
@@ -221,13 +197,8 @@ jobs:
         ./build/Release/pngcheck.exe -h || echo "Executable test failed"
 
     # Install Ruby dependencies for Ceedling (skip MSYS2 due to installation issues)
-    - name: Install Ruby dependencies (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
-      run: |
-        bundle install
-
-    - name: Install Ruby dependencies (Windows MSVC)
-      if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
+    - name: Install Ruby dependencies (Ubuntu/macOS/Windows MSVC)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos' || matrix.os == 'windows'
       run: |
         bundle install
 
@@ -247,7 +218,7 @@ jobs:
         echo "ZLIB_LIBS=$(pkg-config --libs zlib 2>/dev/null || echo '-lz')" >> $GITHUB_ENV
 
     - name: Set platform environment variables (Windows MSVC)
-      if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
+      if: matrix.os == 'windows'
       run: |
         echo "CEEDLING_PLATFORM=Windows" >> $env:GITHUB_ENV
         echo "ZLIB_CFLAGS=" >> $env:GITHUB_ENV
@@ -268,47 +239,51 @@ jobs:
         bundle exec ceedling test:all
 
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
-      if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
+      if: matrix.os == 'windows'
       env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/Release/pngcheck.exe
-        PNGSUITE_PATH: fixtures/pngsuite
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Release\pngcheck.exe
+        PNGSUITE_PATH: fixtures\pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         # Setup test suite if needed
-        bundle exec ruby test/bin/pngcheck-test setup
+        bundle exec ruby test\bin\pngcheck-test setup
 
         # Run Ceedling tests
         bundle exec ceedling test:all
 
-    # Upload test reports as artifacts (skip MSYS2 and Windows ARM64 since no tests run)
+    - name: List out all files in directory
+      shell: bash
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -laR || echo "No files found"
+
+    # Upload test reports as artifacts (skip MSYS2 since no tests run)
     - name: Upload test reports
-      if: always() && matrix.os != 'windows-msys2' && matrix.runner != 'windows-11-arm'
+      if: always() && matrix.os != 'windows-msys2'
       uses: actions/upload-artifact@v4
       with:
         name: test-reports-${{ matrix.name }}-cmake
         path: |
-          test/build/artifacts/test/
-          test/build/logs/
-          test/build/artifacts/test/junit_tests_report.xml
-          test/build/artifacts/test/cppunit_tests_report.xml
-          test/build/artifacts/test/tests_report.json
+          build/artifacts/test/
+          build/logs/
           *.xml
           *.json
         retention-days: 30
 
-    # Upload test results for GitHub's test reporting (skip MSYS2 and Windows ARM64 since no tests run)
+    # Upload test results for GitHub's test reporting (skip MSYS2 since no tests run)
     - name: Publish Test Results
-      if: always() && matrix.os != 'windows-msys2' && matrix.runner != 'windows-11-arm'
+      if: always() && matrix.os != 'windows-msys2'
       uses: dorny/test-reporter@v1
       with:
         name: Unity Tests (${{ matrix.name }}, CMake)
-        path: 'test/build/artifacts/test/junit_tests_report.xml'
+        path: 'build/artifacts/test/junit_tests_report.xml'
         reporter: java-junit
         fail-on-error: true
 
-    # Upload test results on failure for debugging (skip MSYS2 and Windows ARM64 since no tests run)
+    # Upload test results on failure for debugging (skip MSYS2 since no tests run)
     - name: Upload test results on failure
-      if: failure() && matrix.os != 'windows-msys2' && matrix.runner != 'windows-11-arm'
+      if: failure() && matrix.os != 'windows-msys2'
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.name }}
