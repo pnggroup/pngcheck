@@ -36,7 +36,7 @@
   # Test configuration
   - PNGSUITE_PATH: test/fixtures/pngsuite
   - EXPECTATIONS_PATH: test/expectations
-  - PNGCHECK_EXECUTABLE: ./pngcheck
+  - PNGCHECK_EXECUTABLE: "#{ENV['PNGCHECK_EXECUTABLE'] || 'pngcheck'}"
 
 :extension:
   :executable: .exe
