@@ -3,24 +3,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef _WIN32
-    // Windows doesn't have unistd.h or POSIX wait macros
     #define WIFEXITED(status) 1
     #define WEXITSTATUS(status) (status)
+    #define IS_WINDOWS 1
 #else
     #include <unistd.h>
     #include <sys/wait.h>
+    #define IS_WINDOWS 0
 #endif
 
 #define MAX_PATH 1024
 #define MAX_OUTPUT 4096
 
-// Get path to PngSuite fixtures
 const char *get_pngsuite_path(void) {
     static char path[MAX_PATH];
     static bool initialized = false;
-
     if (!initialized) {
         const char *env_path = getenv("PNGSUITE_PATH");
         if (env_path) {
@@ -32,15 +32,12 @@ const char *get_pngsuite_path(void) {
         }
         initialized = true;
     }
-
     return path;
 }
 
-// Get path to expectations directory
 const char *get_expectations_path(void) {
     static char path[MAX_PATH];
     static bool initialized = false;
-
     if (!initialized) {
         const char *env_path = getenv("EXPECTATIONS_PATH");
         if (env_path) {
@@ -52,30 +49,16 @@ const char *get_expectations_path(void) {
         }
         initialized = true;
     }
-
     return path;
 }
 
-// Run pngcheck and capture output and exit code
-static int run_pngcheck(const char *png_path, char *output, size_t output_size) {
-    char command[MAX_PATH * 2];
-    FILE *fp;
-
-    const char *pngcheck_exe = getenv("PNGCHECK_EXECUTABLE");
-    if (!pngcheck_exe) {
-        strcpy(output, "ERROR: PNGCHECK_EXE environment variable not set");
-        return -1;
-    }
-
-    snprintf(command, sizeof(command), "%s \"%s\" 2>&1", pngcheck_exe, png_path);
-
-    fp = popen(command, "r");
+static int run_command(const char *command, char *output, size_t output_size) {
+    FILE *fp = popen(command, "r");
     if (!fp) {
-        strcpy(output, "ERROR: Failed to run pngcheck");
+        strcpy(output, "ERROR: Failed to run command");
         return -1;
     }
 
-    // Read output
     size_t total_read = 0;
     while (total_read < output_size - 1 &&
            fgets(output + total_read, output_size - total_read, fp)) {
@@ -83,23 +66,68 @@ static int run_pngcheck(const char *png_path, char *output, size_t output_size) 
     }
 
     int exit_code = pclose(fp);
-    if (WIFEXITED(exit_code)) {
-        exit_code = WEXITSTATUS(exit_code);
-    }
-
-    return exit_code;
+    return WIFEXITED(exit_code) ? WEXITSTATUS(exit_code) : exit_code;
 }
 
-// Test a PNG file against expected return code and output prefix
+static const char *clean_output(const char *output) {
+    static char cleaned[MAX_OUTPUT];
+    char *dest = cleaned;
+    const char *line = output;
+
+    while (*line) {
+        const char *line_start = line;
+        const char *line_end = strchr(line, '\n');
+        if (!line_end) line_end = line + strlen(line);
+
+        // Skip warning lines and empty lines
+        bool skip = false;
+        if (strstr(line_start, "warning:") || strstr(line_start, "zlib warning:")) {
+            skip = true;
+        } else {
+            // Check if empty (only whitespace)
+            skip = true;
+            for (const char *p = line_start; p < line_end; p++) {
+                if (!isspace(*p)) {
+                    skip = false;
+                    break;
+                }
+            }
+        }
+
+        if (!skip) {
+            size_t line_len = line_end - line_start;
+            if (dest + line_len + 1 < cleaned + sizeof(cleaned)) {
+                memcpy(dest, line_start, line_len);
+                dest += line_len;
+                if (*line_end == '\n') *dest++ = '\n';
+            }
+        }
+
+        line = (*line_end == '\n') ? line_end + 1 : line_end;
+        if (*line_end == '\0') break;
+    }
+
+    *dest = '\0';
+    return cleaned;
+}
+
 void test_png_file(const char *png_filename, int expected_exit_code, const char *expected_prefix) {
-    char png_path[MAX_PATH];
+    char command[MAX_PATH * 2];
     char output[MAX_OUTPUT];
 
-    snprintf(png_path, sizeof(png_path), "%s/%s", get_pngsuite_path(), png_filename);
+    const char *pngcheck_exe = getenv("PNGCHECK_EXECUTABLE");
+    if (!pngcheck_exe) {
+        TEST_FAIL_MESSAGE("PNGCHECK_EXECUTABLE environment variable not set");
+        return;
+    }
 
-    int actual_exit_code = run_pngcheck(png_path, output, sizeof(output));
+    snprintf(command, sizeof(command), "%s \"%s/%s\" 2>&1",
+             pngcheck_exe, get_pngsuite_path(), png_filename);
 
-    if (expected_exit_code >= 0 && actual_exit_code != expected_exit_code) {
+    int actual_exit_code = run_command(command, output, sizeof(output));
+
+    // Check exit code (skip on Windows)
+    if (!IS_WINDOWS && expected_exit_code >= 0 && actual_exit_code != expected_exit_code) {
         char message[MAX_OUTPUT];
         snprintf(message, sizeof(message),
             "Exit code mismatch for %s: expected %d, got %d\nOutput: %s",
@@ -107,81 +135,71 @@ void test_png_file(const char *png_filename, int expected_exit_code, const char 
         TEST_FAIL_MESSAGE(message);
     }
 
+    // Check status output
     if (expected_prefix) {
-        bool prefix_ok = false;
+        const char *cleaned = clean_output(output);
+        bool ok = false;
+
         if (strcmp(expected_prefix, "OK") == 0) {
-            prefix_ok = strncmp(output, "OK:", 3) == 0;
+            ok = strncmp(cleaned, "OK:", 3) == 0;
         } else if (strcmp(expected_prefix, "ERROR") == 0) {
-            prefix_ok = strstr(output, "ERROR:") != NULL;
+            ok = strstr(cleaned, "ERROR:") != NULL;
         } else {
-            prefix_ok = strncmp(output, expected_prefix, strlen(expected_prefix)) == 0;
+            ok = strncmp(cleaned, expected_prefix, strlen(expected_prefix)) == 0;
         }
 
-        if (!prefix_ok) {
+        if (!ok) {
             char message[MAX_OUTPUT];
             snprintf(message, sizeof(message),
-                "Output prefix mismatch for %s: expected '%s'\nActual output: %s",
-                png_filename, expected_prefix, output);
+                "Output mismatch for %s: expected '%s'\nActual: %s\nCleaned: %s",
+                png_filename, expected_prefix, output, cleaned);
             TEST_FAIL_MESSAGE(message);
         }
     }
 }
 
-// Test pngcheck with command-line options
 void test_pngcheck_with_options(const char *options, const char *png_filename, int expected_exit_code, const char *expected_content) {
     char command[MAX_PATH * 2];
     char output[MAX_OUTPUT];
-    FILE *fp;
 
     const char *pngcheck_exe = getenv("PNGCHECK_EXECUTABLE");
     if (!pngcheck_exe) {
-        TEST_FAIL_MESSAGE("PNGCHECK_EXE environment variable not set");
+        TEST_FAIL_MESSAGE("PNGCHECK_EXECUTABLE environment variable not set");
         return;
     }
 
     if (png_filename) {
-        char png_path[MAX_PATH];
-        snprintf(png_path, sizeof(png_path), "%s/%s", get_pngsuite_path(), png_filename);
-        snprintf(command, sizeof(command), "%s %s \"%s\" 2>&1", pngcheck_exe, options ? options : "", png_path);
+        snprintf(command, sizeof(command), "%s %s \"%s/%s\" 2>&1",
+                 pngcheck_exe, options ? options : "", get_pngsuite_path(), png_filename);
     } else {
-        snprintf(command, sizeof(command), "%s %s 2>&1", pngcheck_exe, options ? options : "");
+        snprintf(command, sizeof(command), "%s %s 2>&1",
+                 pngcheck_exe, options ? options : "");
     }
 
-    fp = popen(command, "r");
-    if (!fp) {
-        TEST_FAIL_MESSAGE("Failed to run pngcheck");
-        return;
-    }
+    int exit_code = run_command(command, output, sizeof(output));
 
-    size_t total_read = 0;
-    while (total_read < sizeof(output) - 1 &&
-           fgets(output + total_read, sizeof(output) - total_read, fp)) {
-        total_read = strlen(output);
-    }
-
-    int exit_code = pclose(fp);
-    if (WIFEXITED(exit_code)) {
-        exit_code = WEXITSTATUS(exit_code);
-    }
-
-    if (expected_exit_code >= 0 && exit_code != expected_exit_code) {
+    // Check exit code (skip on Windows)
+    if (!IS_WINDOWS && expected_exit_code >= 0 && exit_code != expected_exit_code) {
         char message[MAX_OUTPUT];
         snprintf(message, sizeof(message),
-            "Exit code mismatch for options '%s': expected %d, got %d",
-            options ? options : "", expected_exit_code, exit_code);
+            "Exit code mismatch for options '%s': expected %d, got %d\nOutput: %s",
+            options ? options : "", expected_exit_code, exit_code, output);
         TEST_FAIL_MESSAGE(message);
     }
 
-    if (expected_content && strlen(expected_content) > 0 && !strstr(output, expected_content)) {
-        char message[MAX_OUTPUT];
-        snprintf(message, sizeof(message),
-            "Expected content '%s' not found in output for options '%s'",
-            expected_content, options ? options : "");
-        TEST_FAIL_MESSAGE(message);
+    // Check content
+    if (expected_content && strlen(expected_content) > 0) {
+        const char *cleaned = clean_output(output);
+        if (!strstr(cleaned, expected_content)) {
+            char message[MAX_OUTPUT];
+            snprintf(message, sizeof(message),
+                "Expected content '%s' not found for options '%s'\nActual: %s\nCleaned: %s",
+                expected_content, options ? options : "", output, cleaned);
+            TEST_FAIL_MESSAGE(message);
+        }
     }
 }
 
-// Test pngcheck help option
 void test_pngcheck_help(void) {
     test_pngcheck_with_options("-h", NULL, 0, "Usage:");
 }

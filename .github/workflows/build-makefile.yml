@@ -201,7 +201,7 @@ jobs:
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows'
       env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck.exe
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\pngcheck.exe
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
