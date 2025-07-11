@@ -201,7 +201,7 @@ jobs:
     - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       env:
-        PNGCHECK_EXE: ../pngcheck
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
@@ -215,12 +215,12 @@ jobs:
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       env:
-        PNGCHECK_EXE: ../pngcheck.win64.exe
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck.win64.exe
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         if [[ "${{ matrix.msys }}" == "mingw32" ]]; then
-          export PNGCHECK_EXE=../pngcheck.win32.exe
+          export PNGCHECK_EXECUTABLE=${{ github.workspace }}/pngcheck.win32.exe
         fi
 
         # Setup test suite if needed
@@ -232,12 +232,12 @@ jobs:
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows'
       env:
-        PNGCHECK_EXE: ../pngcheck.exe
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck.exe
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         # Setup test suite if needed
-        bundle exec test/bin/pngcheck-test setup
+        bundle exec ruby test/bin/pngcheck-test setup
 
         # Run Ceedling tests
         cd test
@@ -267,7 +267,7 @@ jobs:
         name: Unity Tests (${{ matrix.name }}, Makefile)
         path: 'test/build/artifacts/test/junit_tests_report.xml'
         reporter: java-junit
-        fail-on-error: false
+        fail-on-error: true
 
     # Upload test results on failure for debugging
     - name: Upload test results on failure

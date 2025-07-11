@@ -3,7 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    // Windows doesn't have unistd.h or POSIX wait macros
+    #define WIFEXITED(status) 1
+    #define WEXITSTATUS(status) (status)
+#else
+    #include <unistd.h>
+    #include <sys/wait.h>
+#endif
 
 #define MAX_PATH 1024
 #define MAX_OUTPUT 4096
@@ -53,7 +61,7 @@ static int run_pngcheck(const char *png_path, char *output, size_t output_size) 
     char command[MAX_PATH * 2];
     FILE *fp;
 
-    const char *pngcheck_exe = getenv("PNGCHECK_EXE");
+    const char *pngcheck_exe = getenv("PNGCHECK_EXECUTABLE");
     if (!pngcheck_exe) {
         strcpy(output, "ERROR: PNGCHECK_EXE environment variable not set");
         return -1;
@@ -125,7 +133,7 @@ void test_pngcheck_with_options(const char *options, const char *png_filename, i
     char output[MAX_OUTPUT];
     FILE *fp;
 
-    const char *pngcheck_exe = getenv("PNGCHECK_EXE");
+    const char *pngcheck_exe = getenv("PNGCHECK_EXECUTABLE");
     if (!pngcheck_exe) {
         TEST_FAIL_MESSAGE("PNGCHECK_EXE environment variable not set");
         return;

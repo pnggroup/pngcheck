@@ -19,7 +19,7 @@
   :graceful_fail: FALSE  # Ensure proper exit codes for CI (exit 1 on test failures)
 
 :environment:
-  - PNGCHECK_EXE: ../pngcheck
+  - PNGCHECK_EXECUTABLE: ../pngcheck
   - PNGSUITE_PATH: fixtures/pngsuite
   - EXPECTATIONS_PATH: expectations
 

@@ -89,9 +89,27 @@ jobs:
     - name: Build with CMake (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        # Set architecture for macOS builds
+        if [[ "${{ matrix.runner }}" == "macos-13" ]]; then
+          # macOS-13 is Intel-based
+          export CMAKE_OSX_ARCHITECTURES="x86_64"
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        elif [[ "${{ matrix.runner }}" == "macos-14" ]] || [[ "${{ matrix.runner }}" == "macos-15" ]]; then
+          # macOS-14 and macOS-15 are ARM64-based
+          export CMAKE_OSX_ARCHITECTURES="arm64"
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        else
+          # Ubuntu builds
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        fi
         cmake --build build --config Release
 
     - name: Build with CMake (Windows MSVC)
@@ -226,7 +244,7 @@ jobs:
     - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       env:
-        PNGCHECK_EXE: ./build/pngcheck
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/pngcheck
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
@@ -240,7 +258,7 @@ jobs:
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       env:
-        PNGCHECK_EXE: ./build/pngcheck.exe
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/pngcheck.exe
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
@@ -253,13 +271,12 @@ jobs:
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows'
       env:
-        PNGCHECK_EXE: ./build/Release/pngcheck.exe
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/Release/pngcheck.exe
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         # Setup test suite if needed
-
-        bundle exec test/bin/pngcheck-test setup
+        bundle exec ruby test/bin/pngcheck-test setup
 
         # Run Ceedling tests
         cd test
@@ -289,7 +306,7 @@ jobs:
         name: Unity Tests (${{ matrix.name }}, CMake)
         path: 'test/build/artifacts/test/junit_tests_report.xml'
         reporter: java-junit
-        fail-on-error: false
+        fail-on-error: true
 
     # Upload test results on failure for debugging
     - name: Upload test results on failure
