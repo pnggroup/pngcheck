@@ -96,19 +96,22 @@ jobs:
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+            -DBUILD_STRATEGY=RELEASE
         elif [[ "${{ matrix.runner }}" == "macos-14" ]] || [[ "${{ matrix.runner }}" == "macos-15" ]]; then
           # macOS-14 and macOS-15 are ARM64-based
           export CMAKE_OSX_ARCHITECTURES="arm64"
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+            -DBUILD_STRATEGY=RELEASE
         else
           # Ubuntu builds
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+            -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+            -DBUILD_STRATEGY=RELEASE
         fi
         cmake --build build --config Release
 
@@ -116,7 +119,7 @@ jobs:
       if: matrix.os == 'windows'
       run: |
         $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "ARM64" } else { "x64" }
-        cmake -B build -A $arch -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake -B build -A $arch -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DBUILD_STRATEGY=RELEASE -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
         cmake --build build --config Release
 
     - name: Build with CMake (Windows MSYS2)
@@ -126,7 +129,8 @@ jobs:
         cmake -B build \
           -G "MSYS Makefiles" \
           -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
+          -DBUILD_STRATEGY=RELEASE
         cmake --build build --config Release
 
     # Testing CMake builds
@@ -227,6 +231,28 @@ jobs:
       run: |
         bundle install
 
+    # Set platform-specific environment variables for Ceedling cross-platform support
+    - name: Set platform environment variables (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        echo "CEEDLING_PLATFORM=Linux" >> $GITHUB_ENV
+        echo "ZLIB_CFLAGS=$(pkg-config --cflags zlib 2>/dev/null || echo '')" >> $GITHUB_ENV
+        echo "ZLIB_LIBS=$(pkg-config --libs zlib 2>/dev/null || echo '-lz')" >> $GITHUB_ENV
+
+    - name: Set platform environment variables (macOS)
+      if: matrix.os == 'macos'
+      run: |
+        echo "CEEDLING_PLATFORM=Darwin" >> $GITHUB_ENV
+        echo "ZLIB_CFLAGS=$(pkg-config --cflags zlib 2>/dev/null || echo '')" >> $GITHUB_ENV
+        echo "ZLIB_LIBS=$(pkg-config --libs zlib 2>/dev/null || echo '-lz')" >> $GITHUB_ENV
+
+    - name: Set platform environment variables (Windows MSVC)
+      if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
+      run: |
+        echo "CEEDLING_PLATFORM=Windows" >> $env:GITHUB_ENV
+        echo "ZLIB_CFLAGS=" >> $env:GITHUB_ENV
+        echo "ZLIB_LIBS=-lz" >> $env:GITHUB_ENV
+
     # Download test fixtures and run comprehensive tests with Ceedling (skip MSYS2 due to installation issues)
     - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
@@ -239,7 +265,7 @@ jobs:
         bundle exec test/bin/pngcheck-test setup
 
         # Run Ceedling tests
-        cd test && bundle exec ceedling test:all
+        bundle exec ceedling test:all
 
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows' && matrix.runner != 'windows-11-arm'
@@ -252,7 +278,6 @@ jobs:
         bundle exec ruby test/bin/pngcheck-test setup
 
         # Run Ceedling tests
-        cd test
         bundle exec ceedling test:all
 
     # Upload test reports as artifacts (skip MSYS2 and Windows ARM64 since no tests run)

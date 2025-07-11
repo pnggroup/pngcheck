@@ -196,7 +196,7 @@ jobs:
         bundle exec test/bin/pngcheck-test setup
 
         # Run Ceedling tests
-        cd test && bundle exec ceedling test:all
+        bundle exec ceedling test:all
 
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
       if: matrix.os == 'windows'
@@ -209,7 +209,6 @@ jobs:
         bundle exec ruby test/bin/pngcheck-test setup
 
         # Run Ceedling tests
-        cd test
         bundle exec ceedling test:all
 
     # Upload test reports as artifacts (skip MSYS2 since no tests run)
