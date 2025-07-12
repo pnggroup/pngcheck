@@ -44,7 +44,7 @@ ERRORS DETECTED in test_pattern-PQ.png
 ## Topics
 
 - [Installation](INSTALL.md)
-- [Testing](test/README.md)
+- [Testing](TESTING.md)
 
 ## Copyright and license
 
