@@ -66,7 +66,7 @@ set(PNGCHECK_EXECUTABLE_FULL_PATH ${PNGCHECK_EXECUTABLE_PATH}/pngcheck)
 add_custom_target(test-all
     COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ceedling test:all
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    DEPENDS pngcheck
+    DEPENDS pngcheck pngsuite-download
     COMMENT "Running all unit tests"
 )
 
@@ -116,6 +116,32 @@ add_custom_target(test-pngcheck-suite
     COMMENT "Running pngcheck suite tests"
 )
 
+# PNG Suite utility targets
+add_custom_target(pngsuite-status
+    COMMAND bundle exec test/bin/pngcheck-test status
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Check PNG suite status"
+)
+
+add_custom_target(pngsuite-download
+    COMMAND bundle exec test/bin/pngcheck-test download
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Download PNG test files"
+)
+
+add_custom_target(generate-pngsuite-expectations
+    COMMAND bundle exec test/bin/pngcheck-test expectations
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS pngcheck
+    COMMENT "Generate PNG suite expectations"
+)
+
+add_custom_target(generate-pngsuite-tests
+    COMMAND bundle exec test/bin/pngcheck-test generate
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Generate PNG suite test files"
+)
+
 # Print test information
 message(STATUS "")
 message(STATUS "=== Ceedling Test Configuration ===")
@@ -132,4 +158,10 @@ message(STATUS "  test-clean                - Clean all test build artifacts")
 message(STATUS "  test-coverage             - Run tests with coverage analysis and generate HTML report")
 message(STATUS "  test-pngcheck-cli         - Run CLI-specific tests")
 message(STATUS "  test-pngcheck-suite       - Run suite-specific tests")
+message(STATUS "")
+message(STATUS "Available PNG suite utility targets:")
+message(STATUS "  pngsuite-status           - Check PNG suite status")
+message(STATUS "  pngsuite-download         - Download PNG test files")
+message(STATUS "  generate-pngsuite-expectations - Generate PNG suite expectations")
+message(STATUS "  generate-pngsuite-tests   - Generate PNG suite test files")
 message(STATUS "")
