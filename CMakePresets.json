@@ -1,0 +1,59 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "BUILD_STRATEGY": "RELEASE"
+            }
+        },
+        {
+            "name": "Debug",
+            "inherits": "default",
+            "displayName": "Debug Build",
+            "description": "Debug build with symbols and no optimization",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "Release",
+            "inherits": "default",
+            "displayName": "Release Build",
+            "description": "Optimized release build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "Debug",
+            "configurePreset": "Debug",
+            "displayName": "Build Debug"
+        },
+        {
+            "name": "Release",
+            "configurePreset": "Release",
+            "displayName": "Build Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "test-all",
+            "configurePreset": "Debug",
+            "displayName": "Run All Tests",
+            "description": "Run all Ceedling tests"
+        },
+        {
+            "name": "test-coverage",
+            "configurePreset": "Debug",
+            "displayName": "Run Tests with Coverage",
+            "description": "Run tests and generate coverage report"
+        }
+    ]
+}

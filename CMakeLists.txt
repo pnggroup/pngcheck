@@ -93,23 +93,18 @@ set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${PROJECT_DESCRIPTION})
 include(CPack)
 
-# Custom targets for convenience
-add_custom_target(test
-    COMMAND ceedling test:all
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running tests with Ceedling"
-)
+# Include test subdirectory for Ceedling integration
+add_subdirectory(test)
 
-add_custom_target(test-verbose
-    COMMAND ceedling test:all --verbosity=obnoxious
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running tests with Ceedling (verbose output)"
+# Alias targets for backward compatibility
+add_custom_target(test
+    DEPENDS test-all
+    COMMENT "Running tests with Ceedling (alias for test-all)"
 )
 
 add_custom_target(clean-test
-    COMMAND ceedling clobber
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Cleaning Ceedling build artifacts"
+    DEPENDS test-clean
+    COMMENT "Cleaning Ceedling build artifacts (alias for test-clean)"
 )
 
 # Print build information
@@ -124,9 +119,12 @@ if(PNGCHECK_USE_SYSTEM_ZLIB AND ZLIB_FOUND)
 endif()
 message(STATUS "")
 message(STATUS "Available targets:")
-message(STATUS "  pngcheck      - Build the main executable")
-message(STATUS "  test          - Run Ceedling tests")
-message(STATUS "  test-verbose  - Run Ceedling tests with verbose output")
-message(STATUS "  clean-test    - Clean Ceedling build artifacts")
-message(STATUS "  install       - Install pngcheck and man page")
+message(STATUS "  pngcheck                  - Build the main executable")
+message(STATUS "  test                      - Run Ceedling tests (alias for test-all)")
+message(STATUS "  test-all                  - Run all Ceedling tests")
+message(STATUS "  test-verbose              - Run Ceedling tests with verbose output")
+message(STATUS "  test-clean                - Clean Ceedling build artifacts")
+message(STATUS "  test-coverage             - Run tests with coverage analysis and generate HTML report")
+message(STATUS "  clean-test                - Clean Ceedling build artifacts (alias)")
+message(STATUS "  install                   - Install pngcheck and man page")
 message(STATUS "")

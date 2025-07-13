@@ -3,7 +3,7 @@
 ## Introduction
 
 This document describes the comprehensive testing framework for the `pngcheck`
-utility, which uses a hybrid CMake/Ceedling approach to ensure robust PNG
+utility, which uses a hybrid CMake/Ceedling/Unity approach to ensure robust PNG
 validation across all platforms.
 
 ## Architecture
@@ -19,36 +19,40 @@ The test framework uses [Unity](https://github.com/ThrowTheSwitch/Unity) C
 testing framework with [Ceedling](https://github.com/ThrowTheSwitch/Ceedling)
 build system to run comprehensive tests against the `pngcheck` executable.
 
+The CMake build infrastructure seamlessly integrates with Ceedling, allowing you
+to run tests directly from CMake without needing to manually invoke Ceedling
+commands.
+
+**Note:** The CMake/Ceedling integration architecture follows best practices
+adopted from the structure of the
+[apm32-ceedling-example](https://github.com/LuckkMaker/apm32-ceedling-example)
+repository.
+
+
 ```
-┌────────────────────────────┬──────────────────────────────┐
-│  CMake (build)             │  Ceedling (test)             │
-├────────────────────────────┼──────────────────────────────┤
-│ ┌────────────────────────┐ │ ┌──────────────────────────┐ │
-│ │  Cross-platform        │ │ │  Unity framework         │ │
-│ │  compilation           │ │ │  (C testing library)     │ │
-│ │                        │ │ │                          │ │
-│ │ • linux (gcc)          │ │ │ • assertions             │ │
-│ │ • macos (clang)        │ │ │ • test runners           │ │
-│ │ • windows (msvc/msys2) │ │ │ • mocks (unused)         │ │
-│ └────────────────────────┘ │ └──────────────────────────┘ │
-│ ┌────────────────────────┐ │ ┌──────────────────────────┐ │
-│ │  Build dependencies    │ │ │  Test management         │ │
-│ │                        │ │ │                          │ │
-│ │ • system zlib          │ │ │ • fixture downloads      │ │
-│ │ • automatic fallback   │ │ │ • expectation generation │ │
-│ │ • vcpkg (windows)      │ │ │ • report generation      │ │
-│ └────────────────────────┘ │ └──────────────────────────┘ │
-└────────────────────────────┴──────────────────────────────┘
+┌────────────────────────────┬──────────────────────────────┬──────────────────────────────┐
+│  CMake (build)             │  CMake Targets (bridge)      │  Ceedling (test)             │
+├────────────────────────────┼──────────────────────────────┼──────────────────────────────┤
+│ ┌────────────────────────┐ │ ┌──────────────────────────┐ │ ┌──────────────────────────┐ │
+│ │  Cross-platform        │ │ │  Test targets            │ │ │  Unity framework         │ │
+│ │  compilation           │ │ │                          │ │ │  (C testing library)     │ │
+│ │                        │ │ │ • test-all               │ │ │                          │ │
+│ │ • linux (gcc)          │ │ │ • test-verbose           │ │ │ • assertions             │ │
+│ │ • macos (clang)        │ │ │ • test-coverage          │ │ │ • test runners           │ │
+│ │ • windows (msvc/msys2) │ │ │ • test-clean             │ │ │ • mocks (unused)         │ │
+│ └────────────────────────┘ │ └──────────────────────────┘ │ └──────────────────────────┘ │
+│ ┌────────────────────────┐ │ ┌──────────────────────────┐ │ ┌──────────────────────────┐ │
+│ │  Build dependencies    │ │ │  Integration             │ │ │  Test management         │ │
+│ │                        │ │ │                          │ │ │                          │ │
+│ │ • system zlib          │ │ │ • auto executable path   │ │ │ • fixture downloads      │ │
+│ │ • automatic fallback   │ │ │ • dependency management  │ │ │ • expectation generation │ │
+│ │ • vcpkg (windows)      │ │ │ • environment setup      │ │ │ • report generation      │ │
+│ └────────────────────────┘ │ └──────────────────────────┘ │ └──────────────────────────┘ │
+└────────────────────────────┴──────────────────────────────┴──────────────────────────────┘
 ```
 
 ## Overview
 
-The pngcheck test suite is organized into a modern C testing structure following
-Ceedling 1.0+ best practices adopted from the structure of the
-[apm32-ceedling-example](https://github.com/LuckkMaker/apm32-ceedling-example)
-repository.
-
-It includes:
 - **Test files**: C test files for CLI and PNG suite tests
 - **Fixtures**: PNG files from the PngSuite collection
 - **Expectations**: Expected outputs for each test case
@@ -63,21 +67,191 @@ command-line tool (`test/bin/pngcheck-test`) to manage the test files,
 expectations, and to run the tests.
 
 
+## Prerequisites
+
+### Overview
+
+- **CMake**: Required for building the project and running tests
+- **Ruby**: Required for running the Ceedling test framework
+- **Ceedling**: Ruby-based testing framework (installed via Bundler)
+- **Unity**: C testing framework (included with Ceedling)
+- **Python**: Required for coverage analysis (optional, for coverage targets)
+- **gcovr**: Python package for coverage analysis (optional, for coverage targets)
+
+### Installation
+
+- **CMake**: Install from your package manager or download from
+  [cmake.org](https://cmake.org/download/)
+
+- **Ruby**: Install from your package manager or download from
+  [ruby-lang.org](https://www.ruby-lang.org/en/downloads/)
+
+- **Bundler**: Install via RubyGems:
+  ```bash
+  gem install bundler
+  ```
+
+- **Ceedling**: Install via Bundler:
+  ```bash
+  bundle install
+  ```
+
+- **Python**: Install from your package manager or download from
+  [python.org](https://www.python.org/downloads/)
+
+- **gcovr**: Install via pip:
+  ```bash
+  pip install gcovr
+  ```
+
+
 ## Quick start
+
+### Using CMake (Recommended)
+
+```bash
+# Configure and build pngcheck
+cmake --preset Debug
+cmake --build build/Debug --target pngcheck
+
+# Run all tests (PNGCHECK_EXECUTABLE is set automatically)
+cmake --build build/Debug --target test-all
+
+# Run tests with verbose output
+cmake --build build/Debug --target test-verbose
+
+# Run specific test suites
+cmake --build build/Debug --target test-pngcheck-cli    # CLI tests
+cmake --build build/Debug --target test-pngcheck-suite  # PNG suite tests
+
+# Run tests with coverage analysis and generate HTML report (requires gcovr)
+cmake --build build/Debug --target test-coverage
+
+# Clean test artifacts
+cmake --build build/Debug --target test-clean
+```
+
+### Using Ceedling directly
 
 ```bash
 # Install dependencies
 bundle install
 
-# Run all tests
-cmake --build build --target test
-# Alternatively, run using Ceedling (CMake target wraps Ceedling)
-# bundle exec ceedling test:all
+# Run all tests (requires pngcheck in PATH or PNGCHECK_EXECUTABLE set)
+bundle exec ceedling test:all
 
 # Run specific test suites
 bundle exec ceedling test:test_pngcheck_cli   # CLI tests
 bundle exec ceedling test:test_pngcheck_suite # PNG suite tests
 ```
+
+
+## Running tests in CMake
+
+The project integrates CMake with Ceedling tests such that all test targets are
+available via CMake. This allows you to run tests without needing to interact
+with Ceedling.
+
+
+### Available CMake targets
+
+#### `test-all`
+
+Run all Ceedling tests (alias: `test`).
+
+The JUnit XML test report gets generated at
+`build/artifacts/test/junit_tests_report.xml`.
+
+If Ceedling is not installed, the target provides helpful instructions
+on how to install it.
+
+Ceedling is a Ruby-based testing framework, so you need to have Ruby and
+Bundler installed. You can install Ceedling using Bundler:
+
+```bash
+# Ensure you have Ruby installed
+ruby --version
+
+# Install Bundler if not already installed
+gem install bundler
+
+# Install Ceedling through Bundler
+# At the root of the project, run:
+bundle install
+```
+
+### `test-verbose`
+
+Run all tests with verbose output.
+
+### `test-clean`
+
+Clean Ceedling test artifacts (alias: `clean-test`).
+
+### `test-coverage`
+
+Run tests with coverage analysis and generate HTML report (requires `gcovr`).
+
+When `gcovr` is installed, coverage targets generate both console output and
+HTML reports in `build/artifacts/gcov/`. The HTML report is located at
+`build/artifacts/gcov/index.html`.
+
+**Note:** Prerequisites need to be satisfied to use this tool (see
+[prerequisites](#prerequisites)).
+
+
+### `test-pngcheck-cli`
+
+Run CLI-specific tests only.
+
+### `test-pngcheck-suite`
+
+Run PNG suite tests only.
+
+
+
+### CMake presets
+
+The project includes the following CMake presets:
+
+- **Debug** - Debug build with symbols
+- **Release** - Optimized release build
+
+They can be used to configure and build the project easily:
+
+```bash
+# Configure with presets
+cmake --preset Debug          # Debug build with symbols
+cmake --preset Release        # Optimized release build
+
+# Build with presets
+cmake --build --preset Debug
+cmake --build --preset Release
+```
+
+### Integration with Ceedling
+
+A two-file approach is used to bridge the CMake build system with Ceedling's
+test framework:
+
+- **`CMakeLists.txt`** - Main CMake configuration file that includes the test subdirectory
+- **`test/CMakeLists.txt`** - CMake configuration for the test suite
+
+This integration provides the following features:
+
+- Instead of needing to manually set the `PNGCHECK_EXECUTABLE` environment
+variable, the CMake integration automatically locates the built `pngcheck`
+executable and sets the environment variable for you.
+
+- CMake automatically manages dependencies, ensuring that the `pngcheck`
+executable is built before running tests.
+
+- The CMake targets provide a consistent interface for running tests across
+different platforms, without needing to manually invoke Ceedling commands.
+
+- The CMake integration provides clear error messages if dependencies are missing,
+such as `ceedling` or `gcovr`, guiding users to install them.
+
 
 ## Test structure
 
@@ -96,6 +270,7 @@ pngcheck/
 ├── project.yml                     # Ceedling test configuration
 ├── TESTING.md                      # This documentation
 └── test/
+    ├── CMakeLists.txt              # CMake test configuration
     ├── bin/                        # Ruby CLI tool for managing tests
     │   └── pngcheck-test           # Ruby script to manage tests and expectations
     ├── lib/                        # Ruby libraries for `pngcheck-test`
@@ -129,9 +304,21 @@ Auto-generated tests using the [PngSuite](http://www.schaik.com/pngsuite/) colle
 - **Valid PNGs**: Various formats, bit depths, interlacing
 - **Invalid PNGs**: Corrupted headers, bad checksums, truncated files
 
+**Note:** The PNG suite tests are not committed to the repository due to
+licensing considerations. Instead, the test management tool
+(`test/bin/pngcheck-test`) downloads the PNG files from the PngSuite website
+when needed. This ensures that the tests remain up-to-date with the latest PNG
+suite files.
+
+
 ## Test management
 
-The test suite includes a Ruby-based management tool:
+The test suite includes a Ruby-based management tool.
+
+**Note:** Prerequisites need to be satisfied to use this tool (see
+[prerequisites](#prerequisites)).
+
+To manage tests, run the Ruby CLI tool:
 
 ```bash
 # Check status
