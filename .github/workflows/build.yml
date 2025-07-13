@@ -329,3 +329,74 @@ jobs:
         name: pngcheck-${{ matrix.name }}-cmake
         path: artifacts/
         retention-days: 30
+
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    # Ubuntu dependencies
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential zlib1g-dev
+
+    # Setup Ruby 3.4 for Ceedling
+    - name: Setup Ruby 3.4
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
+
+    # Install gcovr for coverage reporting
+    - name: Install gcovr for coverage reporting
+      run: |
+        pip install gcovr
+
+    # Cache PNG suite test files
+    - name: Cache PNG suite test files
+      uses: actions/cache@v4
+      with:
+        path: test/fixtures/pngsuite
+        key: pngsuite-fixtures-${{ hashFiles('test/generate_expectations.sh') }}
+        restore-keys: |
+          pngsuite-fixtures-
+
+    # Build with coverage flags
+    - name: Build with coverage
+      run: |
+        cmake --preset Debug -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+        cmake --build --preset Debug
+
+    # Download PNG test files before running coverage tests
+    - name: Download PNG test files
+      run: |
+        cmake --build build/Debug --target pngsuite-download
+
+    # Run tests with coverage analysis
+    - name: Run tests with coverage
+      run: |
+        cmake --build build/Debug --target test-coverage
+
+    # Upload coverage report
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-html
+        path: build/artifacts/gcov/
+        retention-days: 30
+
+    # Upload coverage to Codecov (optional)
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: build/artifacts/gcov/coverage.xml
+        fail_ci_if_error: false
+        verbose: true
