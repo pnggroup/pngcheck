@@ -10,34 +10,81 @@
 
 ### Using CMake (recommended)
 
-1. Create a build directory:
+#### Unix/Linux/etc.
+
+1. Prepare the build directory through the CMake preset:
 
    ```sh
-   mkdir build && cd build
+   cmake --preset Release
    ```
 
-2. Configure with one of these options:
+2. Configure if necessary with one of these options:
 
    ```sh
    # Default build with the system-installed zlib (if available)
-   cmake ..
+   # No additional configuration needed
 
    # Build with a locally-downloaded zlib
-   cmake -DPNGCHECK_USE_SYSTEM_ZLIB=OFF ..
+   cmake -DPNGCHECK_USE_SYSTEM_ZLIB=OFF --preset Release
    ```
 
 3. Build:
 
    ```sh
-   cmake --build .
+   cmake --build build --target pngcheck --preset Release
    ```
 
 4. Install (optional):
 
    ```sh
    # Depending your system setup, you might need to use 'sudo'
-   cmake --install .
+   cmake --install build --preset Release
    ```
+
+#### Windows (MSVC with vcpkg)
+
+1. Install zlib via vcpkg:
+
+   ```cmd
+   vcpkg install zlib:x64-windows
+   # For ARM64: vcpkg install zlib:arm64-windows
+   ```
+
+2. Configure and build:
+
+   ```cmd
+   cmake -B build -A x64 --preset Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   # For ARM64: cmake -B build -A ARM64 --preset Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   cmake --build build --preset Release
+   ```
+
+#### Windows (MSYS2/MinGW)
+
+1. Install dependencies in MSYS2:
+
+   ```sh
+   pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake
+   # For 32-bit: mingw-w64-i686-toolchain mingw-w64-i686-zlib mingw-w64-i686-cmake
+   ```
+
+2. Configure and build:
+
+   ```sh
+   cmake -B build -G "MSYS Makefiles" --preset Release
+   cmake --build build --preset Release
+   ```
+
+#### macOS (with Homebrew zlib)
+
+If using Homebrew-installed zlib instead of system zlib:
+
+1. Install zlib via Homebrew:
+
+   ```sh
+   brew install zlib
+   ```
+
+2. Configure and build (same as generic instructions above)
 
 ### Using Make (the traditional method)
 
@@ -65,6 +112,47 @@
        CPPFLAGS="-I/path/to/zlib" \
        LIBS="/path/to/zlib/libz.a"
   ```
+
+#### Windows (MSVC with nmake)
+
+1. Install zlib via vcpkg:
+
+   ```cmd
+   vcpkg install zlib:x64-windows
+   # For ARM64: vcpkg install zlib:arm64-windows
+   ```
+
+2. Set up MSVC environment and build:
+
+   ```cmd
+   # Set up Visual Studio environment (adjust path as needed)
+   call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+   # For ARM64: call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsamd64_arm64.bat"
+
+   # Set vcpkg environment variables
+   set VCPKG_ROOT=C:\vcpkg
+   set VCPKG_TARGET_TRIPLET=x64-windows
+   # For ARM64: set VCPKG_TARGET_TRIPLET=arm64-windows
+
+   # Build with nmake
+   nmake -f Makefile.w32
+   ```
+
+#### Windows (MinGW)
+
+1. Install dependencies in MSYS2:
+
+   ```sh
+   pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-zlib
+   # For 32-bit: mingw-w64-i686-toolchain mingw-w64-i686-zlib
+   ```
+
+2. Build with make:
+
+   ```sh
+   make -f Makefile.mingw ARCH=64
+   # For 32-bit: make -f Makefile.mingw ARCH=32
+   ```
 
 ### Using the compiler and linker directly (the "hard" method)
 

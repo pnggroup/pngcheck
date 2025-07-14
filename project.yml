@@ -1,0 +1,119 @@
+---
+
+# Notes:
+# Sample project C code is not presently written to produce a release artifact.
+# As such, release build options are disabled.
+# This sample, therefore, only demonstrates running a collection of unit tests.
+
+:project:
+  :use_exceptions: FALSE
+  :use_test_preprocessor: :none
+  :use_auxiliary_dependencies: TRUE
+  :build_root: build
+  :release_build: TRUE
+  :test_file_prefix: test_
+  :which_ceedling: gem
+  :ceedling_version: '>= 1.0.0'
+  :default_tasks:
+    - clobber
+    - test:all
+
+:test_build:
+  :graceful_fail: FALSE  # Ensure proper exit codes for CI (exit 1 on test failures)
+
+:release_build:
+  :output: pngcheck
+  :use_assembly: FALSE
+  :artifacts:
+    - build/release/pngcheck
+
+:environment:
+  # Platform detection
+  - CEEDLING_PLATFORM: "`uname -s 2>/dev/null || echo Windows`"
+  # Zlib configuration with cross-platform fallbacks
+  - ZLIB_CFLAGS: "`pkg-config --cflags zlib 2>/dev/null || echo ''`"
+  - ZLIB_LIBS: "`pkg-config --libs zlib 2>/dev/null || echo '-lz'`"
+  # Test configuration
+  - PNGSUITE_PATH: "#{ENV['PNGSUITE_PATH'] || 'test/fixtures/pngsuite'}"
+  - EXPECTATIONS_PATH: "#{ENV['EXPECTATIONS_PATH'] || 'test/expectations'}"
+  - PNGCHECK_EXECUTABLE: "#{ENV['PNGCHECK_EXECUTABLE'] || 'pngcheck'}"
+
+:extension:
+  :executable: .exe
+
+:paths:
+  :test:
+    - +:test/test/**
+    - -:test/test/support
+  :source:
+    - .
+  :include:
+    - .
+    - test
+  :support:
+    - test/test/support
+  :libraries: []
+
+:flags:
+  :release:
+    :compile:
+      - -O2
+      - -Wall
+      - -Wextra
+      - "${ZLIB_CFLAGS}"
+    :link:
+      - "${ZLIB_LIBS}"
+      - -lm
+
+:defines:
+  # in order to add common defines:
+  #  1) remove the trailing [] from the :common: section
+  #  2) add entries to the :common: section (e.g. :test: has TEST defined)
+  :common: &common_defines []
+  :test:
+    - *common_defines
+    - TEST
+  :test_preprocess:
+    - *common_defines
+    - TEST
+
+# pngcheck does not use cmock yet, this is default configuration
+:cmock:
+  :mock_prefix: mock_
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :callback
+  :treat_as:
+    uint8:    HEX8
+    uint16:   HEX16
+    uint32:   UINT32
+    int8:     INT8
+    bool:     UINT8
+
+# gcov is for code coverage analysis, it is enabled in the plugins section
+# You will need to have gcov and gcovr both installed to make it work.
+# For more information on these options, see docs in plugins/gcov
+:gcov:
+  :reports:
+    - HtmlDetailed
+  :gcovr:
+    :html_medium_threshold: 75
+    :html_high_threshold: 90
+
+# junit output is supported on GitHub Actions for individual test reporting
+:report_tests_log_factory:
+  :reports:
+    - junit       # JUnit XML format for CI systems
+    # - json        # JSON format for programmatic processing
+    # - cppunit     # CppUnit XML format alternative
+
+:plugins:
+  :enabled:
+    - module_generator
+    - report_tests_gtestlike_stdout   # Google Test-like output for CI tools
+    - report_tests_log_factory        # Generate JSON/JUnit/CppUnit reports for CI
+    - report_build_warnings_log       # Collect build warnings
+    - gcov                            # Code coverage analysis
+    # - compile_commands_json_db        # Generate compile_commands.json for IDEs

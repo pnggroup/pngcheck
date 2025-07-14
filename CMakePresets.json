@@ -1,0 +1,63 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "PNGCHECK_USE_SYSTEM_ZLIB": "ON"
+            },
+            "environment": {
+                "PNGSUITE_PATH": "test/fixtures/pngsuite",
+                "EXPECTATIONS_PATH": "expectations",
+                "ZLIB_CFLAGS": "",
+                "ZLIB_LIBS": "-lz"
+            }
+        },
+        {
+            "name": "Debug",
+            "inherits": "default",
+            "displayName": "Debug Build",
+            "description": "Debug build with symbols and no optimization"
+        },
+        {
+            "name": "Release",
+            "inherits": "default",
+            "displayName": "Release Build",
+            "description": "Optimized release build"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "Debug",
+            "configurePreset": "Debug",
+            "displayName": "Build Debug"
+        },
+        {
+            "name": "Release",
+            "configurePreset": "Release",
+            "displayName": "Build Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "test-all",
+            "configurePreset": "Debug",
+            "displayName": "Run All Tests",
+            "description": "Run all Ceedling tests"
+        },
+        {
+            "name": "test-coverage",
+            "configurePreset": "Debug",
+            "displayName": "Run Tests with Coverage",
+            "description": "Run tests and generate coverage report"
+        }
+    ]
+}

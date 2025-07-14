@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Add lib directory to load path
+lib_path = File.expand_path('../lib', __dir__)
+$LOAD_PATH.unshift(lib_path) unless $LOAD_PATH.include?(lib_path)
+
+require 'pngcheck_test/cli'
+
+# Run the CLI
+PngcheckTest::CLI.start(ARGV)
