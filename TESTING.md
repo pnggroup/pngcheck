@@ -110,25 +110,27 @@ expectations, and to run the tests.
 ### Using CMake (Recommended)
 
 ```bash
-# Configure and build pngcheck
+# Configure pngcheck
 cmake --preset Debug
-cmake --build build/Debug --target pngcheck
+
+# Build pngcheck
+cmake --build build --target pngcheck --preset Debug
 
 # Run all tests (PNGCHECK_EXECUTABLE is set automatically)
-cmake --build build/Debug --target test-all
+cmake --build build --preset Debug --target test-all
 
 # Run tests with verbose output
-cmake --build build/Debug --target test-verbose
+cmake --build build --preset Debug --target test-verbose
 
 # Run specific test suites
-cmake --build build/Debug --target test-pngcheck-cli    # CLI tests
-cmake --build build/Debug --target test-pngcheck-suite  # PNG suite tests
+cmake --build build --preset Debug --target test-pngcheck-cli    # CLI tests
+cmake --build build --preset Debug --target test-pngcheck-suite  # PNG suite tests
 
 # Run tests with coverage analysis and generate HTML report (requires gcovr)
-cmake --build build/Debug --target test-coverage
+cmake --build build --preset Debug --target test-coverage
 
 # Clean test artifacts
-cmake --build build/Debug --target test-clean
+cmake --build build --preset Debug --target test-clean
 ```
 
 ### Using Ceedling directly

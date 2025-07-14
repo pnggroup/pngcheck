@@ -1,18 +1,21 @@
 {
     "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
     "configurePresets": [
         {
             "name": "default",
             "hidden": true,
-            "generator": "Unix Makefiles",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "BUILD_STRATEGY": "RELEASE",
                 "PNGCHECK_USE_SYSTEM_ZLIB": "ON"
             },
             "environment": {
-                "PNGSUITE_PATH": "fixtures/pngsuite",
+                "PNGSUITE_PATH": "test/fixtures/pngsuite",
                 "EXPECTATIONS_PATH": "expectations",
                 "ZLIB_CFLAGS": "",
                 "ZLIB_LIBS": "-lz"
@@ -22,19 +25,13 @@
             "name": "Debug",
             "inherits": "default",
             "displayName": "Debug Build",
-            "description": "Debug build with symbols and no optimization",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "description": "Debug build with symbols and no optimization"
         },
         {
             "name": "Release",
             "inherits": "default",
             "displayName": "Release Build",
-            "description": "Optimized release build",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
-            }
+            "description": "Optimized release build"
         }
     ],
     "buildPresets": [

@@ -175,7 +175,7 @@ jobs:
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       env:
         PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck
-        PNGSUITE_PATH: fixtures/pngsuite
+        PNGSUITE_PATH: test/fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         bundle exec ceedling test:all
@@ -184,7 +184,7 @@ jobs:
       if: matrix.os == 'windows'
       env:
         PNGCHECK_EXECUTABLE: ${{ github.workspace }}\pngcheck.exe
-        PNGSUITE_PATH: fixtures\pngsuite
+        PNGSUITE_PATH: test\fixtures\pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
         bundle exec ceedling test:all
