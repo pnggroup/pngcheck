@@ -149,8 +149,8 @@ jobs:
         ruby-version: '3.4'
         bundler-cache: true
 
-    # Cache test fixtures to speed up subsequent runs (skip MSYS2 since no tests run)
-    - name: Cache PngSuite test fixtures
+    # Cache PNG suite test files (skip MSYS2 since no tests run)
+    - name: Cache PNG suite test files
       if: matrix.os != 'windows-msys2'
       uses: actions/cache@v4
       with:
@@ -159,13 +159,18 @@ jobs:
         restore-keys: |
           pngsuite-fixtures-
 
-    # Install Ruby dependencies for Ceedling (skip MSYS2 due to installation issues)
-    - name: Install Ruby dependencies (Ubuntu/macOS/Windows MSVC)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos' || matrix.os == 'windows'
+    # Download PNG test files before running tests (skip MSYS2 due to installation issues)
+    - name: Download PNG test files (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
-        bundle install
+        bundle exec test/bin/pngcheck-test download
 
-    # Download test fixtures and run comprehensive tests with Ceedling (skip MSYS2 due to installation issues)
+    - name: Download PNG test files (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        bundle exec ruby test\bin\pngcheck-test download
+
+    # Run tests using Ceedling (skip MSYS2 due to installation issues)
     - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       env:
@@ -173,10 +178,6 @@ jobs:
         PNGSUITE_PATH: fixtures/pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
-        # Setup test suite if needed
-        bundle exec test/bin/pngcheck-test setup
-
-        # Run Ceedling tests
         bundle exec ceedling test:all
 
     - name: Run pngcheck test suite with Ceedling (Windows MSVC)
@@ -186,10 +187,6 @@ jobs:
         PNGSUITE_PATH: fixtures\pngsuite
         EXPECTATIONS_PATH: expectations
       run: |
-        # Setup test suite if needed
-        bundle exec ruby test\bin\pngcheck-test setup
-
-        # Run Ceedling tests
         bundle exec ceedling test:all
 
     - name: List out all files in directory
