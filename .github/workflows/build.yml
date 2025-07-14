@@ -272,37 +272,37 @@ jobs:
         restore-keys: |
           pngsuite-fixtures-
 
-    - name: Debug environment with CMake (Windows)
-      if: matrix.os == 'windows'
-      env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
-      run: |
-        echo "=== Debug: Windows test execution ==="
-        echo "GITHUB_WORKSPACE: ${{ github.workspace }}"
-        echo "Current directory: $(Get-Location)"
-        echo "Environment variable check:"
-        echo "  PNGCHECK_EXECUTABLE = $env:PNGCHECK_EXECUTABLE"
+    # - name: Debug environment with CMake (Windows)
+    #   if: matrix.os == 'windows'
+    #   env:
+    #     PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
+    #   run: |
+    #     echo "=== Debug: Windows test execution ==="
+    #     echo "GITHUB_WORKSPACE: ${{ github.workspace }}"
+    #     echo "Current directory: $(Get-Location)"
+    #     echo "Environment variable check:"
+    #     echo "  PNGCHECK_EXECUTABLE = $env:PNGCHECK_EXECUTABLE"
 
-        echo "Checking if executable exists..."
-        if (Test-Path "$env:PNGCHECK_EXECUTABLE") {
-          echo "✓ Executable found at: $env:PNGCHECK_EXECUTABLE"
-          echo "File info:"
-          Get-Item "$env:PNGCHECK_EXECUTABLE" | Format-List
+    #     echo "Checking if executable exists..."
+    #     if (Test-Path "$env:PNGCHECK_EXECUTABLE") {
+    #       echo "✓ Executable found at: $env:PNGCHECK_EXECUTABLE"
+    #       echo "File info:"
+    #       Get-Item "$env:PNGCHECK_EXECUTABLE" | Format-List
 
-          echo "Testing executable directly..."
-          try {
-            & "$env:PNGCHECK_EXECUTABLE" -h
-            echo "✓ Executable runs successfully"
-          } catch {
-            echo "✗ Error running executable: $_"
-          }
-        } else {
-          echo "✗ Executable NOT found at: $env:PNGCHECK_EXECUTABLE"
-          echo "Searching for pngcheck.exe in build directory..."
-          Get-ChildItem -Path "build" -Recurse -Name "pngcheck.exe" -ErrorAction SilentlyContinue
-        }
+    #       echo "Testing executable directly..."
+    #       try {
+    #         & "$env:PNGCHECK_EXECUTABLE" -h
+    #         echo "✓ Executable runs successfully"
+    #       } catch {
+    #         echo "✗ Error running executable: $_"
+    #       }
+    #     } else {
+    #       echo "✗ Executable NOT found at: $env:PNGCHECK_EXECUTABLE"
+    #       echo "Searching for pngcheck.exe in build directory..."
+    #       Get-ChildItem -Path "build" -Recurse -Name "pngcheck.exe" -ErrorAction SilentlyContinue
+    #     }
 
-      # Download PNG test files before running tests
+    # Download PNG test files before running tests
     - name: Download PNG test files (Unix/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
@@ -425,23 +425,6 @@ jobs:
     - name: Run tests with coverage
       continue-on-error: true
       run: |
-        echo "=== Debug: Checking pngcheck executable location ==="
-        find . -name "pngcheck" -type f 2>/dev/null || echo "No pngcheck executable found"
-        ls -la build/ || echo "build directory not found"
-        ls -la build/Debug/ || echo "build/Debug directory not found"
-        echo "=== Debug: CMake configuration info ==="
-        echo "CMAKE_SOURCE_DIR should be: $(pwd)"
-        echo "CMAKE_BINARY_DIR should be: $(pwd)/build/Debug"
-        echo "Expected executable path: $(pwd)/build/Debug/pngcheck"
-        if [ -f "$(pwd)/build/Debug/pngcheck" ]; then
-          echo "✓ Executable found at expected location"
-          ls -la "$(pwd)/build/Debug/pngcheck"
-        else
-          echo "✗ Executable NOT found at expected location"
-        fi
-        echo "=== Debug: Environment variables ==="
-        echo "PNGCHECK_EXECUTABLE will be set to: $(pwd)/build/Debug/pngcheck"
-        echo "=== Running coverage tests ==="
         cmake --build build --target test-coverage --preset Debug
 
     # Upload coverage report
