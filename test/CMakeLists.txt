@@ -37,33 +37,14 @@ else()
 endif()
 
 if(TESTING_ENABLED)
-    # Get the path to the pngcheck executable built by CMake
-    # CMAKE_BINARY_DIR already includes the preset name (e.g., build/Debug)
-    if(WIN32)
-        set(PNGCHECK_EXECUTABLE_FULL_PATH ${CMAKE_BINARY_DIR}/pngcheck.exe)
-    else()
-        set(PNGCHECK_EXECUTABLE_FULL_PATH ${CMAKE_BINARY_DIR}/pngcheck)
-    endif()
-
-    # Debug output to help troubleshoot path issues
-    message(STATUS "CMAKE_SOURCE_DIR: ${CMAKE_SOURCE_DIR}")
-    message(STATUS "CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}")
-    message(STATUS "WIN32: ${WIN32}")
-    message(STATUS "PNGCHECK_EXECUTABLE_FULL_PATH: ${PNGCHECK_EXECUTABLE_FULL_PATH}")
-
-    # Check if the executable exists at build time
-    if(EXISTS ${PNGCHECK_EXECUTABLE_FULL_PATH})
-        message(STATUS "✓ Executable found at: ${PNGCHECK_EXECUTABLE_FULL_PATH}")
-    else()
-        message(STATUS "⚠ Executable not yet built at: ${PNGCHECK_EXECUTABLE_FULL_PATH}")
-        message(STATUS "  (This is normal during configuration - executable will be built later)")
-    endif()
-
     # Determine the correct ceedling command to use
     if(BUNDLER_CHECK_RESULT EQUAL 0)
+        # Use bundler to run ceedling and test utilities
         set(CEEDLING_CMD bundle exec ceedling)
+        set(TESTUTIL_CMD bundle exec ruby test/bin/pngcheck-test)
     else()
         set(CEEDLING_CMD ceedling)
+        set(TESTUTIL_CMD ruby test/bin/pngcheck-test)
     endif()
 
     # ceedling clean
@@ -77,17 +58,17 @@ if(TESTING_ENABLED)
 
     # ceedling test:all
     add_custom_target(test-all
-        COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ${CEEDLING_CMD} test:all
+        COMMAND ${CEEDLING_CMD} test:all
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck pngsuite-download
+        DEPENDS pngcheck generate-pngsuite-tests
         COMMENT "Running all unit tests"
     )
 
     # ceedling test:all with verbose output
     add_custom_target(test-verbose
-        COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ${CEEDLING_CMD} test:all --verbosity=obnoxious
+        COMMAND ${CEEDLING_CMD} test:all --verbosity=obnoxious
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck
+        DEPENDS pngcheck generate-pngsuite-tests
         COMMENT "Running all unit tests with verbose output"
     )
 
@@ -97,11 +78,11 @@ if(TESTING_ENABLED)
     # ceedling gcov:all for coverage report
     if(GCOVR_EXECUTABLE)
         add_custom_target(test-coverage
-            COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ${CEEDLING_CMD} gcov:all
+            COMMAND ${CEEDLING_CMD} gcov:all
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build/artifacts/gcov
             COMMAND ${GCOVR_EXECUTABLE} -r ${CMAKE_SOURCE_DIR} --html --html-details -o ${CMAKE_SOURCE_DIR}/build/artifacts/gcov/index.html
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            DEPENDS pngcheck
+            DEPENDS pngcheck generate-pngsuite-tests
             COMMENT "Running tests with coverage analysis and generating HTML report"
         )
     else()
@@ -116,42 +97,45 @@ if(TESTING_ENABLED)
 
     # Individual test targets (examples - add more as needed)
     add_custom_target(test-pngcheck-cli
-        COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ${CEEDLING_CMD} test:test_pngcheck_cli
+        COMMAND ${CEEDLING_CMD} test:test_pngcheck_cli
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck
+        DEPENDS pngcheck pngsuite-download
         COMMENT "Running pngcheck CLI tests"
     )
 
     add_custom_target(test-pngcheck-suite
-        COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} ${CEEDLING_CMD} test:test_pngcheck_suite
+        COMMAND ${CEEDLING_CMD} test:test_pngcheck_suite
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck
+        DEPENDS pngcheck generate-pngsuite-tests
         COMMENT "Running pngcheck suite tests"
     )
 
     # PNG Suite utility targets
+    # On Windows, we need to explicitly call Ruby with the script
     add_custom_target(pngsuite-status
-        COMMAND bundle exec test/bin/pngcheck-test status
+        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$ENV{PNGCHECK_EXECUTABLE}" ${TESTUTIL_CMD} status
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS pngcheck
         COMMENT "Check PNG suite status"
     )
 
     add_custom_target(pngsuite-download
-        COMMAND bundle exec test/bin/pngcheck-test download
+        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$ENV{PNGCHECK_EXECUTABLE}" ${TESTUTIL_CMD} download
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Download PNG test files"
     )
 
     add_custom_target(generate-pngsuite-expectations
-        COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} bundle exec test/bin/pngcheck-test expectations
+        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$ENV{PNGCHECK_EXECUTABLE}" ${TESTUTIL_CMD} expectations
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck
+        DEPENDS pngcheck pngsuite-download
         COMMENT "Generate PNG suite expectations"
     )
 
     add_custom_target(generate-pngsuite-tests
-        COMMAND bundle exec test/bin/pngcheck-test generate
+        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$ENV{PNGCHECK_EXECUTABLE}" ${TESTUTIL_CMD} generate
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        DEPENDS pngcheck pngsuite-download
         COMMENT "Generate PNG suite test files"
     )
 else()

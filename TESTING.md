@@ -367,6 +367,10 @@ bundle exec test/bin/pngcheck-test expectations
 bundle exec test/bin/pngcheck-test generate
 ```
 
+**Note:**: On Windows the command would be `bundle exec ruby
+test/bin/pngcheck-test` instead of `bundle exec test/bin/pngcheck-test` as the
+Ruby script is not executable on Windows.
+
 ## Adding tests
 
 ### CLI tests
@@ -382,6 +386,29 @@ void test_my_feature(void) {
 1. Add PNG files to `fixtures/pngsuite/`
 2. Run `bundle exec test/bin/pngcheck-test expectations`
 3. Run `bundle exec test/bin/pngcheck-test generate`
+
+
+## CI troubles
+
+### Windows CI (windows-2022, windows-11-arm)
+
+For some reason, the CMake custom target (in `test/CMakeList.txt`) fails to find
+the `test/bin/pngcheck-test` script on Windows. Yet it works on Ubuntu and macOS.
+
+In addition, Windows builds the `pngcheck` executable under the
+`build/{preset-name}/{preset-name}/` directory, while on Linux and macOS it is
+under `build/{preset-name}/`.
+
+As a result, the `build.yml` workflow does not use CMake to run tests:
+
+- directly runs the `test/bin/pngcheck-test` script and uses the
+`PNGCHECK_EXECUTABLE` environment variable to point to the built `pngcheck`
+executable, instead of `cmake --build build --preset Debug --target pngsuite-download`.
+
+- directly uses the `ceedling` command to run tests instead of the CMake targets:
+`cmake --build build --preset Debug --target test-all`.
+
+
 
 ## Troubleshooting
 

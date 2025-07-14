@@ -35,12 +35,7 @@ module PngcheckTest
 
       # Pngcheck executable candidates
       def pngcheck_candidates
-        [
-          @root_path / 'pngcheck',
-          @root_path / 'build' / 'pngcheck',
-          @root_path / 'pngcheck.exe',
-          @root_path / 'build' / 'Release' / 'pngcheck.exe'
-        ]
+        Dir.glob(@root_path / '**' / '{pngcheck,pngcheck.exe}').map { |path| Pathname.new(path) }
       end
 
       # Ensure directories exist
