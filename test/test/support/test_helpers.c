@@ -111,6 +111,68 @@ static const char *clean_output(const char *output) {
     return cleaned;
 }
 
+static void escape_shell_arg(const char *input, char *output, size_t output_size) {
+    if (!input || !output || output_size < 3) {
+        if (output && output_size > 0) output[0] = '\0';
+        return;
+    }
+
+    size_t pos = 0;
+    output[pos++] = '"';
+
+    for (const char *p = input; *p && pos < output_size - 2; p++) {
+        if (*p == '"' || *p == '\\' || *p == '$' || *p == '`') {
+            if (pos < output_size - 3) {
+                output[pos++] = '\\';
+                output[pos++] = *p;
+            }
+        } else {
+            output[pos++] = *p;
+        }
+    }
+
+    output[pos++] = '"';
+    output[pos] = '\0';
+}
+
+static int build_command(char *command, size_t command_size, const char *pngcheck_exe,
+                        const char *options, const char *png_filename) {
+    char escaped_filename[MAX_PATH * 2];
+    char escaped_options[MAX_PATH * 2];
+
+    if (!command || !pngcheck_exe) {
+        return -1;
+    }
+
+    // Escape the filename if provided
+    if (png_filename) {
+        char full_path[MAX_PATH];
+        snprintf(full_path, sizeof(full_path), "%s/%s", get_pngsuite_path(), png_filename);
+        escape_shell_arg(full_path, escaped_filename, sizeof(escaped_filename));
+    }
+
+    // Escape options if provided
+    if (options) {
+        escape_shell_arg(options, escaped_options, sizeof(escaped_options));
+    }
+
+    // Build the command safely
+    if (png_filename && options) {
+        snprintf(command, command_size, "%s %s %s 2>&1",
+                pngcheck_exe, escaped_options, escaped_filename);
+    } else if (png_filename) {
+        snprintf(command, command_size, "%s %s 2>&1",
+                pngcheck_exe, escaped_filename);
+    } else if (options) {
+        snprintf(command, command_size, "%s %s 2>&1",
+                pngcheck_exe, escaped_options);
+    } else {
+        snprintf(command, command_size, "%s 2>&1", pngcheck_exe);
+    }
+
+    return 0;
+}
+
 void test_png_file(const char *png_filename, int expected_exit_code, const char *expected_prefix) {
     char command[MAX_PATH * 2];
     char output[MAX_OUTPUT];
@@ -121,8 +183,10 @@ void test_png_file(const char *png_filename, int expected_exit_code, const char 
         return;
     }
 
-    snprintf(command, sizeof(command), "%s \"%s/%s\" 2>&1",
-             pngcheck_exe, get_pngsuite_path(), png_filename);
+    if (build_command(command, sizeof(command), pngcheck_exe, NULL, png_filename) != 0) {
+        TEST_FAIL_MESSAGE("Failed to build command");
+        return;
+    }
 
     int actual_exit_code = run_command(command, output, sizeof(output));
 
@@ -168,12 +232,9 @@ void test_pngcheck_with_options(const char *options, const char *png_filename, i
         return;
     }
 
-    if (png_filename) {
-        snprintf(command, sizeof(command), "%s %s \"%s/%s\" 2>&1",
-                 pngcheck_exe, options ? options : "", get_pngsuite_path(), png_filename);
-    } else {
-        snprintf(command, sizeof(command), "%s %s 2>&1",
-                 pngcheck_exe, options ? options : "");
+    if (build_command(command, sizeof(command), pngcheck_exe, options, png_filename) != 0) {
+        TEST_FAIL_MESSAGE("Failed to build command");
+        return;
     }
 
     int exit_code = run_command(command, output, sizeof(output));
