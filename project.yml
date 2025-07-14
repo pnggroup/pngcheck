@@ -34,8 +34,8 @@
   - ZLIB_CFLAGS: "`pkg-config --cflags zlib 2>/dev/null || echo ''`"
   - ZLIB_LIBS: "`pkg-config --libs zlib 2>/dev/null || echo '-lz'`"
   # Test configuration
-  - PNGSUITE_PATH: test/fixtures/pngsuite
-  - EXPECTATIONS_PATH: test/expectations
+  - PNGSUITE_PATH: "#{ENV['PNGSUITE_PATH'] || 'test/fixtures/pngsuite'}"
+  - EXPECTATIONS_PATH: "#{ENV['EXPECTATIONS_PATH'] || 'test/expectations'}"
   - PNGCHECK_EXECUTABLE: "#{ENV['PNGCHECK_EXECUTABLE'] || 'pngcheck'}"
 
 :extension:

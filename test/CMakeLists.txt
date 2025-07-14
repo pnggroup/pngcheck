@@ -2,47 +2,32 @@ cmake_minimum_required(VERSION 3.14)
 
 project(pngcheck-tests)
 
-# Find ceedling
-find_program(CEEDLING_COMMAND ceedling)
+# Find Ruby executable
+find_program(RUBY_EXECUTABLE NAMES ruby)
 
-if(NOT CEEDLING_COMMAND)
-    # Ceedling not found
-    message(STATUS "Ceedling not found. Attempting to install...")
+if(NOT RUBY_EXECUTABLE)
+    message(FATAL_ERROR "Ruby executable not found.")
+endif()
 
-    # Install ceedling
-    execute_process(COMMAND gem install ceedling
-                    RESULT_VARIABLE CEEDLING_INSTALL_RESULT
-                    OUTPUT_VARIABLE CEEDLING_INSTALL_OUTPUT
-                    ERROR_VARIABLE CEEDLING_INSTALL_ERROR)
+# Check if bundler is available
+execute_process(COMMAND ${RUBY_EXECUTABLE} -e "require 'bundler'"
+                RESULT_VARIABLE BUNDLER_CHECK_RESULT
+                OUTPUT_QUIET
+                ERROR_QUIET)
 
-    # Check if installation was successful
-    if(CEEDLING_INSTALL_RESULT EQUAL 0)
-        message(STATUS "Ceedling installed successfully.")
-    else()
-        message(FATAL_ERROR "Failed to install Ceedling: ${CEEDLING_INSTALL_ERROR}")
-    endif()
+if(BUNDLER_CHECK_RESULT EQUAL 0)
+    message(STATUS "Found Ruby with Bundler support")
+    message(STATUS "Using bundler to manage Ceedling dependency")
 else()
-    # Get Ruby executable
-    find_program(RUBY_EXECUTABLE NAMES ruby)
+    message(STATUS "Bundler not available, trying to find Ceedling directly")
 
-    if(NOT RUBY_EXECUTABLE)
-        message(FATAL_ERROR "Ruby executable not found.")
-    endif()
+    # Find ceedling
+    find_program(CEEDLING_COMMAND ceedling)
 
-    # Build full ceedling command
-    set(CEEDLING_FULL_COMMAND "${RUBY_EXECUTABLE}" "${CEEDLING_COMMAND}")
-
-    # Get Ceedling version
-    execute_process(COMMAND ${CEEDLING_COMMAND} version
-                    RESULT_VARIABLE CEEDLING_VERSION_RESULT
-                    OUTPUT_VARIABLE CEEDLING_VERSION_OUTPUT
-                    ERROR_VARIABLE CEEDLING_VERSION_ERROR)
-
-    if(CEEDLING_VERSION_RESULT EQUAL 0)
-        message(STATUS "Found Ceedling: ${CEEDLING_VERSION_OUTPUT}")
+    if(NOT CEEDLING_COMMAND)
+        message(FATAL_ERROR "Ceedling not found and Bundler not available. Please install Ceedling or use bundler.")
     else()
-        message(STATUS "Ceedling found at: ${CEEDLING_COMMAND}")
-        message(STATUS "Note: Version check failed, but Ceedling should work")
+        message(STATUS "Found Ceedling at: ${CEEDLING_COMMAND}")
     endif()
 endif()
 
@@ -130,7 +115,7 @@ add_custom_target(pngsuite-download
 )
 
 add_custom_target(generate-pngsuite-expectations
-    COMMAND bundle exec test/bin/pngcheck-test expectations
+    COMMAND ${CMAKE_COMMAND} -E env PNGCHECK_EXECUTABLE=${PNGCHECK_EXECUTABLE_FULL_PATH} bundle exec test/bin/pngcheck-test expectations
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     DEPENDS pngcheck
     COMMENT "Generate PNG suite expectations"

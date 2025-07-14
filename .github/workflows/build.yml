@@ -85,50 +85,40 @@ jobs:
         $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "arm64" } else { "x64" }
         vcpkg install zlib:$arch-windows
 
-    # CMake builds
+    # CMake builds using presets
     - name: Build with CMake (macOS)
       if: matrix.os == 'macos'
       run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.runner == 'macos-13' && 'x86_64' || 'arm64' }} \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-          -DBUILD_STRATEGY=RELEASE
-        cmake --build build --config Release
+        cmake --preset Release \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.runner == 'macos-13' && 'x86_64' || 'arm64' }}
+        cmake --build --preset Release
 
     - name: Build with CMake (Ubuntu)
       if: matrix.os == 'ubuntu'
       run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-          -DBUILD_STRATEGY=RELEASE
-        cmake --build build --config Release
+        cmake --preset Release
+        cmake --build --preset Release
 
     - name: Build with CMake (Windows MSVC)
       if: matrix.os == 'windows'
       run: |
         $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "ARM64" } else { "x64" }
-        cmake -B build -A $arch -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DBUILD_STRATEGY=RELEASE -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-        cmake --build build --config Release
+        cmake --preset Release -A $arch -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake --build --preset Release
 
     - name: Build with CMake (Windows MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
-        cmake -B build \
-          -G "MSYS Makefiles" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON \
-          -DBUILD_STRATEGY=RELEASE
-        cmake --build build --config Release
+        cmake --preset Release -G "MSYS Makefiles"
+        cmake --build --preset Release
 
     # Testing CMake builds
     - name: Test CMake build (MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
-        build/pngcheck.exe -h
+        build/Release/pngcheck.exe -h
 
     - name: Test CMake build (Windows MSVC)
       if: matrix.os == 'windows'
@@ -138,7 +128,7 @@ jobs:
     - name: Test CMake build (Unix/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
-        ./build/pngcheck -h
+        ./build/Release/pngcheck -h
 
     # Setup Ruby 3.4 for Ceedling (skip MSYS2 due to installation issues)
     - name: Setup Ruby 3.4
@@ -148,8 +138,8 @@ jobs:
         ruby-version: '3.4'
         bundler-cache: true
 
-    # Cache test fixtures to speed up subsequent runs (skip MSYS2 since no tests run)
-    - name: Cache PngSuite test fixtures
+    # Cache PNG suite test files (skip MSYS2 due to installation issues)
+    - name: Cache PNG suite test files
       if: matrix.os != 'windows-msys2'
       uses: actions/cache@v4
       with:
@@ -158,105 +148,17 @@ jobs:
         restore-keys: |
           pngsuite-fixtures-
 
-    # Debug executable and environment
-    - name: Debug executable and environment (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+    # Download PNG test files before running tests (skip MSYS2 due to installation issues)
+    - name: Download PNG test files
+      if: matrix.os != 'windows-msys2'
       run: |
-        echo "Current directory: $(pwd)"
-        echo "Build directory contents:"
-        ls -la build/ || echo "Build directory not found"
-        echo "Checking executable:"
-        ls -la ./build/pngcheck || echo "Executable not found"
-        echo "Testing executable:"
-        ./build/pngcheck -h || echo "Executable test failed"
+        cmake --build build/Release --target pngsuite-download
 
-    # Debug executable and environment
-    - name: Debug executable and environment (Windows MSYS2)
-      if: matrix.os == 'windows-msys2'
-      shell: msys2 {0}
+    # Run tests using CMake targets (skip MSYS2 due to installation issues)
+    - name: Run tests with CMake
+      if: matrix.os != 'windows-msys2'
       run: |
-        echo "Current directory: $(pwd)"
-        echo "Build directory contents:"
-        ls -la build/ || echo "Build directory not found"
-        echo "Checking executable:"
-        ls -la ./build/pngcheck.exe || echo "Executable not found"
-        echo "Testing executable:"
-        ./build/pngcheck.exe -h || echo "Executable test failed"
-
-    - name: Debug executable and environment (Windows MSVC)
-      if: matrix.os == 'windows'
-      run: |
-        echo "Current directory: $(pwd)"
-        echo "Build directory contents:"
-        Get-ChildItem build/ -ErrorAction SilentlyContinue || echo "Build directory not found"
-        echo "Release directory contents:"
-        Get-ChildItem build/Release/ -ErrorAction SilentlyContinue || echo "Release directory not found"
-        echo "Checking executable:"
-        Get-ChildItem ./build/Release/pngcheck.exe -ErrorAction SilentlyContinue || echo "Executable not found"
-        echo "Testing executable:"
-        ./build/Release/pngcheck.exe -h || echo "Executable test failed"
-
-    # Install Ruby dependencies for Ceedling (skip MSYS2 due to installation issues)
-    - name: Install Ruby dependencies (Ubuntu/macOS/Windows MSVC)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos' || matrix.os == 'windows'
-      run: |
-        bundle install
-
-    # Set platform-specific environment variables for Ceedling cross-platform support
-    - name: Set platform environment variables (Ubuntu)
-      if: matrix.os == 'ubuntu'
-      run: |
-        echo "CEEDLING_PLATFORM=Linux" >> $GITHUB_ENV
-        echo "ZLIB_CFLAGS=$(pkg-config --cflags zlib 2>/dev/null || echo '')" >> $GITHUB_ENV
-        echo "ZLIB_LIBS=$(pkg-config --libs zlib 2>/dev/null || echo '-lz')" >> $GITHUB_ENV
-
-    - name: Set platform environment variables (macOS)
-      if: matrix.os == 'macos'
-      run: |
-        echo "CEEDLING_PLATFORM=Darwin" >> $GITHUB_ENV
-        echo "ZLIB_CFLAGS=$(pkg-config --cflags zlib 2>/dev/null || echo '')" >> $GITHUB_ENV
-        echo "ZLIB_LIBS=$(pkg-config --libs zlib 2>/dev/null || echo '-lz')" >> $GITHUB_ENV
-
-    - name: Set platform environment variables (Windows MSVC)
-      if: matrix.os == 'windows'
-      run: |
-        echo "CEEDLING_PLATFORM=Windows" >> $env:GITHUB_ENV
-        echo "ZLIB_CFLAGS=" >> $env:GITHUB_ENV
-        echo "ZLIB_LIBS=-lz" >> $env:GITHUB_ENV
-
-    # Download test fixtures and run comprehensive tests with Ceedling (skip MSYS2 due to installation issues)
-    - name: Run pngcheck test suite with Ceedling (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
-      env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/pngcheck
-        PNGSUITE_PATH: fixtures/pngsuite
-        EXPECTATIONS_PATH: expectations
-      run: |
-        # Setup test suite if needed
-        bundle exec test/bin/pngcheck-test setup
-
-        # Run Ceedling tests
-        bundle exec ceedling test:all
-
-    - name: Run pngcheck test suite with Ceedling (Windows MSVC)
-      if: matrix.os == 'windows'
-      env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Release\pngcheck.exe
-        PNGSUITE_PATH: fixtures\pngsuite
-        EXPECTATIONS_PATH: expectations
-      run: |
-        # Setup test suite if needed
-        bundle exec ruby test\bin\pngcheck-test setup
-
-        # Run Ceedling tests
-        bundle exec ceedling test:all
-
-    - name: List out all files in directory
-      shell: bash
-      run: |
-        echo "Current directory: $(pwd)"
-        echo "Directory contents:"
-        ls -laR || echo "No files found"
+        cmake --build build/Release --target test-all
 
     # Upload test reports as artifacts (skip MSYS2 since no tests run)
     - name: Upload test reports
@@ -299,7 +201,7 @@ jobs:
       shell: msys2 {0}
       run: |
         mkdir -p artifacts
-        cp build/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
+        cp build/Release/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
         cd artifacts
         sha256sum * > checksums.txt
 
@@ -315,7 +217,7 @@ jobs:
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
         mkdir -p artifacts
-        cp build/pngcheck artifacts/pngcheck-${{ matrix.name }}-cmake
+        cp build/Release/pngcheck artifacts/pngcheck-${{ matrix.name }}-cmake
         cd artifacts
         if command -v sha256sum >/dev/null 2>&1; then
           sha256sum * > checksums.txt

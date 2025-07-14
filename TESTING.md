@@ -155,7 +155,9 @@ with Ceedling.
 
 ### Available CMake targets
 
-#### `test-all`
+#### Test targets
+
+##### `test-all`
 
 Run all Ceedling tests (alias: `test`).
 
@@ -180,15 +182,15 @@ gem install bundler
 bundle install
 ```
 
-### `test-verbose`
+##### `test-verbose`
 
 Run all tests with verbose output.
 
-### `test-clean`
+##### `test-clean`
 
 Clean Ceedling test artifacts (alias: `clean-test`).
 
-### `test-coverage`
+##### `test-coverage`
 
 Run tests with coverage analysis and generate HTML report (requires `gcovr`).
 
@@ -199,14 +201,43 @@ HTML reports in `build/artifacts/gcov/`. The HTML report is located at
 **Note:** Prerequisites need to be satisfied to use this tool (see
 [prerequisites](#prerequisites)).
 
-
-### `test-pngcheck-cli`
+##### `test-pngcheck-cli`
 
 Run CLI-specific tests only.
 
-### `test-pngcheck-suite`
+##### `test-pngcheck-suite`
 
 Run PNG suite tests only.
+
+#### Targets for test case generation
+
+##### `pngsuite-status`
+
+Check the status of PNG suite test files. Shows which files are present and missing.
+
+##### `pngsuite-download`
+
+Download PNG test files from the PngSuite collection. This target automatically
+downloads the required PNG files to `test/fixtures/pngsuite/` if they are
+missing.
+
+**Note:** This target is automatically run as a dependency of `test-all` to ensure
+PNG files are available before running tests.
+
+##### `generate-pngsuite-expectations`
+
+Generate expected output files for PNG suite tests. This target runs pngcheck
+against all PNG files in the suite and captures the expected outputs to
+`test/expectations/pngsuite/`.
+
+Use this target when pngcheck behavior changes and you need to update the test
+expectations.
+
+##### `generate-pngsuite-tests`
+
+Generate the `test/test/test_pngcheck_suite.c` file based on the PNG files and
+expectations. This target creates the actual C test functions that will be
+executed by the test framework.
 
 
 

@@ -8,7 +8,14 @@
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "BUILD_STRATEGY": "RELEASE"
+                "BUILD_STRATEGY": "RELEASE",
+                "PNGCHECK_USE_SYSTEM_ZLIB": "ON"
+            },
+            "environment": {
+                "PNGSUITE_PATH": "fixtures/pngsuite",
+                "EXPECTATIONS_PATH": "expectations",
+                "ZLIB_CFLAGS": "",
+                "ZLIB_LIBS": "-lz"
             }
         },
         {
