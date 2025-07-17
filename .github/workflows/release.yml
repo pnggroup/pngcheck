@@ -1,0 +1,107 @@
+name: release
+
+on:
+  push:
+    tags:
+    - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Release Artifacts
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 builds only, compatibile with 22+ later versions
+          - runner: ubuntu-22.04
+            os: ubuntu
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            os: ubuntu
+            arch: arm64
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y zlib1g-dev cmake build-essential
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Prepare release artifacts
+      run: |
+        mkdir -p release-artifacts
+        cp build/pngcheck release-artifacts/pngcheck-${{ matrix.runner }}-${{ matrix.arch }}
+
+        # Generate checksums
+        cd release-artifacts
+        sha256sum * > checksums-${{ matrix.runner }}-${{ matrix.arch }}.txt
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pngcheck-${{ matrix.runner }}-${{ matrix.arch }}
+        path: release-artifacts/
+        retention-days: 90
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+
+        # Flatten artifact structure and rename files
+        find all-artifacts -type f -name "pngcheck*" -exec cp {} release-assets/ \;
+        find all-artifacts -type f -name "checksums*" -exec cp {} release-assets/ \;
+
+        # Create a combined checksums file
+        cd release-assets
+        cat checksums-*.txt > combined-checksums.txt
+
+        # List all files for verification
+        ls -la
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## pngcheck ${{ github.ref_name }}
+
+          Compiled binaries for Ubuntu 22.04:
+
+          ### Ubuntu 22.04
+          - `pngcheck-ubuntu-22.04-x64` - Ubuntu 22.04 (x64)
+          - `pngcheck-ubuntu-22.04-arm-arm64` - Ubuntu 22.04 (ARM64)
+
+          All binaries are built with CMake and system zlib, and include SHA256 checksums for verification.
+        files: release-assets/*
+        draft: false
+        prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}

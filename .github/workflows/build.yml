@@ -1,0 +1,159 @@
+name: build-cmake
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
+  cancel-in-progress: true
+
+jobs:
+  load-matrix:
+    name: Load Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set matrix outputs
+        id: set-matrix
+        run: |
+          echo "matrix=$(jq -c '.' matrix.json)" >> $GITHUB_OUTPUT
+
+  build-cmake:
+    name: ${{ matrix.name }}-cmake
+    runs-on: ${{ matrix.runner }}
+    needs: load-matrix
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # MSYS2 setup
+    - name: Setup MSYS2
+      if: matrix.os == 'windows-msys2'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.msys }}
+        path-type: minimal
+        update: true
+        install: >-
+          git
+          make
+        pacboy: >-
+          toolchain:p
+          zlib:p
+          cmake:p
+
+    # Ubuntu dependencies
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential zlib1g-dev
+
+    # macOS dependencies
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos'
+      run: |
+        brew list zlib || brew install zlib
+
+    # Windows dependencies
+    - name: Setup MSVC (Windows)
+      if: matrix.os == 'windows'
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Install vcpkg dependencies (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "arm64" } else { "x64" }
+        vcpkg install zlib:$arch-windows
+
+    # CMake builds
+    - name: Build with CMake (Ubuntu/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        cmake -B build-cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        cmake --build build-cmake --config Release
+
+    - name: Build with CMake (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "ARM64" } else { "x64" }
+        cmake -B build-cmake -A $arch -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake --build build-cmake --config Release
+
+    - name: Build with CMake (Windows MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        cmake -B build-cmake \
+          -G "MSYS Makefiles" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+        cmake --build build-cmake --config Release
+
+    # Testing CMake builds
+    - name: Test CMake build (MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        build-cmake/pngcheck.exe -h
+
+    - name: Test CMake build (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        build-cmake/Release/pngcheck.exe -h
+
+    - name: Test CMake build (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        ./build-cmake/pngcheck -h
+
+    # Artifacts
+    - name: Prepare artifacts (MSYS2)
+      if: matrix.os == 'windows-msys2'
+      shell: msys2 {0}
+      run: |
+        mkdir -p artifacts
+        cp build-cmake/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
+        cd artifacts
+        sha256sum * > checksums.txt
+
+    - name: Prepare artifacts (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        mkdir -p artifacts
+        cp build-cmake/Release/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
+        cd artifacts
+        Get-FileHash -Algorithm SHA256 *.exe | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } > checksums.txt
+
+    - name: Prepare artifacts (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        mkdir -p artifacts
+        cp build-cmake/pngcheck artifacts/pngcheck-${{ matrix.name }}-cmake
+        cd artifacts
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum * > checksums.txt
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 * > checksums.txt
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pngcheck-${{ matrix.name }}-cmake
+        path: artifacts/
+        retention-days: 30
