@@ -28,6 +28,7 @@ a.out
 *.tds
 core
 core.[0-9]*
+!core/
 
 # Coverage testing artifacts
 *.gcda
@@ -91,13 +92,14 @@ xcuserdata/
 [._]*_history
 .history/
 [Bb]ackup*/
+CMakeLists.txt.user*
 CMakeUserPresets.json
 
 # Build, test and CI output directories
-/[Bb]uild*/
+[._]build*/
+/[Bb]uild/
 /[Oo]ut/
 *[Dd]ebug/
 [Dd]ebug*/
 *[Rr]elease/
 [Rr]elease*/
-[._]build*/
