@@ -1,0 +1,103 @@
+# Build artifacts
+*.[ao]
+*.l[ao]
+*.lai
+*.slo
+*.so
+*.so.*
+*.app/
+*.dylib
+*.dll
+*.exe
+*.exp
+*.ilk
+*.lib
+*.obj
+*.res
+a.out
+
+# Debugging artifacts
+.gdbinit
+.lldbinit
+*.dSYM/
+*.dmp
+*.idb
+*.pdb
+*.su
+*.sym
+*.tds
+core
+core.[0-9]*
+
+# Coverage testing artifacts
+*.gcda
+*.gcno
+*.gcov
+
+# Tag files
+TAGS
+.TAGS
+!TAGS/
+tags
+.tags
+!tags/
+gtags.files
+GTAGS
+GRTAGS
+GPATH
+GSYMS
+cscope.files
+cscope.out
+cscope.*.out
+
+# Text editing and text processing artifacts
+\#*\#
+.\#*
+[._]*.sw[a-p]
+[._]sw[a-p]
+*.bak
+*.orig
+*.rej
+*.tmp
+*~
+
+# IDE files and directories
+## Eclipse
+.cproject/
+.project/
+.settings/
+## Embarcadero RAD Studio
+*.cbproj.*
+__recovery/
+## JetBrains
+.idea/
+## NetBeans
+nbbuild/
+nbdist/
+nbproject/
+## Visual Studio 2015 and newer
+.vs/
+## Visual Studio Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+## Xcode 9 and newer
+xcuserdata/
+## (Various)
+*.*cache
+*.cache*
+[._]*_history
+.history/
+[Bb]ackup*/
+CMakeUserPresets.json
+
+# Build, test and CI output directories
+/[Bb]uild*/
+/[Oo]ut/
+*[Dd]ebug/
+[Dd]ebug*/
+*[Rr]elease/
+[Rr]elease*/
+[._]build*/
