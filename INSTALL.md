@@ -10,6 +10,8 @@
 
 ### Using CMake (recommended)
 
+#### Unix/Linux/etc.
+
 1. Create a build directory:
 
    ```sh
@@ -38,6 +40,51 @@
    # Depending your system setup, you might need to use 'sudo'
    cmake --install .
    ```
+
+#### Windows (MSVC with vcpkg)
+
+1. Install zlib via vcpkg:
+
+   ```cmd
+   vcpkg install zlib:x64-windows
+   # For ARM64: vcpkg install zlib:arm64-windows
+   ```
+
+2. Configure and build:
+
+   ```cmd
+   cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   # For ARM64: cmake -B build -A ARM64 -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   cmake --build build --config Release
+   ```
+
+#### Windows (MSYS2/MinGW)
+
+1. Install dependencies in MSYS2:
+
+   ```sh
+   pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake
+   # For 32-bit: mingw-w64-i686-toolchain mingw-w64-i686-zlib mingw-w64-i686-cmake
+   ```
+
+2. Configure and build:
+
+   ```sh
+   cmake -B build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON
+   cmake --build build --config Release
+   ```
+
+#### macOS (with Homebrew zlib)
+
+If using Homebrew-installed zlib instead of system zlib:
+
+1. Install zlib via Homebrew:
+
+   ```sh
+   brew install zlib
+   ```
+
+2. Configure and build (same as generic instructions above)
 
 ### Using Make (the traditional method)
 
