@@ -1,18 +1,8 @@
 [
   {
-    "runner": "ubuntu-22.04",
-    "os": "ubuntu",
-    "name": "ubuntu-22.04"
-  },
-  {
     "runner": "ubuntu-24.04",
     "os": "ubuntu",
     "name": "ubuntu-24.04"
-  },
-  {
-    "runner": "ubuntu-22.04-arm",
-    "os": "ubuntu",
-    "name": "ubuntu-22.04-arm"
   },
   {
     "runner": "ubuntu-24.04-arm",
@@ -23,11 +13,6 @@
     "runner": "macos-13",
     "os": "macos",
     "name": "macos-13"
-  },
-  {
-    "runner": "macos-14",
-    "os": "macos",
-    "name": "macos-14"
   },
   {
     "runner": "macos-15",
