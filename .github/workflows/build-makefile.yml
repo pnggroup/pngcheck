@@ -1,0 +1,72 @@
+name: build-makefile
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
+  cancel-in-progress: true
+
+jobs:
+  load-matrix:
+    name: Load Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set matrix outputs
+        id: set-matrix
+        run: |
+          echo "matrix=$(jq -c '.' matrix-makefile.json)" >> $GITHUB_OUTPUT
+
+  build-makefile:
+    name: ${{ matrix.name }}-makefile
+    runs-on: ${{ matrix.runner }}
+    needs: load-matrix
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Ubuntu dependencies
+    - name: Install dependencies (Ubuntu)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev
+
+    # Makefile builds
+    - name: Build with Makefile (Ubuntu)
+      run: |
+        make
+
+    - name: Test Makefile build (Ubuntu)
+      run: |
+        ./pngcheck -h
+
+    # - name: Prepare artifacts (Ubuntu)
+    #   run: |
+    #     mkdir -p artifacts
+    #     cp pngcheck artifacts/pngcheck-${{ matrix.name }}-makefile
+    #     cd artifacts
+    #     if command -v sha256sum >/dev/null 2>&1; then
+    #       sha256sum * > checksums.txt
+    #     elif command -v shasum >/dev/null 2>&1; then
+    #       shasum -a 256 * > checksums.txt
+    #     fi
+
+    # - name: Upload artifacts
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: pngcheck-${{ matrix.name }}-makefile
+    #     path: artifacts/
+    #     retention-days: 30
