@@ -399,3 +399,13 @@ executable.
 
 **pngcheck not found**: Build with `make` or `cmake`
 **Ruby issues**: Run `bundle install`
+
+
+## Acknowledgements
+
+The PngSuite test images are created by
+[Willem van Schaik](http://www.schaik.com/pngsuite/), and distributed under its
+original license reproduced at `test/fixtures/pngsuite/PngSuite.LICENSE`.
+
+We thank Willem van Schaik for providing these test images that are essential
+in validating the behavior of `pngcheck`.
