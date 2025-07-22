@@ -15,6 +15,7 @@
 *.obj
 *.res
 a.out
+pngcheck
 
 # Debugging artifacts
 .gdbinit
@@ -94,6 +95,9 @@ xcuserdata/
 [Bb]ackup*/
 CMakeLists.txt.user*
 CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+_deps/
 
 # Build, test and CI output directories
 [._]build*/
@@ -108,9 +112,12 @@ CMakeUserPresets.json
 test/expectations/pngsuite
 
 # Unity/Ceedling build artifacts
+.ceedling/
+Gemfile.lock
 test/build/
+test/CMakeFiles/
+test/Makefile
 test/unity/build/
 test/unity/test_pngcheck
 test/unity/test_pngcheck_suite
 vendor/
-.ceedling/
