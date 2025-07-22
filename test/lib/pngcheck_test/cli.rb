@@ -16,35 +16,15 @@ module PngcheckTest
       true
     end
 
-    desc 'download', 'Download PNG test suite files'
-    option :force, type: :boolean, default: false, desc: 'Force re-download even if files exist'
-    def download
-      setup_models
-
-      say Paint["🔽 Downloading PNG test suite...", :cyan, :bold]
-
-      result = @png_suite.download!(force: options[:force])
-
-      if result[:success]
-        say Paint["✅ #{result[:message]}", :green]
-        say Paint["📁 Downloaded #{result[:files_count]} PNG files", :blue]
-      else
-        say Paint["❌ #{result[:message]}", :red]
-        exit 1
-      end
-    rescue => e
-      handle_error("Failed to download PNG suite", e)
-    end
-
     desc 'expectations', 'Generate expected output files for PNG test suite'
     option :force, type: :boolean, default: false, desc: 'Force regeneration of existing expectations'
     def expectations
       setup_models
       ensure_pngcheck!
 
-      unless @png_suite.downloaded?
-        say Paint["📥 PNG suite not found. Downloading first...", :yellow]
-        invoke :download
+      unless @png_suite.available?
+        say Paint["❌ Test PNG files missing from #{@png_suite.png_dir}", :red]
+        exit 1
       end
 
       say Paint["🔧 Generating expected outputs...", :cyan, :bold]
@@ -73,9 +53,9 @@ module PngcheckTest
     def generate
       setup_models
 
-      unless @png_suite.downloaded?
-        say Paint["📥 PNG suite not found. Downloading first...", :yellow]
-        invoke :download
+      unless @png_suite.available?
+        say Paint["❌ Test PNG files missing from #{@png_suite.png_dir}", :red]
+        exit 1
       end
 
       unless @png_suite.expectation_files.any?
@@ -105,12 +85,11 @@ module PngcheckTest
       handle_error("Failed to generate test suite", e)
     end
 
-    desc 'setup', 'Complete setup: download, generate expectations, and create test suite'
+    desc 'setup', 'Complete setup: generate expectations, and create test suite'
     option :force, type: :boolean, default: false, desc: 'Force regeneration of all files'
     def setup
       say Paint["🚀 Setting up complete PNG test suite...", :cyan, :bold]
 
-      invoke :download, [], force: options[:force]
       invoke :expectations, [], force: options[:force]
       invoke :generate
 
@@ -147,9 +126,9 @@ module PngcheckTest
 
       # PNG Suite files
       say Paint["🖼️  PNG Suite Files:", :blue, :bold]
-      if @png_suite.downloaded?
+      if @png_suite.available?
         stats = @png_suite.statistics
-        say "  Downloaded: #{Paint['✅ Yes', :green]} (#{stats[:total_files]} files)"
+        say "  Available: #{Paint['✅ Yes', :green]} (#{stats[:total_files]} files)"
         say "  Expectations: #{stats[:expectations_generated]} generated"
 
         if stats[:total_files] > 0
@@ -160,8 +139,7 @@ module PngcheckTest
           say "    Unknown: #{Paint[stats[:unknown], :gray]}" if stats[:unknown] > 0
         end
       else
-        say Paint["  ❌ Not downloaded", :red]
-        say "  Run 'pngcheck-test download' to get PNG files"
+        say Paint["  ❌ Test PNG files missing from #{@png_suite.png_dir}", :red]
       end
       say
 

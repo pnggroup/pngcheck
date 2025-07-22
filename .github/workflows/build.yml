@@ -274,52 +274,6 @@ jobs:
         restore-keys: |
           pngsuite-fixtures-
 
-    # - name: Debug environment with CMake (Windows)
-    #   if: matrix.os == 'windows'
-    #   env:
-    #     PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
-    #   run: |
-    #     echo "=== Debug: Windows test execution ==="
-    #     echo "GITHUB_WORKSPACE: ${{ github.workspace }}"
-    #     echo "Current directory: $(Get-Location)"
-    #     echo "Environment variable check:"
-    #     echo "  PNGCHECK_EXECUTABLE = $env:PNGCHECK_EXECUTABLE"
-
-    #     echo "Checking if executable exists..."
-    #     if (Test-Path "$env:PNGCHECK_EXECUTABLE") {
-    #       echo "✓ Executable found at: $env:PNGCHECK_EXECUTABLE"
-    #       echo "File info:"
-    #       Get-Item "$env:PNGCHECK_EXECUTABLE" | Format-List
-
-    #       echo "Testing executable directly..."
-    #       try {
-    #         & "$env:PNGCHECK_EXECUTABLE" -h
-    #         echo "✓ Executable runs successfully"
-    #       } catch {
-    #         echo "✗ Error running executable: $_"
-    #       }
-    #     } else {
-    #       echo "✗ Executable NOT found at: $env:PNGCHECK_EXECUTABLE"
-    #       echo "Searching for pngcheck.exe in build directory..."
-    #       Get-ChildItem -Path "build" -Recurse -Name "pngcheck.exe" -ErrorAction SilentlyContinue
-    #     }
-
-    # Download PNG test files before running tests
-    - name: Download PNG test files (Unix/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
-      run: |
-        cmake --build build --target pngsuite-download --preset Debug
-
-    # TODO: Unable to fix CMake when using the test/bin/pngcheck-test script on Windows
-    #   It keeps saying "no such file or directory" when we try to execute the script.
-    #   Hence we directly run the test/bin/pngcheck-test script.
-    - name: Download PNG test files
-      if: matrix.os == 'windows'
-      env:
-        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
-      run: |
-        bundle exec ruby test\bin\pngcheck-test download
-
     # Run tests using CMake targets
     - name: Run tests with CMake (Unix/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
@@ -417,11 +371,6 @@ jobs:
       run: |
         cmake --preset Debug
         cmake --build build --preset Debug
-
-    # Download PNG test files before running coverage tests
-    - name: Download PNG test files
-      run: |
-        cmake --build build --target pngsuite-download --preset Debug
 
     # Run tests with coverage analysis
     - name: Run tests with coverage

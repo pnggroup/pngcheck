@@ -95,14 +95,7 @@ if(TESTING_ENABLED)
         )
     endif()
 
-    # Individual test targets (examples - add more as needed)
-    add_custom_target(test-pngcheck-cli
-        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$<TARGET_FILE:pngcheck>" ${CEEDLING_CMD} test:test_pngcheck_cli
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck pngsuite-download
-        COMMENT "Running pngcheck CLI tests"
-    )
-
+    # Individual test targets
     add_custom_target(test-pngcheck-suite
         COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$<TARGET_FILE:pngcheck>" ${CEEDLING_CMD} test:test_pngcheck_suite
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -118,23 +111,17 @@ if(TESTING_ENABLED)
         COMMENT "Check PNG suite status"
     )
 
-    add_custom_target(pngsuite-download
-        COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$<TARGET_FILE:pngcheck>" ${TESTUTIL_CMD} download
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "Download PNG test files"
-    )
-
     add_custom_target(generate-pngsuite-expectations
         COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$<TARGET_FILE:pngcheck>" ${TESTUTIL_CMD} expectations
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck pngsuite-download
+        DEPENDS pngcheck
         COMMENT "Generate PNG suite expectations"
     )
 
     add_custom_target(generate-pngsuite-tests
         COMMAND ${CMAKE_COMMAND} -E env "PNGCHECK_EXECUTABLE=$<TARGET_FILE:pngcheck>" ${TESTUTIL_CMD} generate
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS pngcheck pngsuite-download
+        DEPENDS pngcheck
         COMMENT "Generate PNG suite test files"
     )
 else()
@@ -145,11 +132,6 @@ else()
     )
 
     add_custom_target(test-clean
-        COMMAND ${CMAKE_COMMAND} -E echo "Testing is disabled. Ruby/Ceedling not available."
-        COMMENT "Testing disabled - Ruby/Ceedling not found"
-    )
-
-    add_custom_target(pngsuite-download
         COMMAND ${CMAKE_COMMAND} -E echo "Testing is disabled. Ruby/Ceedling not available."
         COMMENT "Testing disabled - Ruby/Ceedling not found"
     )
@@ -176,7 +158,6 @@ if(TESTING_ENABLED)
     message(STATUS "")
     message(STATUS "Available PNG suite utility targets:")
     message(STATUS "  pngsuite-status           - Check PNG suite status")
-    message(STATUS "  pngsuite-download         - Download PNG test files")
     message(STATUS "  generate-pngsuite-expectations - Generate PNG suite expectations")
     message(STATUS "  generate-pngsuite-tests   - Generate PNG suite test files")
 else()
@@ -185,7 +166,6 @@ else()
     message(STATUS "Available targets (disabled):")
     message(STATUS "  test-all                  - Shows testing disabled message")
     message(STATUS "  test-clean                - Shows testing disabled message")
-    message(STATUS "  pngsuite-download         - Shows testing disabled message")
     message(STATUS "")
     message(STATUS "To enable testing, install Ruby and run 'bundle install' or install Ceedling directly.")
 endif()

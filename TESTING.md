@@ -44,7 +44,7 @@ repository.
 │ ┌────────────────────────┐ │ ┌──────────────────────────┐ │ ┌──────────────────────────┐ │
 │ │  Build dependencies    │ │ │  Integration             │ │ │  Test management         │ │
 │ │                        │ │ │                          │ │ │                          │ │
-│ │ • system zlib          │ │ │ • auto executable path   │ │ │ • fixture downloads      │ │
+│ │ • system zlib          │ │ │ • auto executable path   │ │ │ • fixtures               │ │
 │ │ • automatic fallback   │ │ │ • dependency management  │ │ │ • expectation generation │ │
 │ │ • vcpkg (windows)      │ │ │ • environment setup      │ │ │ • report generation      │ │
 │ └────────────────────────┘ │ └──────────────────────────┘ │ └──────────────────────────┘ │
@@ -217,15 +217,6 @@ Run PNG suite tests only.
 
 Check the status of PNG suite test files. Shows which files are present and missing.
 
-##### `pngsuite-download`
-
-Download PNG test files from the PngSuite collection. This target automatically
-downloads the required PNG files to `test/fixtures/pngsuite/` if they are
-missing.
-
-**Note:** This target is automatically run as a dependency of `test-all` to ensure
-PNG files are available before running tests.
-
 ##### `generate-pngsuite-expectations`
 
 Generate expected output files for PNG suite tests. This target runs pngcheck
@@ -337,11 +328,8 @@ Auto-generated tests using the [PngSuite](http://www.schaik.com/pngsuite/) colle
 - **Valid PNGs**: Various formats, bit depths, interlacing
 - **Invalid PNGs**: Corrupted headers, bad checksums, truncated files
 
-**Note:** The PNG suite tests are not committed to the repository due to
-licensing considerations. Instead, the test management tool
-(`test/bin/pngcheck-test`) downloads the PNG files from the PngSuite website
-when needed. This ensures that the tests remain up-to-date with the latest PNG
-suite files.
+**Note:** The PngSuite files are committed to the repository at
+`test/fixtures/pngsuite/`, where its LICENSE also resides.
 
 
 ## Test management
@@ -356,9 +344,6 @@ To manage tests, run the Ruby CLI tool:
 ```bash
 # Check status
 bundle exec test/bin/pngcheck-test status
-
-# Download PNG files (if missing) (add --force to redownload)
-bundle exec test/bin/pngcheck-test download
 
 # Regenerate expectations (when pngcheck behavior changes) (add --force to overwrite)
 bundle exec test/bin/pngcheck-test expectations
@@ -403,7 +388,7 @@ As a result, the `build.yml` workflow does not use CMake to run tests:
 
 - directly runs the `test/bin/pngcheck-test` script and uses the
 `PNGCHECK_EXECUTABLE` environment variable to point to the built `pngcheck`
-executable, instead of `cmake --build build --preset Debug --target pngsuite-download`.
+executable.
 
 - directly uses the `ceedling` command to run tests instead of the CMake targets:
 `cmake --build build --preset Debug --target test-all`.
@@ -413,5 +398,4 @@ executable, instead of `cmake --build build --preset Debug --target pngsuite-dow
 ## Troubleshooting
 
 **pngcheck not found**: Build with `make` or `cmake`
-**Missing PNG files**: Run `bundle exec test/bin/pngcheck-test download`
 **Ruby issues**: Run `bundle install`

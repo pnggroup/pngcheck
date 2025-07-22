@@ -104,9 +104,6 @@ CMakeUserPresets.json
 *[Rr]elease/
 [Rr]elease*/
 
-# Test fixtures (downloaded dynamically)
-test/fixtures/pngsuite
-
 # Test expectations (generated during tests)
 test/expectations/pngsuite
 

@@ -73,11 +73,6 @@ jobs:
         restore-keys: |
           pngsuite-fixtures-
 
-    # Download PNG test files before running tests
-    - name: Download PNG test files (Ubuntu)
-      run: |
-        bundle exec test/bin/pngcheck-test download
-
     # Run tests using Ceedling
     - name: Run pngcheck test suite with Ceedling (Ubuntu)
       env:

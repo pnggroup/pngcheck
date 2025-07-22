@@ -2,15 +2,11 @@
 
 require 'fileutils'
 require 'open3'
-require 'net/http'
-require 'uri'
 require 'zip'
 
 module PngcheckTest
   module Models
     class PngSuite
-      PNGSUITE_URL = 'http://www.schaik.com/pngsuite/PngSuite-2017jul19.zip'
-      PNGSUITE_FILENAME = 'PngSuite.zip'
       PNGSUITE_DIR = 'PngSuite'
 
       attr_reader :repository
@@ -19,34 +15,8 @@ module PngcheckTest
         @repository = repository
       end
 
-      # Download and extract PNG suite files
-      def download!(force: false)
-        if downloaded? && !force
-          return { success: true, message: 'PNG suite already downloaded', files_count: png_files.count }
-        end
-
-        @repository.ensure_directories!
-
-        begin
-          download_and_extract
-          cleanup_download_artifacts
-
-          {
-            success: true,
-            message: 'PNG suite downloaded successfully',
-            files_count: png_files.count
-          }
-        rescue => e
-          {
-            success: false,
-            message: "Failed to download PNG suite: #{e.message}",
-            files_count: 0
-          }
-        end
-      end
-
       # Check if PNG suite is downloaded
-      def downloaded?
+      def available?
         @repository.fixtures_path.exist? && png_files.any?
       end
 
@@ -140,54 +110,6 @@ module PngcheckTest
         }
       end
 
-      private
-
-      def download_and_extract
-        Dir.chdir(@repository.fixtures_path) do
-          download_file
-          extract_archive
-          move_png_files
-        end
-      end
-
-      def download_file
-        uri = URI(PNGSUITE_URL)
-
-        Net::HTTP.start(uri.host, uri.port) do |http|
-          request = Net::HTTP::Get.new(uri)
-          http.request(request) do |response|
-            raise "HTTP #{response.code}: #{response.message}" unless response.code == '200'
-
-            File.open(PNGSUITE_FILENAME, 'wb') do |file|
-              response.read_body do |chunk|
-                file.write(chunk)
-              end
-            end
-          end
-        end
-      end
-
-      def extract_archive
-        Zip::File.open(PNGSUITE_FILENAME) do |zip_file|
-          zip_file.each do |entry|
-            entry.extract(entry.name) unless File.exist?(entry.name)
-          end
-        end
-      end
-
-      def move_png_files
-        if Dir.exist?(PNGSUITE_DIR)
-          Dir.glob("#{PNGSUITE_DIR}/*.png").each do |png_file|
-            FileUtils.mv(png_file, '.')
-          end
-          FileUtils.rm_rf(PNGSUITE_DIR)
-        end
-      end
-
-      def cleanup_download_artifacts
-        artifacts = [@repository.fixtures_path / PNGSUITE_FILENAME]
-        artifacts.each { |artifact| artifact.delete if artifact.exist? }
-      end
     end
   end
 end
