@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  # In order to upload test artifacts to GHA
+  contents: write
+
 concurrency:
   group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
   cancel-in-progress: true
@@ -53,16 +57,89 @@ jobs:
       run: |
         ./pngcheck -h
 
-    # - name: Prepare artifacts (Ubuntu)
-    #   run: |
-    #     mkdir -p artifacts
-    #     cp pngcheck artifacts/pngcheck-${{ matrix.name }}-makefile
-    #     cd artifacts
-    #     if command -v sha256sum >/dev/null 2>&1; then
-    #       sha256sum * > checksums.txt
-    #     elif command -v shasum >/dev/null 2>&1; then
-    #       shasum -a 256 * > checksums.txt
-    #     fi
+    # Setup Ruby 3.4 for Ceedling
+    - name: Setup Ruby 3.4
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
+
+    # Cache PNG suite test files
+    - name: Cache PNG suite test files
+      uses: actions/cache@v4
+      with:
+        path: test/fixtures/pngsuite
+        key: pngsuite-fixtures-${{ hashFiles('test/generate_expectations.sh') }}
+        restore-keys: |
+          pngsuite-fixtures-
+
+    # Download PNG test files before running tests
+    - name: Download PNG test files (Ubuntu)
+      run: |
+        bundle exec test/bin/pngcheck-test download
+
+    # Run tests using Ceedling
+    - name: Run pngcheck test suite with Ceedling (Ubuntu)
+      env:
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/pngcheck
+        PNGSUITE_PATH: test/fixtures/pngsuite
+        EXPECTATIONS_PATH: expectations
+      run: |
+        bundle exec ceedling test:all
+
+    - name: List out all files in directory
+      shell: bash
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -laR || echo "No files found"
+
+    # Upload test reports as artifacts
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ matrix.name }}-makefile
+        path: |
+          build/artifacts/test/
+          build/logs/
+          *.xml
+          *.json
+        retention-days: 30
+
+    # Upload test results for GitHub's test reporting
+    - name: Publish Test Results
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: Unity Tests (${{ matrix.name }}, Makefile)
+        path: 'build/artifacts/test/junit_tests_report.xml'
+        reporter: java-junit
+        fail-on-error: true
+
+    # Upload test results on failure for debugging
+    - name: Upload test results on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.name }}-makefile
+        path: |
+          test/fixtures/
+          test/expectations/
+          *.log
+        retention-days: 7
+
+    # Artifacts
+    - name: Prepare artifacts (Ubuntu)
+      run: |
+        mkdir -p artifacts
+        cp pngcheck artifacts/pngcheck-${{ matrix.name }}-makefile
+        cd artifacts
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum * > checksums.txt
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 * > checksums.txt
+        fi
 
     # - name: Upload artifacts
     #   uses: actions/upload-artifact@v4

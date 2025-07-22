@@ -6,6 +6,21 @@ project(pngcheck
         LANGUAGES C
 )
 
+# Build strategy selection
+if(NOT DEFINED BUILD_STRATEGY)
+    set(BUILD_STRATEGY "RELEASE" CACHE STRING "Build strategy: RELEASE or TEST")
+endif()
+
+if(BUILD_STRATEGY STREQUAL "TEST")
+    message(STATUS "TEST strategy selected - Use Ceedling for testing")
+    message(STATUS "Run: ceedling test:all")
+    message(FATAL_ERROR "Please use Ceedling for testing. This CMake configuration is for release builds only.")
+elseif(BUILD_STRATEGY STREQUAL "RELEASE")
+    message(STATUS "RELEASE strategy selected - Building production executable")
+else()
+    message(FATAL_ERROR "Invalid BUILD_STRATEGY: ${BUILD_STRATEGY}. Must be RELEASE or TEST.")
+endif()
+
 # Options for zlib support
 option(PNGCHECK_USE_SYSTEM_ZLIB "Use the system-installed zlib" ON)
 if(PNGCHECK_USE_ZLIB)
@@ -21,16 +36,27 @@ endif()
 # Executables
 add_executable(pngcheck ${PNGCHECK_SOURCES})
 
+# Compiler flags for release build
+if(MSVC)
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /O2 /W3")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /Zi /W3")
+else()
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2 -Wall")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g -Wall")
+endif()
+
 # Dependency handling
 if(PNGCHECK_USE_SYSTEM_ZLIB)
   find_package(ZLIB)
   if(ZLIB_FOUND)
     target_link_libraries(pngcheck PRIVATE ZLIB::ZLIB)
+    message(STATUS "Using system ZLIB: ${ZLIB_LIBRARIES}")
   else()
     message(WARNING "System ZLIB not found, falling back to FetchContent")
     set(PNGCHECK_USE_SYSTEM_ZLIB OFF)
   endif()
 endif()
+
 if(NOT PNGCHECK_USE_SYSTEM_ZLIB)
   include(FetchContent)
   FetchContent_Declare(zlib
@@ -45,6 +71,11 @@ if(NOT PNGCHECK_USE_SYSTEM_ZLIB)
     message(STATUS "Using local ZLIB subproject (location not available)")
   endif()
   target_link_libraries(pngcheck PRIVATE zlibstatic)
+endif()
+
+# Math library for some platforms
+if(UNIX AND NOT APPLE)
+    target_link_libraries(pngcheck PRIVATE m)
 endif()
 
 # Installation rules
@@ -64,3 +95,39 @@ set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${PROJECT_DESCRIPTION})
 include(CPack)
+
+# Include test subdirectory for Ceedling integration
+add_subdirectory(test)
+
+# Alias targets for backward compatibility
+add_custom_target(test
+    DEPENDS test-all
+    COMMENT "Running tests with Ceedling (alias for test-all)"
+)
+
+add_custom_target(clean-test
+    DEPENDS test-clean
+    COMMENT "Cleaning Ceedling build artifacts (alias for test-clean)"
+)
+
+# Print build information
+message(STATUS "")
+message(STATUS "=== pngcheck Build Configuration ===")
+message(STATUS "Build Strategy: ${BUILD_STRATEGY}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C Compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "System ZLIB: ${PNGCHECK_USE_SYSTEM_ZLIB}")
+if(PNGCHECK_USE_SYSTEM_ZLIB AND ZLIB_FOUND)
+    message(STATUS "ZLIB Version: ${ZLIB_VERSION_STRING}")
+endif()
+message(STATUS "")
+message(STATUS "Available targets:")
+message(STATUS "  pngcheck                  - Build the main executable")
+message(STATUS "  test                      - Run Ceedling tests (alias for test-all)")
+message(STATUS "  test-all                  - Run all Ceedling tests")
+message(STATUS "  test-verbose              - Run Ceedling tests with verbose output")
+message(STATUS "  test-clean                - Clean Ceedling build artifacts")
+message(STATUS "  test-coverage             - Run tests with coverage analysis and generate HTML report")
+message(STATUS "  clean-test                - Clean Ceedling build artifacts (alias)")
+message(STATUS "  install                   - Install pngcheck and man page")
+message(STATUS "")

@@ -12,33 +12,33 @@
 
 #### Unix/Linux/etc.
 
-1. Create a build directory:
+1. Prepare the build directory through the CMake preset:
 
    ```sh
-   mkdir build && cd build
+   cmake --preset Release
    ```
 
-2. Configure with one of these options:
+2. Configure if necessary with one of these options:
 
    ```sh
    # Default build with the system-installed zlib (if available)
-   cmake ..
+   # No additional configuration needed
 
    # Build with a locally-downloaded zlib
-   cmake -DPNGCHECK_USE_SYSTEM_ZLIB=OFF ..
+   cmake -DPNGCHECK_USE_SYSTEM_ZLIB=OFF --preset Release
    ```
 
 3. Build:
 
    ```sh
-   cmake --build .
+   cmake --build build --target pngcheck --preset Release
    ```
 
 4. Install (optional):
 
    ```sh
    # Depending your system setup, you might need to use 'sudo'
-   cmake --install .
+   cmake --install build --preset Release
    ```
 
 #### Windows (MSVC with vcpkg)
@@ -53,9 +53,9 @@
 2. Configure and build:
 
    ```cmd
-   cmake -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-   # For ARM64: cmake -B build -A ARM64 -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-   cmake --build build --config Release
+   cmake -B build -A x64 --preset Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   # For ARM64: cmake -B build -A ARM64 --preset Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   cmake --build build --preset Release
    ```
 
 #### Windows (MSYS2/MinGW)
@@ -70,8 +70,8 @@
 2. Configure and build:
 
    ```sh
-   cmake -B build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON
-   cmake --build build --config Release
+   cmake -B build -G "MSYS Makefiles" --preset Release
+   cmake --build build --preset Release
    ```
 
 #### macOS (with Homebrew zlib)

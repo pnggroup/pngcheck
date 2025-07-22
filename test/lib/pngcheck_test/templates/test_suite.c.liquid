@@ -1,0 +1,23 @@
+#include "unity.h"
+#include "test_helpers.h"
+
+void setUp(void) {
+    // Set up code here
+}
+
+void tearDown(void) {
+    // Tear down code here
+}
+
+{% for png_file in png_files -%}
+void test_{{ png_file.test_name }}(void) {
+{%- if png_file.category == "invalid" %}
+    test_png_file("{{ png_file.filename }}", 2, "ERROR");
+{%- elsif png_file.category == "warning" %}
+    test_png_file("{{ png_file.filename }}", 0, "OK");
+{%- else %}
+    test_png_file("{{ png_file.filename }}", 0, "OK");
+{%- endif %}
+}
+
+{% endfor -%}

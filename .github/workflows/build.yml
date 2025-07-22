@@ -1,9 +1,13 @@
-name: build-cmake
+name: build
 on:
   push:
     branches: [ main ]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  # In order to upload test artifacts to GHA
+  contents: write
 
 concurrency:
   group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
@@ -24,8 +28,8 @@ jobs:
         run: |
           echo "matrix=$(jq -c '.' matrix.json)" >> $GITHUB_OUTPUT
 
-  build-cmake:
-    name: ${{ matrix.name }}-cmake
+  build:
+    name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     needs: load-matrix
 
@@ -65,7 +69,12 @@ jobs:
     - name: Install dependencies (macOS)
       if: matrix.os == 'macos'
       run: |
-        brew list zlib || brew install zlib
+        # Check if zlib is installed, install if not
+        if ! brew list zlib &>/dev/null; then
+          brew install zlib
+        else
+          echo "zlib already installed"
+        fi
 
     # Windows dependencies
     - name: Setup MSVC (Windows)
@@ -78,56 +87,59 @@ jobs:
         $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "arm64" } else { "x64" }
         vcpkg install zlib:$arch-windows
 
-    # CMake builds
-    - name: Build with CMake (Ubuntu/macOS)
-      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+    # CMake builds using presets
+    - name: Build with CMake (macOS)
+      if: matrix.os == 'macos'
       run: |
-        cmake -B build-cmake \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
-        cmake --build build-cmake --config Release
+        cmake --preset Debug \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.runner == 'macos-13' && 'x86_64' || 'arm64' }}
+        cmake --build build --preset Debug
+
+    - name: Build with CMake (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        cmake --preset Debug
+        cmake --build build --preset Debug
 
     - name: Build with CMake (Windows MSVC)
       if: matrix.os == 'windows'
       run: |
         $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "ARM64" } else { "x64" }
-        cmake -B build-cmake -A $arch -DCMAKE_BUILD_TYPE=Release -DPNGCHECK_USE_SYSTEM_ZLIB=ON -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-        cmake --build build-cmake --config Release
+        cmake --preset Debug -A $arch -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake --build build --preset Debug
 
     - name: Build with CMake (Windows MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
-        cmake -B build-cmake \
-          -G "MSYS Makefiles" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DPNGCHECK_USE_SYSTEM_ZLIB=ON
-        cmake --build build-cmake --config Release
+        cmake --preset Debug -G "MSYS Makefiles"
+        cmake --build build --preset Debug
 
-    # Testing CMake builds
-    - name: Test CMake build (MSYS2)
+    # Test that the executable works
+    - name: Test executable (MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
-        build-cmake/pngcheck.exe -h
+        build/Debug/pngcheck.exe -h
 
-    - name: Test CMake build (Windows MSVC)
+    # TODO: No idea why MSVC builds at Debug/Debug/pngcheck.exe...
+    - name: Test executable (Windows MSVC)
       if: matrix.os == 'windows'
       run: |
-        build-cmake/Release/pngcheck.exe -h
+        build/Debug/Debug/pngcheck.exe -h
 
-    - name: Test CMake build (Unix/macOS)
+    - name: Test executable (Unix/macOS)
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
-        ./build-cmake/pngcheck -h
+        ./build/Debug/pngcheck -h
 
-    # Artifacts
+    # Prepare and upload build artifacts
     - name: Prepare artifacts (MSYS2)
       if: matrix.os == 'windows-msys2'
       shell: msys2 {0}
       run: |
         mkdir -p artifacts
-        cp build-cmake/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
+        cp build/Debug/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
         cd artifacts
         sha256sum * > checksums.txt
 
@@ -135,7 +147,7 @@ jobs:
       if: matrix.os == 'windows'
       run: |
         mkdir -p artifacts
-        cp build-cmake/Release/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
+        cp build/Debug/Debug/pngcheck.exe artifacts/pngcheck-${{ matrix.name }}-cmake.exe
         cd artifacts
         Get-FileHash -Algorithm SHA256 *.exe | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } > checksums.txt
 
@@ -143,7 +155,7 @@ jobs:
       if: matrix.os == 'ubuntu' || matrix.os == 'macos'
       run: |
         mkdir -p artifacts
-        cp build-cmake/pngcheck artifacts/pngcheck-${{ matrix.name }}-cmake
+        cp build/Debug/pngcheck artifacts/pngcheck-${{ matrix.name }}-cmake
         cd artifacts
         if command -v sha256sum >/dev/null 2>&1; then
           sha256sum * > checksums.txt
@@ -151,9 +163,288 @@ jobs:
           shasum -a 256 * > checksums.txt
         fi
 
-    - name: Upload artifacts
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: pngcheck-${{ matrix.name }}-cmake
         path: artifacts/
         retention-days: 30
+
+  load-test-matrix:
+    name: Load Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.filter-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Filter matrix for testing
+        id: filter-matrix
+        run: |
+          # Filter out MSYS2 entries from the matrix for testing
+          echo "matrix=$(jq -c '[.[] | select(.os != "windows-msys2")]' matrix.json)" >> $GITHUB_OUTPUT
+
+  test:
+    name: Test ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    needs: [load-test-matrix, build]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.load-test-matrix.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    # Ubuntu dependencies
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential zlib1g-dev
+
+    # macOS dependencies
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos'
+      run: |
+        # Check if zlib is installed, install if not
+        if ! brew list zlib &>/dev/null; then
+          brew install zlib
+        else
+          echo "zlib already installed"
+        fi
+
+    # Windows dependencies
+    - name: Setup MSVC (Windows)
+      if: matrix.os == 'windows'
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Install vcpkg dependencies (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "arm64" } else { "x64" }
+        vcpkg install zlib:$arch-windows
+
+    # Download build artifacts from the build job
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: pngcheck-${{ matrix.name }}-cmake
+        path: artifacts/
+
+    # Rebuild for testing (needed for CMake test targets)
+    - name: Build with CMake (macOS)
+      if: matrix.os == 'macos'
+      run: |
+        cmake --preset Debug \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.runner == 'macos-13' && 'x86_64' || 'arm64' }}
+        cmake --build build --preset Debug
+
+    - name: Build with CMake (Ubuntu)
+      if: matrix.os == 'ubuntu'
+      run: |
+        cmake --preset Debug
+        cmake --build build --preset Debug
+
+    - name: Build with CMake (Windows MSVC)
+      if: matrix.os == 'windows'
+      run: |
+        $arch = if ("${{ matrix.runner }}" -eq "windows-11-arm") { "ARM64" } else { "x64" }
+        cmake --preset Debug -A $arch -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        cmake --build build --preset Debug
+
+    # Setup Ruby for testing
+    - name: Setup Ruby 3.4
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
+
+    # Cache PNG suite test files
+    - name: Cache PNG suite test files
+      uses: actions/cache@v4
+      with:
+        path: test/fixtures/pngsuite
+        key: pngsuite-fixtures-${{ hashFiles('test/generate_expectations.sh') }}
+        restore-keys: |
+          pngsuite-fixtures-
+
+    # - name: Debug environment with CMake (Windows)
+    #   if: matrix.os == 'windows'
+    #   env:
+    #     PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
+    #   run: |
+    #     echo "=== Debug: Windows test execution ==="
+    #     echo "GITHUB_WORKSPACE: ${{ github.workspace }}"
+    #     echo "Current directory: $(Get-Location)"
+    #     echo "Environment variable check:"
+    #     echo "  PNGCHECK_EXECUTABLE = $env:PNGCHECK_EXECUTABLE"
+
+    #     echo "Checking if executable exists..."
+    #     if (Test-Path "$env:PNGCHECK_EXECUTABLE") {
+    #       echo "✓ Executable found at: $env:PNGCHECK_EXECUTABLE"
+    #       echo "File info:"
+    #       Get-Item "$env:PNGCHECK_EXECUTABLE" | Format-List
+
+    #       echo "Testing executable directly..."
+    #       try {
+    #         & "$env:PNGCHECK_EXECUTABLE" -h
+    #         echo "✓ Executable runs successfully"
+    #       } catch {
+    #         echo "✗ Error running executable: $_"
+    #       }
+    #     } else {
+    #       echo "✗ Executable NOT found at: $env:PNGCHECK_EXECUTABLE"
+    #       echo "Searching for pngcheck.exe in build directory..."
+    #       Get-ChildItem -Path "build" -Recurse -Name "pngcheck.exe" -ErrorAction SilentlyContinue
+    #     }
+
+    # Download PNG test files before running tests
+    - name: Download PNG test files (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      run: |
+        cmake --build build --target pngsuite-download --preset Debug
+
+    # TODO: Unable to fix CMake when using the test/bin/pngcheck-test script on Windows
+    #   It keeps saying "no such file or directory" when we try to execute the script.
+    #   Hence we directly run the test/bin/pngcheck-test script.
+    - name: Download PNG test files
+      if: matrix.os == 'windows'
+      env:
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
+      run: |
+        bundle exec ruby test\bin\pngcheck-test download
+
+    # Run tests using CMake targets
+    - name: Run tests with CMake (Unix/macOS)
+      if: matrix.os == 'ubuntu' || matrix.os == 'macos'
+      env:
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}/build/Debug/pngcheck
+      run: |
+        cmake --build build --target test-all --preset Debug
+
+    # TODO: Unable to fix CMake when using the test/bin/pngcheck-test script on Windows
+    #   It keeps saying "no such file or directory" when we try to execute the script.
+    #   Hence we directly run Ceedling.
+    - name: Run tests with CMake (Windows)
+      if: matrix.os == 'windows'
+      env:
+        PNGCHECK_EXECUTABLE: ${{ github.workspace }}\build\Debug\Debug\pngcheck.exe
+      run: |
+        bundle exec ceedling test:all
+
+    # Upload test reports as artifacts
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ matrix.name }}-cmake
+        path: |
+          build/artifacts/test/
+          build/logs/
+          *.xml
+          *.json
+        retention-days: 30
+
+    # Upload test results for GitHub's test reporting
+    - name: Publish Test Results
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: Unity Tests (${{ matrix.name }}, CMake)
+        path: 'build/artifacts/test/junit_tests_report.xml'
+        reporter: java-junit
+        fail-on-error: true
+
+    # Upload test results on failure for debugging
+    - name: Upload test results on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.name }}
+        path: |
+          test/fixtures/
+          test/expectations/
+          *.log
+        retention-days: 7
+
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    # Ubuntu dependencies
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential zlib1g-dev
+
+    # Setup Ruby 3.4 for Ceedling
+    - name: Setup Ruby 3.4
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
+
+    # Install gcovr for coverage reporting
+    - name: Install gcovr for coverage reporting
+      run: |
+        pip install gcovr
+
+    # Cache PNG suite test files
+    - name: Cache PNG suite test files
+      uses: actions/cache@v4
+      with:
+        path: test/fixtures/pngsuite
+        key: pngsuite-fixtures-${{ hashFiles('test/generate_expectations.sh') }}
+        restore-keys: |
+          pngsuite-fixtures-
+
+    # Build with coverage flags
+    - name: Build with coverage
+      run: |
+        cmake --preset Debug
+        cmake --build build --preset Debug
+
+    # Download PNG test files before running coverage tests
+    - name: Download PNG test files
+      run: |
+        cmake --build build --target pngsuite-download --preset Debug
+
+    # Run tests with coverage analysis
+    - name: Run tests with coverage
+      continue-on-error: true
+      run: |
+        cmake --build build --target test-coverage --preset Debug
+
+    # Upload coverage report
+    - name: Upload coverage report
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-html
+        path: build/artifacts/gcov/
+        retention-days: 30
+
+    # # Upload coverage to Codecov (optional)
+    # - name: Upload coverage to Codecov
+    #   if: always()
+    #   continue-on-error: true
+    #   uses: codecov/codecov-action@v4
+    #   with:
+    #     files: build/artifacts/gcov/coverage.xml
+    #     fail_ci_if_error: false
+    #     verbose: true

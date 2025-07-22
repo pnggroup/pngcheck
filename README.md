@@ -20,7 +20,7 @@ and is [no longer valid](https://w3c.github.io/png/#5ChunkOrdering) in PNG Third
 
 Sample usage:
 
-```text
+```sh
 $ pngcheck -c -v test_pattern-PQ.png
 File: test_pattern-PQ.png (12033 bytes)
   chunk IHDR at offset 0x0000c, length 13
@@ -40,3 +40,12 @@ File: test_pattern-PQ.png (12033 bytes)
     Old version of CLLI, do not use
 ERRORS DETECTED in test_pattern-PQ.png
 ```
+
+## Topics
+
+- [Installation](INSTALL.md)
+- [Testing](TESTING.md)
+
+## Copyright and license
+
+See [LICENSE](LICENSE) for license information.

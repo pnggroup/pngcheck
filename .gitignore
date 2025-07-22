@@ -103,3 +103,17 @@ CMakeUserPresets.json
 [Dd]ebug*/
 *[Rr]elease/
 [Rr]elease*/
+
+# Test fixtures (downloaded dynamically)
+test/fixtures/pngsuite
+
+# Test expectations (generated during tests)
+test/expectations/pngsuite
+
+# Unity/Ceedling build artifacts
+test/build/
+test/unity/build/
+test/unity/test_pngcheck
+test/unity/test_pngcheck_suite
+vendor/
+.ceedling/
