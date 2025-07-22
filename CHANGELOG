@@ -291,7 +291,7 @@
  * 20250604 CT:  Required the zlib library as a non-optional dependency, and
                  removed the need to define the USE_ZLIB macro externally
  * 20250605 CT:  Added third_party/wildargs to auto-expand wildcard arguments
- * 20250707 RT:  Prevent hard fails on chunks of unknown type in compliance with
-                 PNG spec. By Maxim Samsonov (Ribose), metanorma/pngcheck-metanorma#1.
  * 20250708 RT:  Added CI workflows and Windows Makefiles (MSVC and MinGW) for GitHub
                  Actions on Linux, macOS, and Windows.
+ * 20250718 RT:  Added test framework with command-line tests with CI integration
+                 for CMake (all platforms) and Makefile (Ubuntu) builds.

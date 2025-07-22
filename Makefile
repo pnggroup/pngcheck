@@ -53,7 +53,26 @@ pngcheck$(EXEEXT): pngcheck.o
 	$(LD) $(ALL_LDFLAGS) -o $@ pngcheck.c $(LIBS)
 
 
+# test targets --------------------------------------------------------------
+
+test: $(EXES)
+	cd test && ceedling test:all
+
+test-cli: $(EXES)
+	cd test && ceedling test:test_pngcheck_cli
+
+test-suite: $(EXES)
+	cd test && ceedling test:test_pngcheck_suite
+
+test-clean:
+	cd test && ceedling clean
+
+test-setup:
+	cd test && bundle exec test/bin/pngcheck-test setup
+
 # maintenance ---------------------------------------------------------------
 
 clean:
 	$(RM_F) $(EXES) $(OBJS)
+
+clean-all: clean test-clean
