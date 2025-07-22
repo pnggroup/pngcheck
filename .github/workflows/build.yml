@@ -6,8 +6,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  # In order to upload test artifacts to GHA
-  contents: write
+  # Required by dorny/test-reporter@v1
+  id-token: write
+  contents: read
+  checks: write
 
 concurrency:
   group: '${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.ref_name }}'
