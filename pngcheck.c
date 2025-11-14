@@ -942,6 +942,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
   int have_acTL = 0, have_fcTL = 0;
   int have_cICP = 0, have_mDCV = 0, have_cLLI = 0;
+  int have_iDOT = 0;
   int top_level = 1;
 
   // Animated PNG stuff
@@ -952,6 +953,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   unsigned int delay_num = 0, delay_den = 0;
   uch dispose_op = 0, blend_op = 0;
   ulg next_sequence_number = 0L;
+  long segments = 0;
 
   ulg zhead = 1;   /* 0x10000 indicates both zlib header bytes read */
   ulg crc, filecrc;
@@ -2286,6 +2288,35 @@ FIXME: make sure bit 31 (0x80000000) is 0
         }
       }
       have_iCCP = 1;
+      last_is_IDAT = last_is_JDAT = 0;
+
+    /*------*
+     | iDOT |
+     *------*/
+    } else if (strcmp(chunkid, "iDOT") == 0) {
+      if (!mng && have_iDOT) {
+        printf("%s  multiple iDOT not allowed\n", verbose? ":":fname);
+        set_err(kMinorError);
+      } else if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"iDOT ", have_IDAT? 'I':'J');
+        set_err(kMinorError);
+      } else if (sz < 16) {
+        printf("%s  invalid %slength (too short)\n",
+               verbose? ":":fname, verbose? "":"iDOT ");
+        set_err(kMinorError);
+      } else {
+        segments = LG(buffer);
+        if (sz != 4 + segments * 12) {
+          printf("%s  invalid %slength\n",
+                verbose? ":":fname, verbose? "":"iDOT ");
+          set_err(kMinorError);
+        }
+      }
+      if (verbose && no_err(kMinorError)) {
+        printf(": Parallel segments: %ld\n", segments);
+      }
+      have_iDOT = 1;
       last_is_IDAT = last_is_JDAT = 0;
 
     /*------*
