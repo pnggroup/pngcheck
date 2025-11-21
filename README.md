@@ -18,6 +18,10 @@ It also warns if [`eXIf`](https://w3c.github.io/png/#eXIf) is found after the im
 which will be ignored by web browsers
 and is [no longer valid](https://w3c.github.io/png/#5ChunkOrdering) in PNG Third Edition.
 
+All registered extension chunks are supported,
+including the recently registered (but widespread)
+Apple [`iDOT`](https://w3c.github.io/png/extensions/Overview.html#R.iDOT) chunk.
+
 Sample usage:
 
 ```text
