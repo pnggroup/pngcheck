@@ -53,6 +53,8 @@
  *   acTL fcTL fdAT     // animated PNG
  *
  *   cICP mDCV cLLI                           // PNG 3e
+ * 
+ *   caBX              // PNG 4e
  *
  *   cmOD cmPP cpIp mkBF mkBS mkBT mkTS pcLb	// known private PNG chunks
  *   prVW spAL					// [msOG = ??]
@@ -942,6 +944,7 @@ int pngcheck(FILE *fp, const char *fname, int searching, FILE *fpOut)
   int have_SAVE = 0, have_TERM = 0, have_MAGN = 0, have_pHYg = 0;
   int have_acTL = 0, have_fcTL = 0;
   int have_cICP = 0, have_mDCV = 0, have_cLLI = 0;
+  int have_caBX = 0;
   int have_iDOT = 0;
   int top_level = 1;
 
@@ -3617,7 +3620,21 @@ FIXME: add support for decompressing/printing zTXt
       have_cLLI = 1;
       last_is_IDAT = last_is_JDAT = 0;
 
+    /*------*
+    | caBX |
+    *------*/
+    /* PNG 4th Edition  https://w3c.github.io/png/#caBX */
+    } else if (strcmp(chunkid, "caBX") == 0) {
+      if (!mng && (have_IDAT || have_JDAT)) {
+        printf("%s  %smust precede %cDAT\n",
+               verbose? ":":fname, verbose? "":"caBX ", have_IDAT? 'I':'J');
+        set_err(kMinorError);
+      } else if (verbose) {
+          printf("\n    Content Credentials\n");
+      }
 
+      have_caBX = 1;
+      last_is_IDAT = last_is_JDAT = 0; 
 
     /*------*
     | cLLi |

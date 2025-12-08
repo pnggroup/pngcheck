@@ -296,3 +296,4 @@
  * 20250708 RT:  Added CI workflows and Windows Makefiles (MSVC and MinGW) for GitHub
                  Actions on Linux, macOS, and Windows.
  * 20251114 CL: Added iDOT support
+ * 20251208 CL: Added (minimal) caBX support for PNG 4th Edition

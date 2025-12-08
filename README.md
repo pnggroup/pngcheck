@@ -1,4 +1,4 @@
-# pngcheck 4.0.0
+# pngcheck 4.0.1
 
 pngcheck is a command-line utility to check PNG image files,
 including animated PNG, for validity
@@ -7,12 +7,16 @@ and to give information about metadata inside the file
 
 This version was derived from pngcheck 3.0.3
 (see [3.0.3 README](./README-303)) and adds the following new
-features from [PNG Third Edition](https://w3c.github.io/png/):
+features from [PNG Third Edition](https://www.w3.org/TR/png-3/):
 
 - Coding Independent Code Points [`cICP`](https://w3c.github.io/png/#cICP-chunk)
 - Mastering Display Color Volume [`mDCV`](https://w3c.github.io/png/#mDCV-chunk)
 - Content Light Level Information [`cLLI`](https://w3c.github.io/png/#cLLI-chunk)
 - Animated PNG [`acTL`](https://w3c.github.io/png/#acTL-chunk), [`fcTL`](https://w3c.github.io/png/#fcTL-chunk) and [`fdAT`](https://w3c.github.io/png/#fdAT-chunk)
+
+It adds the following new features from [PNG Fourth Edition](https://w3c.github.io/png/):
+
+- Content Credentials [`caBX`](https://w3c.github.io/png/#caBX)
 
 It also warns if [`eXIf`](https://w3c.github.io/png/#eXIf) is found after the image data [`IDAT`](https://w3c.github.io/png/#11IDAT),
 which will be ignored by web browsers
