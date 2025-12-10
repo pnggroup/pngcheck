@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14...4.0)
 project(pngcheck
-        VERSION 4.0.0
+        VERSION 4.0.1
         DESCRIPTION "PNG file checker"
         HOMEPAGE_URL "http://www.libpng.org/pub/png/apps/pngcheck.html"
         LANGUAGES C
