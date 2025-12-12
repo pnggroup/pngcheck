@@ -1,7 +1,6 @@
 name: build-makefile
 on:
   push:
-    branches: [ main ]
   pull_request:
   workflow_dispatch:
 
@@ -22,7 +21,7 @@ jobs:
       - name: Set matrix outputs
         id: set-matrix
         run: |
-          echo "matrix=$(jq -c '.' matrix-makefile.json)" >> $GITHUB_OUTPUT
+          echo "matrix=$(jq -c '.' .github/workflows/matrix-makefile.json)" >> $GITHUB_OUTPUT
 
   build-makefile:
     name: ${{ matrix.name }}-makefile
