@@ -1,0 +1,22 @@
+[
+  {
+    "runner": "ubuntu-latest",
+    "os": "ubuntu",
+    "name": "ubuntu"
+  },
+  {
+    "runner": "macos-latest",
+    "os": "macos",
+    "name": "macos"
+  },
+  {
+    "runner": "windows-latest",
+    "os": "windows",
+    "name": "windows-msvc"
+  },
+  {
+    "runner": "windows-latest",
+    "os": "windows-msys2",
+    "name": "windows-gcc"
+  }
+]
