@@ -126,7 +126,7 @@
 #  endif
 #endif
 
-#if defined(unix) || (defined(__MWERKS__) && defined(macintosh))  /* pxm */
+#if defined(unix) || defined(__NetBSD__) || (defined(__MWERKS__) && defined(macintosh))  /* pxm */
 #  include <unistd.h>	/* isatty() */
 #endif
 #if defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
